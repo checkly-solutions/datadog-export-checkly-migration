@@ -1,0 +1,20 @@
+{
+  "name": "datadog-export-checkly-migration",
+  "version": "1.0.0",
+  "description": "Export Datadog synthetics and global variables for migration to Checkly",
+  "type": "module",
+  "main": "src/export.js",
+  "scripts": {
+    "export": "node src/export.js"
+  },
+  "keywords": [
+    "datadog",
+    "checkly",
+    "synthetics",
+    "migration"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

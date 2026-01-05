@@ -1,3 +1,5 @@
+.claude
+
 # Logs
 logs
 *.log
@@ -69,6 +71,9 @@ web_modules/
 .env
 .env.*
 !.env.example
+
+# Datadog export output
+exports/
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
