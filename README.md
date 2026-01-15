@@ -265,37 +265,65 @@ npx checkly deploy
 | `npm run generate:browser-specs` | Generate Playwright spec files from browser tests |
 | `npm run generate:browser-checks` | Generate BrowserCheck construct files |
 | `npm run migrate:browser` | Full browser pipeline: specs + constructs |
+| `npm run convert:variables` | Convert global variables to Checkly format |
 
 ### Output Structure
 
-After running the full migration:
+After running the full migration, checks are separated by location type (public vs private):
 
 ```
 exports/
 ├── api-tests.json              # Single-step API tests (after filtering)
-├── multi-step-tests.json       # Multi-step tests (require separate handling)
+├── multi-step-tests.json       # Multi-step tests
 ├── checkly-api-checks.json     # Intermediate Checkly config
-├── browser-tests.json          # Browser tests (separate migration)
+├── browser-tests.json          # Browser tests
 ├── global-variables.json       # Environment variables
 └── private-locations.json      # Private location configs
 
 checkly-migrated/
 ├── __checks__/
-│   └── api/
-│       ├── index.ts                    # Index file importing all checks
-│       ├── sports-portal-score-api.check.ts  # Named by Datadog synthetic name
-│       └── ...
-└── tests/
-    └── (browser tests would go here)
+│   ├── api/
+│   │   ├── public/             # Checks using public locations only
+│   │   │   ├── index.ts
+│   │   │   └── *.check.ts
+│   │   └── private/            # Checks using private locations
+│   │       ├── index.ts
+│   │       └── *.check.ts
+│   ├── multi/
+│   │   ├── public/
+│   │   └── private/
+│   └── browser/
+│       ├── public/
+│       └── private/
+├── tests/
+│   ├── multi/
+│   │   ├── public/
+│   │   │   ├── _manifest.json
+│   │   │   └── *.spec.ts
+│   │   └── private/
+│   │       ├── _manifest.json
+│   │       └── *.spec.ts
+│   └── browser/
+│       ├── public/
+│       └── private/
+└── variables/
+    ├── env-variables.json
+    ├── secrets.json
+    ├── create-variables.sh
+    └── delete-variables.sh
 ```
+
+**Location separation logic:**
+- Tests with **any private location** (`pl:*`) → `private/` folder
+- Tests with **only public locations** → `public/` folder
 
 ### Handling Private Locations
 
-Datadog private locations (prefixed with `pl:`) are extracted separately. After migration:
+Datadog private locations (prefixed with `pl:`) are extracted to separate folders. After migration:
 
 1. Create corresponding `PrivateLocation` constructs in Checkly
-2. Update the generated check files to reference your Checkly private locations
-3. Or use Checkly's public locations as alternatives
+2. The `private/` folders contain checks that reference these locations
+3. Map the Datadog location IDs to your Checkly private location slugs
 
 ### Assertion Mapping
 
@@ -405,7 +433,7 @@ new MultiStepCheck("ubf-2nq-wvf", {
   name: "SPORTS - NBC Sports Group - ScheduALL - API",
   tags: ["sltier:GOLD", "bu:SPORTS", "env:PROD"],
   code: {
-    entrypoint: "../../tests/multi/sports-nbc-sports-group-scheduall-api.spec.ts",
+    entrypoint: "../../../tests/multi/private/sports-nbc-sports-group-scheduall-api.spec.ts",
   },
   frequency: Frequency.EVERY_15M,
   locations: ["us-east-1"],
@@ -430,24 +458,29 @@ This executes `generate:multi-specs` followed by `generate:multi-checks`.
 
 ### Output Structure
 
-After running the full migration (API + Multi-Step):
+After running the full migration, checks are separated by location type:
 
 ```
 checkly-migrated/
 ├── __checks__/
 │   ├── api/
-│   │   ├── index.ts                              # Index file for API checks
-│   │   ├── sports-portal-score-api.check.ts      # ApiCheck constructs
-│   │   └── ...
+│   │   ├── public/                                # Public location checks
+│   │   └── private/                               # Private location checks
 │   └── multi/
-│       ├── index.ts                              # Index file for multi-step checks
-│       ├── sports-nbc-sports-group-scheduall-api.check.ts  # MultiStepCheck constructs
-│       └── ...
+│       ├── public/                                # Public location checks
+│       │   ├── index.ts
+│       │   └── *.check.ts
+│       └── private/                               # Private location checks
+│           ├── index.ts
+│           └── *.check.ts
 └── tests/
     └── multi/
-        ├── _manifest.json                        # Manifest of generated spec files
-        ├── sports-nbc-sports-group-scheduall-api.spec.ts   # Playwright spec files
-        └── ...
+        ├── public/
+        │   ├── _manifest.json
+        │   └── *.spec.ts
+        └── private/
+            ├── _manifest.json
+            └── *.spec.ts
 ```
 
 ### NPM Scripts Reference (Multi-Step)
@@ -566,7 +599,7 @@ test.describe("My Browser Test", () => {
 npm run generate:browser-checks
 ```
 
-This generates `.check.ts` files in `checkly-migrated/__checks__/browser/`:
+This generates `.check.ts` files in `checkly-migrated/__checks__/browser/{public,private}/`:
 
 ```typescript
 import {
@@ -579,7 +612,7 @@ new BrowserCheck("abc-123-xyz", {
   name: "My Browser Test",
   tags: ["env:PROD", "team:myteam"],
   code: {
-    entrypoint: "../../tests/browser/my-browser-test.spec.ts",
+    entrypoint: "../../../tests/browser/public/my-browser-test.spec.ts",
   },
   frequency: Frequency.EVERY_15M,
   locations: ["us-east-1"],
@@ -647,19 +680,126 @@ Datadog variables (`{{ VAR_NAME }}`) are converted to `${process.env.VAR_NAME}` 
 
 ### Output Structure
 
+Checks are separated by location type (public vs private):
+
 ```
 checkly-migrated/
 ├── __checks__/
 │   └── browser/
-│       ├── index.ts
-│       ├── my-browser-test.check.ts
-│       └── ...
+│       ├── public/                # Public location checks
+│       │   ├── index.ts
+│       │   └── *.check.ts
+│       └── private/               # Private location checks
+│           ├── index.ts
+│           └── *.check.ts
 └── tests/
     └── browser/
-        ├── _manifest.json
-        ├── my-browser-test.spec.ts
-        └── ...
+        ├── public/
+        │   ├── _manifest.json
+        │   └── *.spec.ts
+        └── private/
+            ├── _manifest.json
+            └── *.spec.ts
 ```
+
+---
+
+## Environment Variables Migration
+
+Global variables from Datadog can be converted to Checkly environment variables using the API.
+
+### Convert Variables
+
+```bash
+npm run convert:variables
+```
+
+This creates clean JSON files and shell scripts in `checkly-migrated/variables/`:
+
+```
+checkly-migrated/
+└── variables/
+    ├── env-variables.json      # Non-secure vars with values
+    ├── secrets.json            # Secure vars (need manual values)
+    ├── create-variables.sh     # API script to create vars
+    └── delete-variables.sh     # API script to delete vars
+```
+
+### JSON Format
+
+Both JSON files use a clean format ready for the Checkly API:
+
+```json
+[
+  {
+    "key": "API_BASE_URL",
+    "value": "https://api.example.com",
+    "locked": false
+  }
+]
+```
+
+### Handling Secrets
+
+Datadog **does not export the values of secure variables**. The `secrets.json` file contains empty values that must be filled in manually:
+
+```json
+[
+  {
+    "key": "API_SECRET_KEY",
+    "value": "",        // ← Fill this in manually
+    "locked": true
+  }
+]
+```
+
+Retrieve these values from your secure storage or password manager before running the import.
+
+### Import to Checkly
+
+1. **Add Checkly credentials to `.env`:**
+
+```bash
+# In your .env file (see .env.example)
+CHECKLY_API_KEY=your_checkly_api_key_here
+CHECKLY_ACCOUNT_ID=your_checkly_account_id_here
+```
+
+2. **Fill in secret values** in `checkly-migrated/variables/secrets.json`
+
+3. **Run the create script:**
+
+```bash
+cd checkly-migrated/variables
+chmod +x create-variables.sh
+./create-variables.sh
+```
+
+The script automatically loads credentials from `.env` and creates variables via the Checkly API. Secrets with empty values are skipped.
+
+### Delete Variables
+
+To remove all variables (useful for cleanup or re-import):
+
+```bash
+./delete-variables.sh
+```
+
+This script prompts for confirmation before deleting.
+
+### API Reference
+
+The scripts use the Checkly API:
+- **Create:** `POST https://api.checklyhq.com/v1/variables`
+- **Delete:** `DELETE https://api.checklyhq.com/v1/variables/{key}`
+
+See [Checkly API Docs](https://developers.checklyhq.com/reference/postv1variables) for details.
+
+### NPM Scripts Reference (Variables)
+
+| Script | Description |
+|--------|-------------|
+| `npm run convert:variables` | Convert Datadog global variables to Checkly format |
 
 ---
 
@@ -667,5 +807,6 @@ checkly-migrated/
 
 - Never commit your `.env` file to version control
 - The `exports/` directory is gitignored by default
+- The `checkly-migrated/variables/` directory should also be gitignored (contains sensitive values)
 - Rotate your Datadog API keys after migration is complete
 - Exported global variables may contain sensitive values - handle with care

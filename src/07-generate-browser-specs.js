@@ -12,7 +12,17 @@ import { existsSync } from 'fs';
 import path from 'path';
 
 const INPUT_FILE = './exports/browser-tests.json';
-const OUTPUT_DIR = './checkly-migrated/tests/browser';
+const OUTPUT_BASE = './checkly-migrated/tests/browser';
+const OUTPUT_DIR_PUBLIC = `${OUTPUT_BASE}/public`;
+const OUTPUT_DIR_PRIVATE = `${OUTPUT_BASE}/private`;
+
+/**
+ * Check if a test has private locations
+ */
+function hasPrivateLocations(test) {
+  const locations = test.locations || [];
+  return locations.some(loc => loc.startsWith('pl:'));
+}
 
 /**
  * Sanitize a string to be a valid filename
@@ -401,6 +411,53 @@ test.describe("${testName}", () => {
 }
 
 /**
+ * Generate specs for a list of tests into a directory
+ */
+async function generateSpecsForTests(tests, outputDir, locationType) {
+  let successCount = 0;
+  let errorCount = 0;
+  const generatedFiles = [];
+
+  for (const test of tests) {
+    try {
+      const spec = generateSpecFile(test);
+      const filename = `${sanitizeFilename(test.name)}.spec.ts`;
+      const filepath = path.join(outputDir, filename);
+
+      await writeFile(filepath, spec, 'utf-8');
+      successCount++;
+      generatedFiles.push({
+        logicalId: test.public_id,
+        name: test.name,
+        filename,
+        stepCount: test.steps?.length || 0,
+      });
+    } catch (err) {
+      console.error(`  Error generating ${test.public_id}: ${err.message}`);
+      errorCount++;
+    }
+  }
+
+  // Write manifest for the construct generator
+  if (generatedFiles.length > 0) {
+    const manifest = {
+      generatedAt: new Date().toISOString(),
+      outputDir: outputDir,
+      locationType: locationType,
+      files: generatedFiles,
+    };
+
+    await writeFile(
+      path.join(outputDir, '_manifest.json'),
+      JSON.stringify(manifest, null, 2),
+      'utf-8'
+    );
+  }
+
+  return { successCount, errorCount };
+}
+
+/**
  * Main generation function
  */
 async function main() {
@@ -421,57 +478,37 @@ async function main() {
   const tests = data.tests || [];
   console.log(`Found ${tests.length} browser tests to process`);
 
-  // Create output directory
-  if (!existsSync(OUTPUT_DIR)) {
-    await mkdir(OUTPUT_DIR, { recursive: true });
-    console.log(`Created directory: ${OUTPUT_DIR}`);
+  // Separate by location type
+  const publicTests = tests.filter(t => !hasPrivateLocations(t));
+  const privateTests = tests.filter(t => hasPrivateLocations(t));
+
+  console.log(`  - Public location tests: ${publicTests.length}`);
+  console.log(`  - Private location tests: ${privateTests.length}`);
+
+  // Create output directories
+  if (!existsSync(OUTPUT_DIR_PUBLIC)) {
+    await mkdir(OUTPUT_DIR_PUBLIC, { recursive: true });
   }
-
-  // Generate spec files
-  let successCount = 0;
-  let errorCount = 0;
-  const generatedFiles = [];
-
-  for (const test of tests) {
-    try {
-      const spec = generateSpecFile(test);
-      const filename = `${sanitizeFilename(test.name)}.spec.ts`;
-      const filepath = path.join(OUTPUT_DIR, filename);
-
-      await writeFile(filepath, spec, 'utf-8');
-      successCount++;
-      generatedFiles.push({
-        logicalId: test.public_id,
-        name: test.name,
-        filename,
-        stepCount: test.steps?.length || 0,
-      });
-    } catch (err) {
-      console.error(`  Error generating ${test.public_id}: ${err.message}`);
-      errorCount++;
-    }
+  if (!existsSync(OUTPUT_DIR_PRIVATE)) {
+    await mkdir(OUTPUT_DIR_PRIVATE, { recursive: true });
   }
+  console.log(`\nCreated directories: ${OUTPUT_DIR_PUBLIC}, ${OUTPUT_DIR_PRIVATE}`);
 
-  // Write manifest for the construct generator
-  const manifest = {
-    generatedAt: new Date().toISOString(),
-    outputDir: OUTPUT_DIR,
-    files: generatedFiles,
-  };
+  // Generate specs for public tests
+  console.log('\nGenerating public location specs...');
+  const publicResult = await generateSpecsForTests(publicTests, OUTPUT_DIR_PUBLIC, 'public');
 
-  await writeFile(
-    path.join(OUTPUT_DIR, '_manifest.json'),
-    JSON.stringify(manifest, null, 2),
-    'utf-8'
-  );
+  // Generate specs for private tests
+  console.log('\nGenerating private location specs...');
+  const privateResult = await generateSpecsForTests(privateTests, OUTPUT_DIR_PRIVATE, 'private');
 
   // Summary
   console.log('\n' + '='.repeat(60));
   console.log('Generation Summary');
   console.log('='.repeat(60));
-  console.log(`  Spec files generated: ${successCount}`);
-  console.log(`  Errors: ${errorCount}`);
-  console.log(`  Output directory: ${OUTPUT_DIR}`);
+  console.log(`  Public specs generated: ${publicResult.successCount} → ${OUTPUT_DIR_PUBLIC}`);
+  console.log(`  Private specs generated: ${privateResult.successCount} → ${OUTPUT_DIR_PRIVATE}`);
+  console.log(`  Errors: ${publicResult.errorCount + privateResult.errorCount}`);
 
   console.log('\nNext: Run "npm run generate:browser-checks" to create BrowserCheck constructs');
   console.log('Done!');

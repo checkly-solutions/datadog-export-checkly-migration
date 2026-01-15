@@ -13,7 +13,16 @@ import { existsSync } from 'fs';
 import path from 'path';
 
 const INPUT_FILE = './exports/checkly-api-checks.json';
-const OUTPUT_DIR = './checkly-migrated/__checks__/api';
+const OUTPUT_BASE = './checkly-migrated/__checks__/api';
+const OUTPUT_DIR_PUBLIC = `${OUTPUT_BASE}/public`;
+const OUTPUT_DIR_PRIVATE = `${OUTPUT_BASE}/private`;
+
+/**
+ * Determine if a check uses private locations
+ */
+function hasPrivateLocations(check) {
+  return check.privateLocations && check.privateLocations.length > 0;
+}
 
 /**
  * Sanitize a string to be a valid filename
@@ -251,55 +260,89 @@ async function main() {
   if (errorChecks.length > 0) {
     console.log(`  - Skipping ${errorChecks.length} checks with conversion errors`);
   }
-  console.log(`  - Generating ${validChecks.length} check files`);
 
-  // Create output directory
-  if (!existsSync(OUTPUT_DIR)) {
-    await mkdir(OUTPUT_DIR, { recursive: true });
-    console.log(`\nCreated directory: ${OUTPUT_DIR}`);
+  // Separate by location type
+  const publicChecks = validChecks.filter(c => !hasPrivateLocations(c));
+  const privateChecks = validChecks.filter(c => hasPrivateLocations(c));
+
+  console.log(`  - Public location checks: ${publicChecks.length}`);
+  console.log(`  - Private location checks: ${privateChecks.length}`);
+
+  // Create output directories
+  if (!existsSync(OUTPUT_DIR_PUBLIC)) {
+    await mkdir(OUTPUT_DIR_PUBLIC, { recursive: true });
   }
+  if (!existsSync(OUTPUT_DIR_PRIVATE)) {
+    await mkdir(OUTPUT_DIR_PRIVATE, { recursive: true });
+  }
+  console.log(`\nCreated directories: ${OUTPUT_DIR_PUBLIC}, ${OUTPUT_DIR_PRIVATE}`);
 
   // Generate check files
-  let successCount = 0;
+  let publicSuccess = 0;
+  let privateSuccess = 0;
   let errorCount = 0;
-  const generatedFiles = [];
+  const publicFiles = [];
+  const privateFiles = [];
 
-  for (const check of validChecks) {
+  // Generate public checks
+  for (const check of publicChecks) {
     try {
       const code = generateApiCheckCode(check);
       const filename = `${sanitizeFilename(check.name)}.check.ts`;
-      const filepath = path.join(OUTPUT_DIR, filename);
+      const filepath = path.join(OUTPUT_DIR_PUBLIC, filename);
 
       await writeFile(filepath, code, 'utf-8');
-      successCount++;
-      generatedFiles.push({ name: check.name, filename });
+      publicSuccess++;
+      publicFiles.push({ name: check.name, filename });
     } catch (err) {
       console.error(`  Error generating ${check.logicalId}: ${err.message}`);
       errorCount++;
     }
   }
 
-  // Generate index file
-  const indexCode = generateIndexFile(generatedFiles);
-  await writeFile(path.join(OUTPUT_DIR, 'index.ts'), indexCode, 'utf-8');
+  // Generate private checks
+  for (const check of privateChecks) {
+    try {
+      const code = generateApiCheckCode(check);
+      const filename = `${sanitizeFilename(check.name)}.check.ts`;
+      const filepath = path.join(OUTPUT_DIR_PRIVATE, filename);
+
+      await writeFile(filepath, code, 'utf-8');
+      privateSuccess++;
+      privateFiles.push({ name: check.name, filename });
+    } catch (err) {
+      console.error(`  Error generating ${check.logicalId}: ${err.message}`);
+      errorCount++;
+    }
+  }
+
+  // Generate index files for each directory
+  if (publicFiles.length > 0) {
+    const publicIndexCode = generateIndexFile(publicFiles);
+    await writeFile(path.join(OUTPUT_DIR_PUBLIC, 'index.ts'), publicIndexCode, 'utf-8');
+  }
+
+  if (privateFiles.length > 0) {
+    const privateIndexCode = generateIndexFile(privateFiles);
+    await writeFile(path.join(OUTPUT_DIR_PRIVATE, 'index.ts'), privateIndexCode, 'utf-8');
+  }
 
   // Summary
   console.log('\n' + '='.repeat(60));
   console.log('Generation Summary');
   console.log('='.repeat(60));
-  console.log(`  Files generated: ${successCount}`);
+  console.log(`  Public checks generated: ${publicSuccess} → ${OUTPUT_DIR_PUBLIC}`);
+  console.log(`  Private checks generated: ${privateSuccess} → ${OUTPUT_DIR_PRIVATE}`);
   console.log(`  Errors: ${errorCount}`);
-  console.log(`  Output directory: ${OUTPUT_DIR}`);
 
   if (data.privateLocationsFound?.length > 0) {
     console.log('\n⚠️  Private Locations Found:');
     console.log('   These need to be mapped to Checkly private locations.');
-    console.log('   Create PrivateLocation constructs or update the generated files.');
     data.privateLocationsFound.forEach(loc => console.log(`   - ${loc}`));
   }
 
   console.log('\nNext steps:');
-  console.log('  1. Review generated files in', OUTPUT_DIR);
+  console.log('  1. Review generated files in', OUTPUT_BASE);
   console.log('  2. Create a checkly.config.ts if not present');
   console.log('  3. Map private locations to Checkly PrivateLocation constructs');
   console.log('  4. Run "npx checkly test" to validate');

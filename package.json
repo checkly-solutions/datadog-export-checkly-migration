@@ -15,7 +15,8 @@
     "migrate:multi": "npm run generate:multi-specs && npm run generate:multi-checks",
     "generate:browser-specs": "node src/07-generate-browser-specs.js",
     "generate:browser-checks": "node src/08-generate-browser-constructs.js",
-    "migrate:browser": "npm run generate:browser-specs && npm run generate:browser-checks"
+    "migrate:browser": "npm run generate:browser-specs && npm run generate:browser-checks",
+    "convert:variables": "node src/09-convert-global-variables.js"
   },
   "keywords": [
     "datadog",

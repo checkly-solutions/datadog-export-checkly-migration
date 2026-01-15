@@ -13,9 +13,12 @@ import { existsSync } from 'fs';
 import path from 'path';
 
 const INPUT_FILE = './exports/multi-step-tests.json';
-const MANIFEST_FILE = './checkly-migrated/tests/multi/_manifest.json';
-const OUTPUT_DIR = './checkly-migrated/__checks__/multi';
-const SPECS_RELATIVE_PATH = '../../tests/multi'; // Relative path from __checks__/multi to tests/multi
+const MANIFEST_FILE_PUBLIC = './checkly-migrated/tests/multi/public/_manifest.json';
+const MANIFEST_FILE_PRIVATE = './checkly-migrated/tests/multi/private/_manifest.json';
+const OUTPUT_DIR_PUBLIC = './checkly-migrated/__checks__/multi/public';
+const OUTPUT_DIR_PRIVATE = './checkly-migrated/__checks__/multi/private';
+// Relative path from __checks__/multi/{public,private} to tests/multi/{public,private}
+const SPECS_RELATIVE_PATH = '../../../tests/multi';
 
 // Datadog tick_every (seconds) to Checkly frequency mapping
 const FREQUENCY_MAP = {
@@ -134,7 +137,7 @@ function generateRetryStrategy(ddRetry) {
 /**
  * Generate a MultiStepCheck construct for a test
  */
-function generateMultiStepCheckCode(test, specFilename) {
+function generateMultiStepCheckCode(test, specFilename, locationType) {
   const { public_id, name, tags, options } = test;
   const { locations, privateLocations } = separateLocations(test.locations);
 
@@ -142,6 +145,7 @@ function generateMultiStepCheckCode(test, specFilename) {
   const frequency = convertFrequency(options?.tick_every || 300);
   const retryStrategy = generateRetryStrategy(options?.retry);
   const activated = test.status === 'live';
+  const specsPath = `${SPECS_RELATIVE_PATH}/${locationType}`;
 
   const code = `import {
   Frequency,
@@ -153,7 +157,7 @@ new MultiStepCheck("${logicalId}", {
   name: "${name.replace(/"/g, '\\"')}",
   tags: ${JSON.stringify(tags || [])},
   code: {
-    entrypoint: "${SPECS_RELATIVE_PATH}/${specFilename}",
+    entrypoint: "${specsPath}/${specFilename}",
   },
   frequency: Frequency.${frequency},
   locations: ${JSON.stringify(locations)},${privateLocations.length > 0 ? `\n  privateLocations: ${JSON.stringify(privateLocations)},` : ''}
@@ -188,50 +192,9 @@ ${imports.join('\n')}
 }
 
 /**
- * Main generation function
+ * Generate constructs for a location type
  */
-async function main() {
-  console.log('='.repeat(60));
-  console.log('MultiStepCheck Construct Generator');
-  console.log('='.repeat(60));
-
-  // Check input files exist
-  if (!existsSync(INPUT_FILE)) {
-    console.error(`Error: Input file not found: ${INPUT_FILE}`);
-    console.error('Run "npm run filter-multi" first to separate multi-step tests.');
-    process.exit(1);
-  }
-
-  if (!existsSync(MANIFEST_FILE)) {
-    console.error(`Error: Manifest file not found: ${MANIFEST_FILE}`);
-    console.error('Run "npm run generate:multi-specs" first to generate spec files.');
-    process.exit(1);
-  }
-
-  // Read inputs
-  console.log(`\nReading: ${INPUT_FILE}`);
-  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8'));
-
-  console.log(`Reading: ${MANIFEST_FILE}`);
-  const manifest = JSON.parse(await readFile(MANIFEST_FILE, 'utf-8'));
-
-  // Create a map of public_id to spec filename
-  const specFileMap = new Map();
-  for (const file of manifest.files) {
-    specFileMap.set(file.logicalId, file.filename);
-  }
-
-  const tests = data.tests || [];
-  console.log(`Found ${tests.length} multi-step tests`);
-  console.log(`Found ${manifest.files.length} generated spec files`);
-
-  // Create output directory
-  if (!existsSync(OUTPUT_DIR)) {
-    await mkdir(OUTPUT_DIR, { recursive: true });
-    console.log(`Created directory: ${OUTPUT_DIR}`);
-  }
-
-  // Generate construct files
+async function generateConstructsForLocationType(tests, specFileMap, outputDir, locationType) {
   let successCount = 0;
   let errorCount = 0;
   let skippedCount = 0;
@@ -241,15 +204,14 @@ async function main() {
     const specFilename = specFileMap.get(test.public_id);
 
     if (!specFilename) {
-      console.log(`  Skipping ${test.public_id}: no spec file found`);
       skippedCount++;
       continue;
     }
 
     try {
-      const code = generateMultiStepCheckCode(test, specFilename);
+      const code = generateMultiStepCheckCode(test, specFilename, locationType);
       const filename = `${sanitizeFilename(test.name)}.check.ts`;
-      const filepath = path.join(OUTPUT_DIR, filename);
+      const filepath = path.join(outputDir, filename);
 
       await writeFile(filepath, code, 'utf-8');
       successCount++;
@@ -264,9 +226,96 @@ async function main() {
     }
   }
 
-  // Generate index file
-  const indexCode = generateIndexFile(generatedFiles);
-  await writeFile(path.join(OUTPUT_DIR, 'index.ts'), indexCode, 'utf-8');
+  // Generate index file if there are files
+  if (generatedFiles.length > 0) {
+    const indexCode = generateIndexFile(generatedFiles);
+    await writeFile(path.join(outputDir, 'index.ts'), indexCode, 'utf-8');
+  }
+
+  return { successCount, errorCount, skippedCount };
+}
+
+/**
+ * Main generation function
+ */
+async function main() {
+  console.log('='.repeat(60));
+  console.log('MultiStepCheck Construct Generator');
+  console.log('='.repeat(60));
+
+  // Check input file exists
+  if (!existsSync(INPUT_FILE)) {
+    console.error(`Error: Input file not found: ${INPUT_FILE}`);
+    console.error('Run "npm run filter-multi" first to separate multi-step tests.');
+    process.exit(1);
+  }
+
+  // Read test data
+  console.log(`\nReading: ${INPUT_FILE}`);
+  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8'));
+  const tests = data.tests || [];
+  console.log(`Found ${tests.length} multi-step tests`);
+
+  // Create output directories
+  if (!existsSync(OUTPUT_DIR_PUBLIC)) {
+    await mkdir(OUTPUT_DIR_PUBLIC, { recursive: true });
+  }
+  if (!existsSync(OUTPUT_DIR_PRIVATE)) {
+    await mkdir(OUTPUT_DIR_PRIVATE, { recursive: true });
+  }
+
+  let publicSuccess = 0, publicSkipped = 0, publicErrors = 0;
+  let privateSuccess = 0, privateSkipped = 0, privateErrors = 0;
+
+  // Process public manifest
+  if (existsSync(MANIFEST_FILE_PUBLIC)) {
+    console.log(`\nReading: ${MANIFEST_FILE_PUBLIC}`);
+    const publicManifest = JSON.parse(await readFile(MANIFEST_FILE_PUBLIC, 'utf-8'));
+
+    const publicSpecMap = new Map();
+    for (const file of publicManifest.files) {
+      publicSpecMap.set(file.logicalId, file.filename);
+    }
+    console.log(`Found ${publicManifest.files.length} public spec files`);
+
+    // Filter tests that have specs in the public manifest
+    const publicTests = tests.filter(t => publicSpecMap.has(t.public_id));
+
+    console.log('\nGenerating public constructs...');
+    const publicResult = await generateConstructsForLocationType(
+      publicTests, publicSpecMap, OUTPUT_DIR_PUBLIC, 'public'
+    );
+    publicSuccess = publicResult.successCount;
+    publicSkipped = publicResult.skippedCount;
+    publicErrors = publicResult.errorCount;
+  } else {
+    console.log(`\nNo public manifest found at ${MANIFEST_FILE_PUBLIC}`);
+  }
+
+  // Process private manifest
+  if (existsSync(MANIFEST_FILE_PRIVATE)) {
+    console.log(`\nReading: ${MANIFEST_FILE_PRIVATE}`);
+    const privateManifest = JSON.parse(await readFile(MANIFEST_FILE_PRIVATE, 'utf-8'));
+
+    const privateSpecMap = new Map();
+    for (const file of privateManifest.files) {
+      privateSpecMap.set(file.logicalId, file.filename);
+    }
+    console.log(`Found ${privateManifest.files.length} private spec files`);
+
+    // Filter tests that have specs in the private manifest
+    const privateTests = tests.filter(t => privateSpecMap.has(t.public_id));
+
+    console.log('\nGenerating private constructs...');
+    const privateResult = await generateConstructsForLocationType(
+      privateTests, privateSpecMap, OUTPUT_DIR_PRIVATE, 'private'
+    );
+    privateSuccess = privateResult.successCount;
+    privateSkipped = privateResult.skippedCount;
+    privateErrors = privateResult.errorCount;
+  } else {
+    console.log(`\nNo private manifest found at ${MANIFEST_FILE_PRIVATE}`);
+  }
 
   // Collect private locations for summary
   const allPrivateLocations = [...new Set(
@@ -277,10 +326,10 @@ async function main() {
   console.log('\n' + '='.repeat(60));
   console.log('Generation Summary');
   console.log('='.repeat(60));
-  console.log(`  Check files generated: ${successCount}`);
-  console.log(`  Skipped (no spec): ${skippedCount}`);
-  console.log(`  Errors: ${errorCount}`);
-  console.log(`  Output directory: ${OUTPUT_DIR}`);
+  console.log(`  Public checks generated: ${publicSuccess} → ${OUTPUT_DIR_PUBLIC}`);
+  console.log(`  Private checks generated: ${privateSuccess} → ${OUTPUT_DIR_PRIVATE}`);
+  console.log(`  Skipped (no spec): ${publicSkipped + privateSkipped}`);
+  console.log(`  Errors: ${publicErrors + privateErrors}`);
 
   if (allPrivateLocations.length > 0) {
     console.log('\nPrivate locations found (need mapping in Checkly):');
@@ -288,7 +337,7 @@ async function main() {
   }
 
   console.log('\nNext steps:');
-  console.log('  1. Review generated files in', OUTPUT_DIR);
+  console.log('  1. Review generated files');
   console.log('  2. Map private locations to Checkly PrivateLocation constructs');
   console.log('  3. Run "npx checkly test" to validate');
   console.log('  4. Run "npx checkly deploy" to deploy');

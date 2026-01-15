@@ -13,7 +13,17 @@ import { existsSync } from 'fs';
 import path from 'path';
 
 const INPUT_FILE = './exports/multi-step-tests.json';
-const OUTPUT_DIR = './checkly-migrated/tests/multi';
+const OUTPUT_BASE = './checkly-migrated/tests/multi';
+const OUTPUT_DIR_PUBLIC = `${OUTPUT_BASE}/public`;
+const OUTPUT_DIR_PRIVATE = `${OUTPUT_BASE}/private`;
+
+/**
+ * Check if a test has private locations
+ */
+function hasPrivateLocations(test) {
+  const locations = test.locations || [];
+  return locations.some(loc => loc.startsWith('pl:'));
+}
 
 /**
  * Sanitize a string to be a valid filename
@@ -272,33 +282,9 @@ test.describe("${describeName}", () => {
 }
 
 /**
- * Main generation function
+ * Generate specs for a list of tests into a directory
  */
-async function main() {
-  console.log('='.repeat(60));
-  console.log('Multi-Step Playwright Spec Generator');
-  console.log('='.repeat(60));
-
-  // Check input file exists
-  if (!existsSync(INPUT_FILE)) {
-    console.error(`Error: Input file not found: ${INPUT_FILE}`);
-    console.error('Run "npm run filter-multi" first to separate multi-step tests.');
-    process.exit(1);
-  }
-
-  console.log(`\nReading: ${INPUT_FILE}`);
-  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8'));
-
-  const tests = data.tests || [];
-  console.log(`Found ${tests.length} multi-step tests to process`);
-
-  // Create output directory
-  if (!existsSync(OUTPUT_DIR)) {
-    await mkdir(OUTPUT_DIR, { recursive: true });
-    console.log(`Created directory: ${OUTPUT_DIR}`);
-  }
-
-  // Generate spec files
+async function generateSpecsForTests(tests, outputDir, label) {
   let successCount = 0;
   let errorCount = 0;
   let skippedCount = 0;
@@ -322,7 +308,7 @@ async function main() {
     try {
       const spec = generateSpecFile(test);
       const filename = `${sanitizeFilename(test.name)}.spec.ts`;
-      const filepath = path.join(OUTPUT_DIR, filename);
+      const filepath = path.join(outputDir, filename);
 
       await writeFile(filepath, spec, 'utf-8');
       successCount++;
@@ -339,31 +325,85 @@ async function main() {
   }
 
   // Write manifest for the construct generator
-  const manifest = {
-    generatedAt: new Date().toISOString(),
-    outputDir: OUTPUT_DIR,
-    files: generatedFiles,
-    skipped: skippedTests,
-  };
+  if (generatedFiles.length > 0 || skippedTests.length > 0) {
+    const manifest = {
+      generatedAt: new Date().toISOString(),
+      outputDir: outputDir,
+      locationType: label,
+      files: generatedFiles,
+      skipped: skippedTests,
+    };
 
-  await writeFile(
-    path.join(OUTPUT_DIR, '_manifest.json'),
-    JSON.stringify(manifest, null, 2),
-    'utf-8'
-  );
+    await writeFile(
+      path.join(outputDir, '_manifest.json'),
+      JSON.stringify(manifest, null, 2),
+      'utf-8'
+    );
+  }
+
+  return { successCount, errorCount, skippedCount, skippedTests };
+}
+
+/**
+ * Main generation function
+ */
+async function main() {
+  console.log('='.repeat(60));
+  console.log('Multi-Step Playwright Spec Generator');
+  console.log('='.repeat(60));
+
+  // Check input file exists
+  if (!existsSync(INPUT_FILE)) {
+    console.error(`Error: Input file not found: ${INPUT_FILE}`);
+    console.error('Run "npm run filter-multi" first to separate multi-step tests.');
+    process.exit(1);
+  }
+
+  console.log(`\nReading: ${INPUT_FILE}`);
+  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8'));
+
+  const tests = data.tests || [];
+  console.log(`Found ${tests.length} multi-step tests to process`);
+
+  // Separate by location type
+  const publicTests = tests.filter(t => !hasPrivateLocations(t));
+  const privateTests = tests.filter(t => hasPrivateLocations(t));
+
+  console.log(`  - Public location tests: ${publicTests.length}`);
+  console.log(`  - Private location tests: ${privateTests.length}`);
+
+  // Create output directories
+  if (!existsSync(OUTPUT_DIR_PUBLIC)) {
+    await mkdir(OUTPUT_DIR_PUBLIC, { recursive: true });
+  }
+  if (!existsSync(OUTPUT_DIR_PRIVATE)) {
+    await mkdir(OUTPUT_DIR_PRIVATE, { recursive: true });
+  }
+  console.log(`\nCreated directories: ${OUTPUT_DIR_PUBLIC}, ${OUTPUT_DIR_PRIVATE}`);
+
+  // Generate specs for public tests
+  console.log('\nGenerating public location specs...');
+  const publicResult = await generateSpecsForTests(publicTests, OUTPUT_DIR_PUBLIC, 'public');
+
+  // Generate specs for private tests
+  console.log('\nGenerating private location specs...');
+  const privateResult = await generateSpecsForTests(privateTests, OUTPUT_DIR_PRIVATE, 'private');
+
+  // Combine skipped tests for summary
+  const allSkipped = [...publicResult.skippedTests, ...privateResult.skippedTests];
 
   // Summary
   console.log('\n' + '='.repeat(60));
   console.log('Generation Summary');
   console.log('='.repeat(60));
-  console.log(`  Spec files generated: ${successCount}`);
-  console.log(`  Skipped (non-HTTP steps): ${skippedCount}`);
-  console.log(`  Errors: ${errorCount}`);
-  console.log(`  Output directory: ${OUTPUT_DIR}`);
+  console.log(`  Public specs generated: ${publicResult.successCount} → ${OUTPUT_DIR_PUBLIC}`);
+  console.log(`  Private specs generated: ${privateResult.successCount} → ${OUTPUT_DIR_PRIVATE}`);
+  console.log(`  Skipped (non-HTTP steps): ${publicResult.skippedCount + privateResult.skippedCount}`);
+  console.log(`  Errors: ${publicResult.errorCount + privateResult.errorCount}`);
 
-  if (skippedTests.length > 0) {
+  if (allSkipped.length > 0) {
     console.log('\nSkipped tests (contain TCP/ICMP/DNS/wait steps):');
-    skippedTests.forEach(t => {
+    allSkipped.forEach(t => {
       console.log(`  - ${t.name} (${t.incompatibleSubtypes.join(', ')})`);
     });
     console.log('\nThese tests require manual conversion or alternative Checkly check types.');

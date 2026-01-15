@@ -82,10 +82,14 @@ If an API has subtype: multi in Datadog we should convert to a Multi Step API ch
 - `src/05-generate-multi-step-specs.js` - Converts Datadog steps to Playwright API test code
 - `src/06-generate-multi-step-constructs.js` - Generates MultiStepCheck constructs with Datadog metadata
 
-**Output Locations:**
-- API checks: `checkly-migrated/__checks__/api/`
-- Multi-step checks: `checkly-migrated/__checks__/multi/`
-- Playwright specs: `checkly-migrated/tests/multi/`
+**Output Locations (separated by public/private locations):**
+- API checks: `checkly-migrated/__checks__/api/{public,private}/`
+- Multi-step checks: `checkly-migrated/__checks__/multi/{public,private}/`
+- Playwright specs: `checkly-migrated/tests/multi/{public,private}/`
+
+**Location Separation Logic:**
+- Tests with ANY private location (`pl:*`) → `private/` folder
+- Tests with ONLY public locations → `public/` folder
 
 **File Naming Convention:**
 - Filenames are based on the Datadog synthetic `name` (e.g., `sports-portal-score-api.check.ts`)
@@ -140,9 +144,9 @@ Again we mainly want repeatable logic that can help us migrate multiple customer
 - `src/07-generate-browser-specs.js` - Converts Datadog browser steps to Playwright test code
 - `src/08-generate-browser-constructs.js` - Generates BrowserCheck constructs with Datadog metadata
 
-**Output Locations:**
-- Browser checks: `checkly-migrated/__checks__/browser/`
-- Playwright specs: `checkly-migrated/tests/browser/`
+**Output Locations (separated by public/private locations):**
+- Browser checks: `checkly-migrated/__checks__/browser/{public,private}/`
+- Playwright specs: `checkly-migrated/tests/browser/{public,private}/`
 
 **Attribute Mappings (Datadog → Checkly BrowserCheck):**
 - `public_id` → `logicalId` (construct ID)
@@ -189,3 +193,33 @@ Again we mainly want repeatable logic that can help us migrate multiple customer
 - Private locations (`pl:*`) - Need to be mapped to Checkly PrivateLocation constructs
 - Complex assertions with regex patterns may need manual refinement
 - `runApiTest` embedded API calls - May need additional assertion logic
+
+### Environment Variables Migration
+
+**Implemented Pipeline:**
+
+1. `npm run convert:variables` - Converts Datadog global variables to Checkly format
+
+**Key Files:**
+- `src/09-convert-global-variables.js` - Converts variables and generates import/delete scripts
+
+**Output Location:**
+- `checkly-migrated/variables/`
+
+**Output Files:**
+- `env-variables.json` - Non-secure variables with values (clean array of `{key, value, locked}`)
+- `secrets.json` - Secure variables without values (need manual entry)
+- `create-variables.sh` - Shell script to create vars via Checkly API
+- `delete-variables.sh` - Shell script to delete vars via Checkly API
+
+**Attribute Mappings (Datadog → Checkly):**
+- `name` → `key`
+- `value.value` → `value`
+- `value.secure: true` → `locked: true` (and empty value - Datadog doesn't export secure values)
+- `value.secure: false` → `locked: false`
+
+**Important Notes:**
+- Datadog does NOT export values for secure variables
+- Secret values must be obtained from secure storage and filled in manually
+- The shell scripts require `jq` to be installed
+- Variables/secrets exist outside version control (sensitive data)
