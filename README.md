@@ -8,10 +8,10 @@ This tool automates the migration of Datadog synthetics to Checkly:
 
 | Datadog | Checkly | Guide |
 |---------|---------|-------|
-| API Tests (single-step) | `ApiCheck` | [migration_api.md](docs/migration_api.md) |
-| API Tests (multi-step) | `MultiStepCheck` | [migration_multi.md](docs/migration_multi.md) |
-| Browser Tests | `BrowserCheck` | [migration_browser.md](docs/migration_browser.md) |
-| Global Variables | Environment Variables | [migration_env.md](docs/migration_env.md) |
+| API Tests (single-step) | `ApiCheck` | [migration_api.md](migration_readmes/migration_api.md) |
+| API Tests (multi-step) | `MultiStepCheck` | [migration_multi.md](migration_readmes/migration_multi.md) |
+| Browser Tests | `BrowserCheck` | [migration_browser.md](migration_readmes/migration_browser.md) |
+| Global Variables | Environment Variables | [migration_env.md](migration_readmes/migration_env.md) |
 
 ## Quick Start
 
@@ -156,10 +156,10 @@ Verify synthetics exist in Datadog under **UX Monitoring** → **Synthetic Tests
 
 ## Documentation
 
-- [API Check Migration](docs/migration_api.md)
-- [Multi-Step Check Migration](docs/migration_multi.md)
-- [Browser Check Migration](docs/migration_browser.md)
-- [Environment Variables Migration](docs/migration_env.md)
+- [API Check Migration](migration_readmes/migration_api.md)
+- [Multi-Step Check Migration](migration_readmes/migration_multi.md)
+- [Browser Check Migration](migration_readmes/migration_browser.md)
+- [Environment Variables Migration](migration_readmes/migration_env.md)
 
 ## License
 
