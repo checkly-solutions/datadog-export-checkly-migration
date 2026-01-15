@@ -127,3 +127,65 @@ Skipped tests are recorded in `_manifest.json` under the `skipped` array with th
 - Non-HTTP tests - Need manual conversion using TcpMonitor, DnsMonitor, or custom solutions
 
 Again we mainly want repeatable logic that can help us migrate multiple customers over to Checkly, not one off solutions.
+
+### Browser Test Migration
+
+**Implemented Pipeline:**
+
+1. `npm run generate:browser-specs` - Generates Playwright `.spec.ts` files from browser tests
+2. `npm run generate:browser-checks` - Generates `BrowserCheck` constructs referencing the spec files
+3. `npm run migrate:browser` - Runs steps 1-2 in sequence
+
+**Key Files:**
+- `src/07-generate-browser-specs.js` - Converts Datadog browser steps to Playwright test code
+- `src/08-generate-browser-constructs.js` - Generates BrowserCheck constructs with Datadog metadata
+
+**Output Locations:**
+- Browser checks: `checkly-migrated/__checks__/browser/`
+- Playwright specs: `checkly-migrated/tests/browser/`
+
+**Attribute Mappings (Datadog → Checkly BrowserCheck):**
+- `public_id` → `logicalId` (construct ID)
+- `name` → `name`
+- `tags` → `tags`
+- `options.tick_every` → `frequency`
+- `options.retry` → `retryStrategy`
+- `locations` → `locations` (public) + `privateLocations` (pl:* prefixed)
+- `status: "live"` → `activated: true`
+
+**Step Mappings (Datadog → Playwright):**
+
+| Datadog Step Type | Playwright Equivalent |
+|-------------------|----------------------|
+| `goToUrl` | `page.goto()` |
+| `typeText` | `locator.fill()` |
+| `click` | `locator.click()` |
+| `hover` | `locator.hover()` |
+| `pressKey` | `page.keyboard.press()` |
+| `selectOption` | `locator.selectOption()` |
+| `wait` | `page.waitForTimeout()` |
+| `refresh` | `page.reload()` |
+| `scroll` | `page.evaluate(() => window.scrollBy())` |
+| `assertElementPresent` | `expect(locator).toBeVisible()` |
+| `assertElementContent` | `expect(locator).toContainText()` |
+| `assertPageContains` | `expect(page.locator("body")).toContainText()` |
+| `assertCurrentUrl` | `expect(page).toHaveURL()` |
+| `runApiTest` | `page.request.get/post()` |
+
+**Element Locator Extraction Priority:**
+1. ID attribute (`#elementId`)
+2. data-testid attribute (`[data-testid="value"]`)
+3. name attribute (`[name="value"]`)
+4. Text content (`page.getByText()`)
+5. CSS class (`.className`)
+6. XPath (fallback)
+
+**Variable Conversion:**
+- Datadog: `{{ VARIABLE_NAME }}`
+- Checkly: `${process.env.VARIABLE_NAME}`
+
+**Manual Review Required:**
+- Element locators may need adjustment if Datadog's multiLocator data is incomplete
+- Private locations (`pl:*`) - Need to be mapped to Checkly PrivateLocation constructs
+- Complex assertions with regex patterns may need manual refinement
+- `runApiTest` embedded API calls - May need additional assertion logic

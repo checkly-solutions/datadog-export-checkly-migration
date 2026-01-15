@@ -12,7 +12,10 @@
     "migrate:api": "npm run convert:api && npm run generate:checkly",
     "generate:multi-specs": "node src/05-generate-multi-step-specs.js",
     "generate:multi-checks": "node src/06-generate-multi-step-constructs.js",
-    "migrate:multi": "npm run generate:multi-specs && npm run generate:multi-checks"
+    "migrate:multi": "npm run generate:multi-specs && npm run generate:multi-checks",
+    "generate:browser-specs": "node src/07-generate-browser-specs.js",
+    "generate:browser-checks": "node src/08-generate-browser-constructs.js",
+    "migrate:browser": "npm run generate:browser-specs && npm run generate:browser-checks"
   },
   "keywords": [
     "datadog",
