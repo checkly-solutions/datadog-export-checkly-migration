@@ -3,9 +3,16 @@
   "version": "1.0.0",
   "description": "Export Datadog synthetics and global variables for migration to Checkly",
   "type": "module",
-  "main": "src/export.js",
+  "main": "src/01-initial-datadog-export.js",
   "scripts": {
-    "export": "node src/export.js"
+    "export": "node src/01-initial-datadog-export.js",
+    "convert:api": "node src/02-convert-datadog-api-to-json.js",
+    "filter-multi": "node src/03-filter-multi-step-from-json.js",
+    "generate:checkly": "node src/04-generate-api-check-constructs-from-json.js",
+    "migrate:api": "npm run convert:api && npm run generate:checkly",
+    "generate:multi-specs": "node src/05-generate-multi-step-specs.js",
+    "generate:multi-checks": "node src/06-generate-multi-step-constructs.js",
+    "migrate:multi": "npm run generate:multi-specs && npm run generate:multi-checks"
   },
   "keywords": [
     "datadog",
@@ -16,5 +23,8 @@
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3"
   }
 }

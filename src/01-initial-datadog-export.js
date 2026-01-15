@@ -14,6 +14,7 @@
  *                          datadoghq.eu, ap1.datadoghq.com, ddog-gov.com
  */
 
+import 'dotenv/config';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
