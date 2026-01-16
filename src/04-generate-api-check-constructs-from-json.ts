@@ -389,9 +389,9 @@ async function main(): Promise<void> {
   console.log(`\nReading: ${INPUT_FILE}`);
 
   if (!existsSync(INPUT_FILE)) {
-    console.error(`Error: Input file not found: ${INPUT_FILE}`);
-    console.error('Run "npm run convert:api" first to generate the intermediate JSON.');
-    process.exit(1);
+    console.log(`\nSkipping: Input file not found: ${INPUT_FILE}`);
+    console.log('No API checks to generate. Run "npm run convert:api" first if you have API tests.');
+    return;
   }
 
   const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8')) as {

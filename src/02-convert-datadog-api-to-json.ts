@@ -10,6 +10,7 @@
  */
 
 import { readFile, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
 import path from 'path';
 import { FREQUENCY_MAP, convertFrequency } from './shared/utils.ts';
 
@@ -286,6 +287,13 @@ async function main(): Promise<void> {
   console.log('='.repeat(60));
   console.log('Datadog to Checkly API Check Converter');
   console.log('='.repeat(60));
+
+  // Check input file exists
+  if (!existsSync(INPUT_FILE)) {
+    console.log(`\nSkipping: Input file not found: ${INPUT_FILE}`);
+    console.log('No API tests to convert. Run "npm run export" first if you have API tests.');
+    return;
+  }
 
   console.log(`\nReading: ${INPUT_FILE}`);
   const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8')) as {

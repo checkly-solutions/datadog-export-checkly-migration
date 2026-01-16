@@ -7,6 +7,7 @@
  */
 
 import { readFile, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
 import path from 'path';
 
 const EXPORTS_DIR = './exports';
@@ -28,6 +29,15 @@ interface ExportData {
 }
 
 async function main(): Promise<void> {
+  console.log('Filtering multi-step tests from API tests...');
+
+  // Check input file exists
+  if (!existsSync(API_TESTS_FILE)) {
+    console.log(`\nSkipping: Input file not found: ${API_TESTS_FILE}`);
+    console.log('No API tests to filter. Run "npm run export" first if you have API tests.');
+    return;
+  }
+
   console.log('Reading api-tests.json...');
   const data = JSON.parse(await readFile(API_TESTS_FILE, 'utf-8')) as ExportData;
 

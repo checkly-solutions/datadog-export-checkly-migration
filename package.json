@@ -17,7 +17,8 @@
     "generate:browser-checks": "ts-node src/08-generate-browser-constructs.ts",
     "migrate:browser": "npm run generate:browser-specs && npm run generate:browser-checks",
     "convert:variables": "ts-node src/09-convert-global-variables.ts",
-    "add:defaults": "ts-node src/10-add-default-resources.ts"
+    "add:defaults": "ts-node src/10-add-default-resources.ts",
+    "migrate:all": "npm run export && npm run filter-multi && npm run migrate:api && npm run migrate:multi && npm run migrate:browser && npm run convert:variables && npm run add:defaults"
   },
   "keywords": [
     "datadog",

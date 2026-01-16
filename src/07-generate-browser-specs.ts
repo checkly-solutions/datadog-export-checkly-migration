@@ -497,9 +497,9 @@ async function main(): Promise<void> {
 
   // Check input file exists
   if (!existsSync(INPUT_FILE)) {
-    console.error(`Error: Input file not found: ${INPUT_FILE}`);
-    console.error('Run "npm run export" first to export browser tests.');
-    process.exit(1);
+    console.log(`\nSkipping: Input file not found: ${INPUT_FILE}`);
+    console.log('No browser tests to process. Run "npm run export" first if you have browser tests.');
+    return;
   }
 
   console.log(`\nReading: ${INPUT_FILE}`);

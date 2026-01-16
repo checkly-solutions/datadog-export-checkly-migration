@@ -197,9 +197,9 @@ async function main(): Promise<void> {
   console.log('='.repeat(60));
 
   if (!existsSync(CHECKS_BASE)) {
-    console.error(`Error: Checks directory not found: ${CHECKS_BASE}`);
-    console.error('Run the migration scripts first to generate checks.');
-    process.exit(1);
+    console.log(`\nSkipping: Checks directory not found: ${CHECKS_BASE}`);
+    console.log('No checks to update. Run the migration scripts first if you have checks to migrate.');
+    return;
   }
 
   let totalProcessed = 0;
