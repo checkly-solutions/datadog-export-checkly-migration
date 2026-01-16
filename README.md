@@ -21,18 +21,23 @@ This tool automates the migration of Datadog synthetics to Checkly:
 npm install
 ```
 
-### 2. Configure Datadog Credentials
+### 2. Configure Credentials
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your Datadog API credentials:
+Edit `.env` with your credentials:
 
 ```bash
-DD_API_KEY=your_api_key
-DD_APP_KEY=your_application_key
+# Datadog (required for export)
+DD_API_KEY=your_datadog_api_key
+DD_APP_KEY=your_datadog_application_key
 DD_SITE=datadoghq.com  # or your region
+
+# Checkly (required for create:variables / delete:variables)
+CHECKLY_API_KEY=your_checkly_api_key
+CHECKLY_ACCOUNT_ID=your_checkly_account_id
 ```
 
 ### 3. Export from Datadog
@@ -42,6 +47,16 @@ npm run export
 ```
 
 ### 4. Run Migrations
+
+**Option A: Run everything at once**
+
+```bash
+npm run migrate:all
+```
+
+This runs all migration steps in order: export → filter-multi → migrate:api → migrate:multi → migrate:browser → convert:variables → add:defaults
+
+**Option B: Run individual steps**
 
 ```bash
 # Migrate API checks
@@ -54,9 +69,14 @@ npm run migrate:multi
 # Migrate browser checks
 npm run migrate:browser
 
-# Migrate environment variables
+# Convert environment variables (generates JSON + TypeScript API scripts)
 npm run convert:variables
+
+# Create variables in Checkly via API (requires CHECKLY_API_KEY)
+npm run create:variables
 ```
+
+> **Note:** Scripts handle missing input files gracefully. If you don't have browser tests, `migrate:browser` will skip instead of failing.
 
 ### 5. Configure Default Resources (Optional)
 
@@ -117,13 +137,17 @@ All generated files are separated by location type (public vs private):
 ```
 checkly-migrated/
 ├── __checks__/
-│   ├── api/{public,private}/
-│   ├── multi/{public,private}/
-│   └── browser/{public,private}/
+│   ├── api/{public,private}/      # ApiCheck constructs
+│   ├── multi/{public,private}/    # MultiStepCheck constructs
+│   └── browser/{public,private}/  # BrowserCheck constructs
 ├── tests/
-│   ├── multi/{public,private}/
-│   └── browser/{public,private}/
+│   ├── multi/{public,private}/    # Playwright specs for multi-step
+│   └── browser/{public,private}/  # Playwright specs for browser
 └── variables/
+    ├── env-variables.json         # Non-secure variables with values
+    ├── secrets.json               # Secure variables (fill in values manually)
+    ├── create-variables.ts        # Script to create vars via Checkly API
+    └── delete-variables.ts        # Script to delete vars via Checkly API
 ```
 
 ## Default Resources
@@ -183,12 +207,15 @@ Create an Application Key with these scopes:
 
 | Script | Description |
 |--------|-------------|
+| `npm run migrate:all` | **Run full migration pipeline** (export through add:defaults) |
 | `npm run export` | Export all synthetics from Datadog |
 | `npm run filter-multi` | Separate multi-step from single-step API tests |
 | `npm run migrate:api` | Convert single-step API tests to ApiCheck |
 | `npm run migrate:multi` | Convert multi-step tests to MultiStepCheck |
 | `npm run migrate:browser` | Convert browser tests to BrowserCheck |
 | `npm run convert:variables` | Convert global variables to Checkly format |
+| `npm run create:variables` | Create variables in Checkly via API + append to .env |
+| `npm run delete:variables` | Delete variables from Checkly via API + remove from .env |
 | `npm run add:defaults` | Add alert channels and groups to all checks |
 
 ## Export Output
@@ -243,8 +270,9 @@ Verify synthetics exist in Datadog under **UX Monitoring** → **Synthetic Tests
 
 - Never commit `.env` to version control
 - `exports/` and `checkly-migrated/` are gitignored
-- Secret values are not exported from Datadog (fill manually)
-- Rotate API keys after migration
+- Secret values are not exported from Datadog (fill in `secrets.json` manually)
+- Rotate Datadog and Checkly API keys after migration
+- The `create:variables` script appends variables to your local `.env` file
 
 ## Documentation
 
