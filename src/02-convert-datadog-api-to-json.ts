@@ -16,8 +16,111 @@ const EXPORTS_DIR = './exports';
 const INPUT_FILE = path.join(EXPORTS_DIR, 'api-tests.json');
 const OUTPUT_FILE = path.join(EXPORTS_DIR, 'checkly-api-checks.json');
 
+interface DatadogAssertion {
+  type: string;
+  operator: string;
+  target?: string | number;
+  property?: string;
+  targetjsonpath?: {
+    jsonpath: string;
+    operator: string;
+    targetvalue: string | number;
+  };
+}
+
+interface DatadogRetry {
+  count?: number;
+  interval?: number;
+}
+
+interface DatadogTest {
+  public_id: string;
+  name: string;
+  type: string;
+  subtype?: string;
+  status?: string;
+  tags?: string[];
+  locations?: string[];
+  config?: {
+    request?: {
+      url?: string;
+      method?: string;
+      headers?: Record<string, string>;
+      body?: string;
+      basicAuth?: {
+        username?: string;
+        password?: string;
+      };
+      query?: Record<string, string>;
+    };
+    assertions?: DatadogAssertion[];
+  };
+  options?: {
+    tick_every?: number;
+    retry?: DatadogRetry;
+  };
+  message?: string;
+  monitor_id?: number;
+  created_at?: string;
+  modified_at?: string;
+  creator?: Record<string, unknown>;
+}
+
+interface ChecklyAssertion {
+  source: string;
+  comparison: string;
+  target?: string | number;
+  property?: string;
+}
+
+interface ChecklyRetryStrategy {
+  type: string;
+  baseBackoffSeconds?: number;
+  maxRetries?: number;
+  maxDurationSeconds?: number;
+  sameRegion?: boolean;
+}
+
+interface ChecklyCheck {
+  logicalId: string;
+  name: string;
+  tags: string[];
+  request: {
+    url: string;
+    method: string;
+    headers?: Record<string, string>;
+    body?: string;
+    basicAuth?: {
+      username: string;
+      password: string;
+    };
+    queryParameters?: Record<string, string>;
+  };
+  assertions: ChecklyAssertion[];
+  frequency: string;
+  degradedResponseTime: number;
+  maxResponseTime: number;
+  locations: string[];
+  privateLocations: string[];
+  retryStrategy: ChecklyRetryStrategy;
+  activated: boolean;
+  muted: boolean;
+  shouldFail: boolean;
+  _datadogMeta: {
+    publicId: string;
+    monitorId?: number;
+    createdAt?: string;
+    modifiedAt?: string;
+    creator?: Record<string, unknown>;
+    message?: string;
+    subtype?: string;
+  };
+  _conversionError?: string;
+  _originalTest?: DatadogTest;
+}
+
 // Datadog operator to Checkly comparison mapping
-const OPERATOR_MAP = {
+const OPERATOR_MAP: Record<string, string> = {
   is: 'EQUALS',
   isNot: 'NOT_EQUALS',
   lessThan: 'LESS_THAN',
@@ -37,7 +140,7 @@ const OPERATOR_MAP = {
 };
 
 // Datadog assertion type to Checkly source mapping
-const ASSERTION_SOURCE_MAP = {
+const ASSERTION_SOURCE_MAP: Record<string, string> = {
   statusCode: 'STATUS_CODE',
   responseTime: 'RESPONSE_TIME',
   body: 'TEXT_BODY',
@@ -46,7 +149,7 @@ const ASSERTION_SOURCE_MAP = {
 };
 
 // Datadog tick_every (seconds) to Checkly frequency mapping
-const FREQUENCY_MAP = {
+const FREQUENCY_MAP: Record<number, string> = {
   60: 'EVERY_1M',
   120: 'EVERY_2M',
   300: 'EVERY_5M',
@@ -55,14 +158,14 @@ const FREQUENCY_MAP = {
   1800: 'EVERY_30M',
   3600: 'EVERY_1H',
   7200: 'EVERY_2H',
-  14400: 'EVERY_4H',
+  14400: 'EVERY_6H', // Checkly doesn't have EVERY_4H, using closest
   21600: 'EVERY_6H',
   43200: 'EVERY_12H',
   86400: 'EVERY_24H',
 };
 
 // Common Datadog to Checkly location mapping
-const LOCATION_MAP = {
+const LOCATION_MAP: Record<string, string> = {
   'aws:us-east-1': 'us-east-1',
   'aws:us-east-2': 'us-east-2',
   'aws:us-west-1': 'us-west-1',
@@ -84,10 +187,10 @@ const LOCATION_MAP = {
 /**
  * Convert a Datadog assertion to Checkly assertion format
  */
-function convertAssertion(ddAssertion) {
+function convertAssertion(ddAssertion: DatadogAssertion): ChecklyAssertion {
   const { type, operator, target, property } = ddAssertion;
 
-  const assertion = {
+  const assertion: ChecklyAssertion = {
     source: ASSERTION_SOURCE_MAP[type] || type.toUpperCase(),
     comparison: OPERATOR_MAP[operator] || operator.toUpperCase(),
     target: target,
@@ -112,7 +215,7 @@ function convertAssertion(ddAssertion) {
 /**
  * Convert Datadog retry config to Checkly retry strategy
  */
-function convertRetryStrategy(ddRetry) {
+function convertRetryStrategy(ddRetry?: DatadogRetry): ChecklyRetryStrategy {
   if (!ddRetry || ddRetry.count === 0) {
     return {
       type: 'NONE',
@@ -134,9 +237,9 @@ function convertRetryStrategy(ddRetry) {
 /**
  * Separate locations into public and private
  */
-function separateLocations(ddLocations) {
-  const locations = [];
-  const privateLocations = [];
+function separateLocations(ddLocations?: string[]): { locations: string[]; privateLocations: string[] } {
+  const locations: string[] = [];
+  const privateLocations: string[] = [];
 
   for (const loc of ddLocations || []) {
     if (loc.startsWith('pl:')) {
@@ -160,27 +263,28 @@ function separateLocations(ddLocations) {
 /**
  * Map Datadog tick_every to Checkly frequency
  */
-function convertFrequency(tickEvery) {
+function convertFrequency(tickEvery?: number): string {
+  const tick = tickEvery || 300;
   // Find closest frequency
   const frequencies = Object.keys(FREQUENCY_MAP).map(Number).sort((a, b) => a - b);
 
   for (const freq of frequencies) {
-    if (tickEvery <= freq) {
+    if (tick <= freq) {
       return FREQUENCY_MAP[freq];
     }
   }
 
   // Default to closest available
-  return FREQUENCY_MAP[tickEvery] || 'EVERY_10M';
+  return FREQUENCY_MAP[tick] || 'EVERY_10M';
 }
 
 /**
  * Convert a single Datadog API test to Checkly config
  */
-function convertTest(ddTest) {
+function convertTest(ddTest: DatadogTest): ChecklyCheck {
   const { locations, privateLocations } = separateLocations(ddTest.locations);
 
-  const config = {
+  const config: ChecklyCheck = {
     // Identity
     logicalId: ddTest.public_id,
     name: ddTest.name,
@@ -196,7 +300,7 @@ function convertTest(ddTest) {
     assertions: (ddTest.config?.assertions || []).map(convertAssertion),
 
     // Timing
-    frequency: convertFrequency(ddTest.options?.tick_every || 300),
+    frequency: convertFrequency(ddTest.options?.tick_every),
 
     // Response time thresholds (reasonable defaults for API checks)
     // These are independent of responseTime assertions which are converted separately
@@ -253,13 +357,17 @@ function convertTest(ddTest) {
 /**
  * Main conversion function
  */
-async function main() {
+async function main(): Promise<void> {
   console.log('='.repeat(60));
   console.log('Datadog to Checkly API Check Converter');
   console.log('='.repeat(60));
 
   console.log(`\nReading: ${INPUT_FILE}`);
-  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8'));
+  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8')) as {
+    exportedAt: string;
+    site: string;
+    tests: DatadogTest[];
+  };
 
   console.log(`Found ${data.tests.length} API tests to convert`);
 
@@ -273,17 +381,17 @@ async function main() {
   console.log(`  - Converting ${singleStepTests.length} single-step API tests`);
 
   // Convert each test
-  const convertedChecks = singleStepTests.map(test => {
+  const convertedChecks: ChecklyCheck[] = singleStepTests.map(test => {
     try {
       return convertTest(test);
     } catch (err) {
-      console.error(`  Error converting ${test.public_id}: ${err.message}`);
+      console.error(`  Error converting ${test.public_id}: ${(err as Error).message}`);
       return {
         logicalId: test.public_id,
         name: test.name,
-        _conversionError: err.message,
+        _conversionError: (err as Error).message,
         _originalTest: test,
-      };
+      } as ChecklyCheck;
     }
   });
 
@@ -333,6 +441,6 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error('Error:', err.message);
+  console.error('Error:', (err as Error).message);
   process.exit(1);
 });

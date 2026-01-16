@@ -16,10 +16,75 @@ const OUTPUT_BASE = './checkly-migrated/tests/browser';
 const OUTPUT_DIR_PUBLIC = `${OUTPUT_BASE}/public`;
 const OUTPUT_DIR_PRIVATE = `${OUTPUT_BASE}/private`;
 
+interface ElementLocator {
+  targetOuterHTML?: string;
+  multiLocator?: {
+    ro?: string;
+    co?: string;
+    cl?: string;
+    at?: string;
+    ab?: string;
+  };
+}
+
+interface BrowserStep {
+  type: string;
+  name?: string;
+  allowFailure?: boolean;
+  params?: {
+    value?: string;
+    element?: ElementLocator;
+    check?: string;
+    x?: number;
+    y?: number;
+    request?: {
+      config?: {
+        request?: {
+          method?: string;
+          url?: string;
+        };
+      };
+    };
+  };
+}
+
+interface BrowserTest {
+  public_id: string;
+  name: string;
+  locations?: string[];
+  status?: string;
+  tags?: string[];
+  steps?: BrowserStep[];
+  options?: {
+    tick_every?: number;
+    retry?: {
+      count?: number;
+      interval?: number;
+    };
+  };
+}
+
+interface Locator {
+  type: string;
+  value: string;
+}
+
+interface GeneratedFile {
+  logicalId: string;
+  name: string;
+  filename: string;
+  stepCount: number;
+}
+
+interface GenerationResult {
+  successCount: number;
+  errorCount: number;
+}
+
 /**
  * Check if a test has private locations
  */
-function hasPrivateLocations(test) {
+function hasPrivateLocations(test: BrowserTest): boolean {
   const locations = test.locations || [];
   return locations.some(loc => loc.startsWith('pl:'));
 }
@@ -27,7 +92,7 @@ function hasPrivateLocations(test) {
 /**
  * Sanitize a string to be a valid filename
  */
-function sanitizeFilename(str) {
+function sanitizeFilename(str: string): string {
   return str
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -38,7 +103,7 @@ function sanitizeFilename(str) {
 /**
  * Escape a string for use in a template literal
  */
-function escapeTemplateLiteral(str) {
+function escapeTemplateLiteral(str: string): string {
   if (!str) return '';
   return str
     .replace(/\\/g, '\\\\')
@@ -49,7 +114,7 @@ function escapeTemplateLiteral(str) {
 /**
  * Escape a string for use in a regular string
  */
-function escapeString(str) {
+function escapeString(str: string): string {
   if (!str) return '';
   return str
     .replace(/\\/g, '\\\\')
@@ -62,7 +127,7 @@ function escapeString(str) {
 /**
  * Convert Datadog variable syntax {{ VAR }} to process.env.VAR
  */
-function convertVariables(str) {
+function convertVariables(str: string): string {
   if (!str) return str;
   return str.replace(/\{\{\s*(\w+)\s*\}\}/g, '${process.env.$1}');
 }
@@ -71,7 +136,7 @@ function convertVariables(str) {
  * Extract the best locator from element data
  * Priority: ID > data-testid > name > text > CSS class > XPath
  */
-function extractLocator(element) {
+function extractLocator(element?: ElementLocator): Locator | null {
   if (!element) return null;
 
   const targetHtml = element.targetOuterHTML || '';
@@ -118,7 +183,7 @@ function extractLocator(element) {
   // Try co (content-based) - JSON array with text info
   if (multiLocator.co) {
     try {
-      const content = JSON.parse(multiLocator.co);
+      const content = JSON.parse(multiLocator.co) as Array<{ text?: string }>;
       if (content[0]?.text) {
         return { type: 'text', value: content[0].text };
       }
@@ -152,7 +217,7 @@ function extractLocator(element) {
 /**
  * Generate Playwright locator code from extracted locator
  */
-function generateLocatorCode(locator) {
+function generateLocatorCode(locator: Locator | null): string {
   if (!locator) return 'page.locator("/* MANUAL: locator not found */")';
 
   switch (locator.type) {
@@ -173,7 +238,7 @@ function generateLocatorCode(locator) {
 /**
  * Generate code for a goToUrl step
  */
-function generateGoToUrl(step) {
+function generateGoToUrl(step: BrowserStep): string {
   const url = convertVariables(step.params?.value || '');
   return `  await page.goto(\`${escapeTemplateLiteral(url)}\`);`;
 }
@@ -181,7 +246,7 @@ function generateGoToUrl(step) {
 /**
  * Generate code for a typeText step
  */
-function generateTypeText(step) {
+function generateTypeText(step: BrowserStep): string {
   const value = convertVariables(step.params?.value || '');
   const locator = extractLocator(step.params?.element);
   const locatorCode = generateLocatorCode(locator);
@@ -191,7 +256,7 @@ function generateTypeText(step) {
 /**
  * Generate code for a click step
  */
-function generateClick(step) {
+function generateClick(step: BrowserStep): string {
   const locator = extractLocator(step.params?.element);
   const locatorCode = generateLocatorCode(locator);
   return `  await ${locatorCode}.click();`;
@@ -200,7 +265,7 @@ function generateClick(step) {
 /**
  * Generate code for a hover step
  */
-function generateHover(step) {
+function generateHover(step: BrowserStep): string {
   const locator = extractLocator(step.params?.element);
   const locatorCode = generateLocatorCode(locator);
   return `  await ${locatorCode}.hover();`;
@@ -209,7 +274,7 @@ function generateHover(step) {
 /**
  * Generate code for a pressKey step
  */
-function generatePressKey(step) {
+function generatePressKey(step: BrowserStep): string {
   const key = step.params?.value || 'Enter';
   return `  await page.keyboard.press("${escapeString(key)}");`;
 }
@@ -217,7 +282,7 @@ function generatePressKey(step) {
 /**
  * Generate code for a selectOption step
  */
-function generateSelectOption(step) {
+function generateSelectOption(step: BrowserStep): string {
   const value = convertVariables(step.params?.value || '');
   const locator = extractLocator(step.params?.element);
   const locatorCode = generateLocatorCode(locator);
@@ -227,22 +292,22 @@ function generateSelectOption(step) {
 /**
  * Generate code for a wait step
  */
-function generateWait(step) {
-  const ms = parseInt(step.params?.value, 10) || 1000;
+function generateWait(step: BrowserStep): string {
+  const ms = parseInt(step.params?.value || '1000', 10) || 1000;
   return `  await page.waitForTimeout(${ms});`;
 }
 
 /**
  * Generate code for a refresh step
  */
-function generateRefresh(step) {
+function generateRefresh(step: BrowserStep): string {
   return `  await page.reload();`;
 }
 
 /**
  * Generate code for a scroll step
  */
-function generateScroll(step) {
+function generateScroll(step: BrowserStep): string {
   const x = step.params?.x || 0;
   const y = step.params?.y || 0;
   return `  await page.evaluate(() => window.scrollBy(${x}, ${y}));`;
@@ -251,7 +316,7 @@ function generateScroll(step) {
 /**
  * Generate code for assertElementPresent step
  */
-function generateAssertElementPresent(step) {
+function generateAssertElementPresent(step: BrowserStep): string {
   const locator = extractLocator(step.params?.element);
   const locatorCode = generateLocatorCode(locator);
   const expectFn = step.allowFailure ? 'expect.soft' : 'expect';
@@ -261,7 +326,7 @@ function generateAssertElementPresent(step) {
 /**
  * Generate code for assertElementContent step
  */
-function generateAssertElementContent(step) {
+function generateAssertElementContent(step: BrowserStep): string {
   const value = step.params?.value || '';
   const check = step.params?.check || 'contains';
   const locator = extractLocator(step.params?.element);
@@ -285,7 +350,7 @@ function generateAssertElementContent(step) {
 /**
  * Generate code for assertPageContains step
  */
-function generateAssertPageContains(step) {
+function generateAssertPageContains(step: BrowserStep): string {
   const value = step.params?.value || '';
   const expectFn = step.allowFailure ? 'expect.soft' : 'expect';
   return `  await ${expectFn}(page.locator("body")).toContainText("${escapeString(value)}");`;
@@ -294,7 +359,7 @@ function generateAssertPageContains(step) {
 /**
  * Generate code for assertCurrentUrl step
  */
-function generateAssertCurrentUrl(step) {
+function generateAssertCurrentUrl(step: BrowserStep): string {
   const value = step.params?.value || '';
   const check = step.params?.check || 'contains';
   const expectFn = step.allowFailure ? 'expect.soft' : 'expect';
@@ -314,7 +379,7 @@ function generateAssertCurrentUrl(step) {
 /**
  * Generate code for runApiTest step (embedded API call in browser test)
  */
-function generateRunApiTest(step) {
+function generateRunApiTest(step: BrowserStep): string {
   const request = step.params?.request?.config?.request || {};
   const method = (request.method || 'GET').toLowerCase();
   const url = request.url || '';
@@ -327,10 +392,10 @@ function generateRunApiTest(step) {
 /**
  * Generate code for a single step
  */
-function generateStepCode(step, stepIndex) {
+function generateStepCode(step: BrowserStep, stepIndex: number): string {
   const stepComment = `  // Step ${stepIndex + 1}: ${step.name || step.type}`;
 
-  let stepCode;
+  let stepCode: string;
   switch (step.type) {
     case 'goToUrl':
       stepCode = generateGoToUrl(step);
@@ -384,7 +449,7 @@ function generateStepCode(step, stepIndex) {
 /**
  * Generate a complete spec file for a browser test
  */
-function generateSpecFile(test) {
+function generateSpecFile(test: BrowserTest): string {
   const { name, steps } = test;
   const testName = escapeString(name);
 
@@ -396,8 +461,8 @@ test.describe("${testName}", () => {
 
   // Generate code for each step
   for (let i = 0; i < (steps || []).length; i++) {
-    spec += generateStepCode(steps[i], i);
-    if (i < steps.length - 1) {
+    spec += generateStepCode(steps![i], i);
+    if (i < steps!.length - 1) {
       spec += '\n\n';
     }
   }
@@ -413,10 +478,14 @@ test.describe("${testName}", () => {
 /**
  * Generate specs for a list of tests into a directory
  */
-async function generateSpecsForTests(tests, outputDir, locationType) {
+async function generateSpecsForTests(
+  tests: BrowserTest[],
+  outputDir: string,
+  locationType: string
+): Promise<GenerationResult> {
   let successCount = 0;
   let errorCount = 0;
-  const generatedFiles = [];
+  const generatedFiles: GeneratedFile[] = [];
 
   for (const test of tests) {
     try {
@@ -433,7 +502,7 @@ async function generateSpecsForTests(tests, outputDir, locationType) {
         stepCount: test.steps?.length || 0,
       });
     } catch (err) {
-      console.error(`  Error generating ${test.public_id}: ${err.message}`);
+      console.error(`  Error generating ${test.public_id}: ${(err as Error).message}`);
       errorCount++;
     }
   }
@@ -460,7 +529,7 @@ async function generateSpecsForTests(tests, outputDir, locationType) {
 /**
  * Main generation function
  */
-async function main() {
+async function main(): Promise<void> {
   console.log('='.repeat(60));
   console.log('Browser Test Playwright Spec Generator');
   console.log('='.repeat(60));
@@ -473,7 +542,7 @@ async function main() {
   }
 
   console.log(`\nReading: ${INPUT_FILE}`);
-  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8'));
+  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8')) as { tests: BrowserTest[] };
 
   const tests = data.tests || [];
   console.log(`Found ${tests.length} browser tests to process`);
@@ -515,6 +584,6 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error('Error:', err.message);
+  console.error('Error:', (err as Error).message);
   process.exit(1);
 });

@@ -58,7 +58,34 @@ npm run migrate:browser
 npm run convert:variables
 ```
 
-### 5. Deploy to Checkly
+### 5. Configure Default Resources (Optional)
+
+Edit `default_resources/alertChannels.ts` to customize alert channels:
+
+```typescript
+import { EmailAlertChannel, SlackAlertChannel } from "checkly/constructs";
+
+export const emailChannel = new EmailAlertChannel("email-channel-1", {
+  address: "alerts@acme.com",
+});
+
+export const slackChannel = new SlackAlertChannel("slack-channel-1", {
+  url: "https://hooks.slack.com/services/xxx/yyy/zzz",
+});
+
+// Add all channels to this array
+export const alertChannels = [emailChannel, slackChannel];
+```
+
+### 6. Add Default Resources to Checks
+
+```bash
+npm run add:defaults
+```
+
+This adds alert channels and groups to all generated checks.
+
+### 7. Deploy to Checkly
 
 ```bash
 npx checkly test
@@ -80,6 +107,39 @@ checkly-migrated/
 │   └── browser/{public,private}/
 └── variables/
 ```
+
+## Default Resources
+
+The `default_resources/` folder contains shared configurations applied to all checks:
+
+```
+default_resources/
+├── alertChannels.ts    # Alert channel definitions
+└── group.check.ts      # Check group definitions
+```
+
+### Alert Channels
+
+Edit `default_resources/alertChannels.ts` to configure alert channels:
+
+```typescript
+// Add your alert channels and include them in the array
+export const alertChannels = [emailChannel, slackChannel];
+```
+
+Supported channel types:
+- `EmailAlertChannel`
+- `SlackAlertChannel`
+- `WebhookAlertChannel`
+- `OpsgenieAlertChannel`
+- `PagerdutyAlertChannel`
+- `MSTeamsAlertChannel`
+
+### Check Groups
+
+Groups in `default_resources/group.check.ts` organize checks by location type:
+- `public_locations_group` - Checks using Checkly's public locations
+- `private_locations_group` - Checks using private locations
 
 ## Datadog API Setup
 
@@ -111,6 +171,7 @@ Create an Application Key with these scopes:
 | `npm run migrate:multi` | Convert multi-step tests to MultiStepCheck |
 | `npm run migrate:browser` | Convert browser tests to BrowserCheck |
 | `npm run convert:variables` | Convert global variables to Checkly format |
+| `npm run add:defaults` | Add alert channels and groups to all checks |
 
 ## Export Output
 

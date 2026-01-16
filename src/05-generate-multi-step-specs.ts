@@ -17,10 +17,70 @@ const OUTPUT_BASE = './checkly-migrated/tests/multi';
 const OUTPUT_DIR_PUBLIC = `${OUTPUT_BASE}/public`;
 const OUTPUT_DIR_PRIVATE = `${OUTPUT_BASE}/private`;
 
+interface DatadogAssertion {
+  type: string;
+  operator: string;
+  target?: string | number;
+  property?: string;
+}
+
+interface DatadogRequest {
+  method?: string;
+  url?: string;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+interface DatadogStep {
+  name: string;
+  subtype?: string;
+  request: DatadogRequest;
+  assertions: DatadogAssertion[];
+  allowFailure?: boolean;
+}
+
+interface DatadogTest {
+  public_id: string;
+  name: string;
+  locations?: string[];
+  status?: string;
+  tags?: string[];
+  options?: {
+    tick_every?: number;
+    retry?: {
+      count?: number;
+      interval?: number;
+    };
+  };
+  config?: {
+    steps?: DatadogStep[];
+  };
+}
+
+interface GeneratedFile {
+  logicalId: string;
+  name: string;
+  filename: string;
+  stepCount: number;
+}
+
+interface SkippedTest {
+  logicalId: string;
+  name: string;
+  incompatibleSubtypes: string[];
+}
+
+interface GenerationResult {
+  successCount: number;
+  errorCount: number;
+  skippedCount: number;
+  skippedTests: SkippedTest[];
+}
+
 /**
  * Check if a test has private locations
  */
-function hasPrivateLocations(test) {
+function hasPrivateLocations(test: DatadogTest): boolean {
   const locations = test.locations || [];
   return locations.some(loc => loc.startsWith('pl:'));
 }
@@ -28,7 +88,7 @@ function hasPrivateLocations(test) {
 /**
  * Sanitize a string to be a valid filename
  */
-function sanitizeFilename(str) {
+function sanitizeFilename(str: string): string {
   return str
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -39,7 +99,7 @@ function sanitizeFilename(str) {
 /**
  * Sanitize a string to be a valid TypeScript identifier
  */
-function sanitizeIdentifier(str) {
+function sanitizeIdentifier(str: string): string {
   return str
     .replace(/[^a-zA-Z0-9_]/g, '_')
     .replace(/^(\d)/, '_$1')
@@ -50,7 +110,7 @@ function sanitizeIdentifier(str) {
 /**
  * Escape a string for use in a template literal
  */
-function escapeTemplateLiteral(str) {
+function escapeTemplateLiteral(str: string): string {
   if (!str) return '';
   return str
     .replace(/\\/g, '\\\\')
@@ -61,7 +121,7 @@ function escapeTemplateLiteral(str) {
 /**
  * Escape a string for use in a regular string
  */
-function escapeString(str) {
+function escapeString(str: string): string {
   if (!str) return '';
   return str
     .replace(/\\/g, '\\\\')
@@ -74,7 +134,12 @@ function escapeString(str) {
 /**
  * Generate assertion code for a single assertion
  */
-function generateAssertionCode(assertion, responseVar, bodyVar, softPrefix = '') {
+function generateAssertionCode(
+  assertion: DatadogAssertion,
+  responseVar: string,
+  bodyVar: string,
+  softPrefix: string = ''
+): string {
   const { type, operator, target, property } = assertion;
   const expect = softPrefix ? 'expect.soft' : 'expect';
 
@@ -107,7 +172,7 @@ function generateAssertionCode(assertion, responseVar, bodyVar, softPrefix = '')
 /**
  * Generate comparison code based on operator
  */
-function generateComparisonCode(expectExpr, operator, target) {
+function generateComparisonCode(expectExpr: string, operator: string, target?: string | number): string {
   const targetValue = typeof target === 'string' ? `"${escapeString(target)}"` : target;
 
   switch (operator) {
@@ -143,14 +208,14 @@ function generateComparisonCode(expectExpr, operator, target) {
 /**
  * Generate the request call code for a step
  */
-function generateRequestCode(request, stepIndex) {
+function generateRequestCode(request: DatadogRequest, stepIndex: number): { code: string; responseVar: string } {
   const { method, url, headers, body } = request;
   const methodLower = (method || 'GET').toLowerCase();
   const responseVar = `response${stepIndex}`;
 
-  let code = `const ${responseVar} = await request.${methodLower}(\`${escapeTemplateLiteral(url)}\``;
+  let code = `const ${responseVar} = await request.${methodLower}(\`${escapeTemplateLiteral(url || '')}\``;
 
-  const options = [];
+  const options: string[] = [];
 
   // Add headers if present
   if (headers && Object.keys(headers).length > 0) {
@@ -185,7 +250,7 @@ const HTTP_COMPATIBLE_SUBTYPES = ['http', 'ssl'];
 /**
  * Check if a test contains only HTTP-compatible steps
  */
-function hasOnlyHttpSteps(test) {
+function hasOnlyHttpSteps(test: DatadogTest): boolean {
   const steps = test.config?.steps || [];
   for (const step of steps) {
     if (step.subtype && !HTTP_COMPATIBLE_SUBTYPES.includes(step.subtype)) {
@@ -198,9 +263,9 @@ function hasOnlyHttpSteps(test) {
 /**
  * Get incompatible step subtypes in a test
  */
-function getIncompatibleSubtypes(test) {
+function getIncompatibleSubtypes(test: DatadogTest): string[] {
   const steps = test.config?.steps || [];
-  const incompatible = new Set();
+  const incompatible = new Set<string>();
   for (const step of steps) {
     if (step.subtype && !HTTP_COMPATIBLE_SUBTYPES.includes(step.subtype)) {
       incompatible.add(step.subtype);
@@ -212,11 +277,10 @@ function getIncompatibleSubtypes(test) {
 /**
  * Generate a single step's code
  */
-function generateStepCode(step, stepIndex) {
+function generateStepCode(step: DatadogStep, stepIndex: number): string {
   const { name, request, assertions, allowFailure } = step;
   const { code: requestCode, responseVar } = generateRequestCode(request, stepIndex);
   const bodyVar = `body${stepIndex}`;
-  const softPrefix = allowFailure ? '.soft' : '';
 
   // Check if we need to read body (for body assertions)
   const needsBody = assertions.some(a => a.type === 'body');
@@ -253,8 +317,8 @@ function generateStepCode(step, stepIndex) {
 /**
  * Generate a complete spec file for a multi-step test
  */
-function generateSpecFile(test) {
-  const { public_id, name, config } = test;
+function generateSpecFile(test: DatadogTest): string {
+  const { name, config } = test;
   const steps = config?.steps || [];
 
   const testName = escapeString(name);
@@ -284,12 +348,16 @@ test.describe("${describeName}", () => {
 /**
  * Generate specs for a list of tests into a directory
  */
-async function generateSpecsForTests(tests, outputDir, label) {
+async function generateSpecsForTests(
+  tests: DatadogTest[],
+  outputDir: string,
+  label: string
+): Promise<GenerationResult> {
   let successCount = 0;
   let errorCount = 0;
   let skippedCount = 0;
-  const generatedFiles = [];
-  const skippedTests = [];
+  const generatedFiles: GeneratedFile[] = [];
+  const skippedTests: SkippedTest[] = [];
 
   for (const test of tests) {
     // Skip tests with non-HTTP steps (tcp, icmp, dns, wait)
@@ -319,7 +387,7 @@ async function generateSpecsForTests(tests, outputDir, label) {
         stepCount: test.config?.steps?.length || 0,
       });
     } catch (err) {
-      console.error(`  Error generating ${test.public_id}: ${err.message}`);
+      console.error(`  Error generating ${test.public_id}: ${(err as Error).message}`);
       errorCount++;
     }
   }
@@ -347,7 +415,7 @@ async function generateSpecsForTests(tests, outputDir, label) {
 /**
  * Main generation function
  */
-async function main() {
+async function main(): Promise<void> {
   console.log('='.repeat(60));
   console.log('Multi-Step Playwright Spec Generator');
   console.log('='.repeat(60));
@@ -360,7 +428,7 @@ async function main() {
   }
 
   console.log(`\nReading: ${INPUT_FILE}`);
-  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8'));
+  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8')) as { tests: DatadogTest[] };
 
   const tests = data.tests || [];
   console.log(`Found ${tests.length} multi-step tests to process`);
@@ -414,6 +482,6 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error('Error:', err.message);
+  console.error('Error:', (err as Error).message);
   process.exit(1);
 });

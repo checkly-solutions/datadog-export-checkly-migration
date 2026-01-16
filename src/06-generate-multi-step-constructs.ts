@@ -20,8 +20,48 @@ const OUTPUT_DIR_PRIVATE = './checkly-migrated/__checks__/multi/private';
 // Relative path from __checks__/multi/{public,private} to tests/multi/{public,private}
 const SPECS_RELATIVE_PATH = '../../../tests/multi';
 
+interface DatadogTest {
+  public_id: string;
+  name: string;
+  locations?: string[];
+  status?: string;
+  tags?: string[];
+  options?: {
+    tick_every?: number;
+    retry?: {
+      count?: number;
+      interval?: number;
+    };
+  };
+}
+
+interface ManifestFile {
+  logicalId: string;
+  name: string;
+  filename: string;
+}
+
+interface Manifest {
+  generatedAt: string;
+  outputDir: string;
+  locationType: string;
+  files: ManifestFile[];
+}
+
+interface GeneratedFile {
+  logicalId: string;
+  name: string;
+  filename: string;
+}
+
+interface GenerationResult {
+  successCount: number;
+  errorCount: number;
+  skippedCount: number;
+}
+
 // Datadog tick_every (seconds) to Checkly frequency mapping
-const FREQUENCY_MAP = {
+const FREQUENCY_MAP: Record<number, string> = {
   60: 'EVERY_1M',
   120: 'EVERY_2M',
   300: 'EVERY_5M',
@@ -30,14 +70,14 @@ const FREQUENCY_MAP = {
   1800: 'EVERY_30M',
   3600: 'EVERY_1H',
   7200: 'EVERY_2H',
-  14400: 'EVERY_4H',
+  14400: 'EVERY_6H', // Checkly doesn't have EVERY_4H, using closest
   21600: 'EVERY_6H',
   43200: 'EVERY_12H',
   86400: 'EVERY_24H',
 };
 
 // Common Datadog to Checkly location mapping
-const LOCATION_MAP = {
+const LOCATION_MAP: Record<string, string> = {
   'aws:us-east-1': 'us-east-1',
   'aws:us-east-2': 'us-east-2',
   'aws:us-west-1': 'us-west-1',
@@ -59,7 +99,7 @@ const LOCATION_MAP = {
 /**
  * Sanitize a string to be a valid filename
  */
-function sanitizeFilename(str) {
+function sanitizeFilename(str: string): string {
   return str
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -70,7 +110,7 @@ function sanitizeFilename(str) {
 /**
  * Sanitize a string to be a valid TypeScript identifier
  */
-function sanitizeIdentifier(str) {
+function sanitizeIdentifier(str: string): string {
   return str
     .replace(/[^a-zA-Z0-9_]/g, '_')
     .replace(/^(\d)/, '_$1')
@@ -81,24 +121,25 @@ function sanitizeIdentifier(str) {
 /**
  * Map Datadog tick_every to Checkly frequency
  */
-function convertFrequency(tickEvery) {
+function convertFrequency(tickEvery?: number): string {
+  const tick = tickEvery || 300;
   const frequencies = Object.keys(FREQUENCY_MAP).map(Number).sort((a, b) => a - b);
 
   for (const freq of frequencies) {
-    if (tickEvery <= freq) {
+    if (tick <= freq) {
       return FREQUENCY_MAP[freq];
     }
   }
 
-  return FREQUENCY_MAP[tickEvery] || 'EVERY_10M';
+  return FREQUENCY_MAP[tick] || 'EVERY_10M';
 }
 
 /**
  * Separate locations into public and private
  */
-function separateLocations(ddLocations) {
-  const locations = [];
-  const privateLocations = [];
+function separateLocations(ddLocations?: string[]): { locations: string[]; privateLocations: string[] } {
+  const locations: string[] = [];
+  const privateLocations: string[] = [];
 
   for (const loc of ddLocations || []) {
     if (loc.startsWith('pl:')) {
@@ -119,7 +160,7 @@ function separateLocations(ddLocations) {
 /**
  * Generate RetryStrategyBuilder code
  */
-function generateRetryStrategy(ddRetry) {
+function generateRetryStrategy(ddRetry?: { count?: number; interval?: number }): string {
   if (!ddRetry || ddRetry.count === 0) {
     return 'RetryStrategyBuilder.noRetries()';
   }
@@ -137,12 +178,12 @@ function generateRetryStrategy(ddRetry) {
 /**
  * Generate a MultiStepCheck construct for a test
  */
-function generateMultiStepCheckCode(test, specFilename, locationType) {
+function generateMultiStepCheckCode(test: DatadogTest, specFilename: string, locationType: string): string {
   const { public_id, name, tags, options } = test;
   const { locations, privateLocations } = separateLocations(test.locations);
 
   const logicalId = public_id;
-  const frequency = convertFrequency(options?.tick_every || 300);
+  const frequency = convertFrequency(options?.tick_every);
   const retryStrategy = generateRetryStrategy(options?.retry);
   const activated = test.status === 'live';
   const specsPath = `${SPECS_RELATIVE_PATH}/${locationType}`;
@@ -174,7 +215,7 @@ new MultiStepCheck("${logicalId}", {
 /**
  * Generate an index file that imports all checks
  */
-function generateIndexFile(files) {
+function generateIndexFile(files: GeneratedFile[]): string {
   const imports = files.map(f => {
     // Use the already-generated filename (without .ts extension)
     const checkFilename = f.filename.replace('.ts', '');
@@ -194,11 +235,16 @@ ${imports.join('\n')}
 /**
  * Generate constructs for a location type
  */
-async function generateConstructsForLocationType(tests, specFileMap, outputDir, locationType) {
+async function generateConstructsForLocationType(
+  tests: DatadogTest[],
+  specFileMap: Map<string, string>,
+  outputDir: string,
+  locationType: string
+): Promise<GenerationResult> {
   let successCount = 0;
   let errorCount = 0;
   let skippedCount = 0;
-  const generatedFiles = [];
+  const generatedFiles: GeneratedFile[] = [];
 
   for (const test of tests) {
     const specFilename = specFileMap.get(test.public_id);
@@ -221,7 +267,7 @@ async function generateConstructsForLocationType(tests, specFileMap, outputDir, 
         filename,
       });
     } catch (err) {
-      console.error(`  Error generating ${test.public_id}: ${err.message}`);
+      console.error(`  Error generating ${test.public_id}: ${(err as Error).message}`);
       errorCount++;
     }
   }
@@ -238,7 +284,7 @@ async function generateConstructsForLocationType(tests, specFileMap, outputDir, 
 /**
  * Main generation function
  */
-async function main() {
+async function main(): Promise<void> {
   console.log('='.repeat(60));
   console.log('MultiStepCheck Construct Generator');
   console.log('='.repeat(60));
@@ -252,7 +298,7 @@ async function main() {
 
   // Read test data
   console.log(`\nReading: ${INPUT_FILE}`);
-  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8'));
+  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8')) as { tests: DatadogTest[] };
   const tests = data.tests || [];
   console.log(`Found ${tests.length} multi-step tests`);
 
@@ -270,9 +316,9 @@ async function main() {
   // Process public manifest
   if (existsSync(MANIFEST_FILE_PUBLIC)) {
     console.log(`\nReading: ${MANIFEST_FILE_PUBLIC}`);
-    const publicManifest = JSON.parse(await readFile(MANIFEST_FILE_PUBLIC, 'utf-8'));
+    const publicManifest = JSON.parse(await readFile(MANIFEST_FILE_PUBLIC, 'utf-8')) as Manifest;
 
-    const publicSpecMap = new Map();
+    const publicSpecMap = new Map<string, string>();
     for (const file of publicManifest.files) {
       publicSpecMap.set(file.logicalId, file.filename);
     }
@@ -295,9 +341,9 @@ async function main() {
   // Process private manifest
   if (existsSync(MANIFEST_FILE_PRIVATE)) {
     console.log(`\nReading: ${MANIFEST_FILE_PRIVATE}`);
-    const privateManifest = JSON.parse(await readFile(MANIFEST_FILE_PRIVATE, 'utf-8'));
+    const privateManifest = JSON.parse(await readFile(MANIFEST_FILE_PRIVATE, 'utf-8')) as Manifest;
 
-    const privateSpecMap = new Map();
+    const privateSpecMap = new Map<string, string>();
     for (const file of privateManifest.files) {
       privateSpecMap.set(file.logicalId, file.filename);
     }
@@ -346,6 +392,6 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error('Error:', err.message);
+  console.error('Error:', (err as Error).message);
   process.exit(1);
 });

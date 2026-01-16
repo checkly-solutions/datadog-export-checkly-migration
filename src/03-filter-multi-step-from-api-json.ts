@@ -13,9 +13,23 @@ const EXPORTS_DIR = './exports';
 const API_TESTS_FILE = path.join(EXPORTS_DIR, 'api-tests.json');
 const MULTI_STEP_FILE = path.join(EXPORTS_DIR, 'multi-step-tests.json');
 
-async function main() {
+interface DatadogTest {
+  public_id: string;
+  name: string;
+  subtype?: string;
+  [key: string]: unknown;
+}
+
+interface ExportData {
+  exportedAt: string;
+  site: string;
+  count: number;
+  tests: DatadogTest[];
+}
+
+async function main(): Promise<void> {
   console.log('Reading api-tests.json...');
-  const data = JSON.parse(await readFile(API_TESTS_FILE, 'utf-8'));
+  const data = JSON.parse(await readFile(API_TESTS_FILE, 'utf-8')) as ExportData;
 
   const multiStepTests = data.tests.filter(test => test.subtype === 'multi');
   const singleStepTests = data.tests.filter(test => test.subtype !== 'multi');
@@ -25,7 +39,7 @@ async function main() {
   console.log(`Single-step tests: ${singleStepTests.length}`);
 
   // Write multi-step tests to new file
-  const multiStepData = {
+  const multiStepData: ExportData = {
     exportedAt: data.exportedAt,
     site: data.site,
     count: multiStepTests.length,
@@ -36,7 +50,7 @@ async function main() {
   console.log(`\nWritten: ${MULTI_STEP_FILE}`);
 
   // Update api-tests.json with only single-step tests
-  const updatedData = {
+  const updatedData: ExportData = {
     exportedAt: data.exportedAt,
     site: data.site,
     count: singleStepTests.length,
@@ -50,6 +64,6 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error('Error:', err.message);
+  console.error('Error:', (err as Error).message);
   process.exit(1);
 });

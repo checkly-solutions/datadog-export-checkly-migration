@@ -3,20 +3,21 @@
   "version": "1.0.0",
   "description": "Export Datadog synthetics and global variables for migration to Checkly",
   "type": "module",
-  "main": "src/01-initial-datadog-export.js",
+  "main": "src/01-initial-datadog-export.ts",
   "scripts": {
-    "export": "node src/01-initial-datadog-export.js",
-    "convert:api": "node src/02-convert-datadog-api-to-json.js",
-    "filter-multi": "node src/03-filter-multi-step-from-json.js",
-    "generate:checkly": "node src/04-generate-api-check-constructs-from-json.js",
+    "export": "ts-node src/01-initial-datadog-export.ts",
+    "convert:api": "ts-node src/02-convert-datadog-api-to-json.ts",
+    "filter-multi": "ts-node src/03-filter-multi-step-from-api-json.ts",
+    "generate:checkly": "ts-node src/04-generate-api-check-constructs-from-json.ts",
     "migrate:api": "npm run convert:api && npm run generate:checkly",
-    "generate:multi-specs": "node src/05-generate-multi-step-specs.js",
-    "generate:multi-checks": "node src/06-generate-multi-step-constructs.js",
+    "generate:multi-specs": "ts-node src/05-generate-multi-step-specs.ts",
+    "generate:multi-checks": "ts-node src/06-generate-multi-step-constructs.ts",
     "migrate:multi": "npm run generate:multi-specs && npm run generate:multi-checks",
-    "generate:browser-specs": "node src/07-generate-browser-specs.js",
-    "generate:browser-checks": "node src/08-generate-browser-constructs.js",
+    "generate:browser-specs": "ts-node src/07-generate-browser-specs.ts",
+    "generate:browser-checks": "ts-node src/08-generate-browser-constructs.ts",
     "migrate:browser": "npm run generate:browser-specs && npm run generate:browser-checks",
-    "convert:variables": "node src/09-convert-global-variables.js"
+    "convert:variables": "ts-node src/09-convert-global-variables.ts",
+    "add:defaults": "ts-node src/10-add-default-resources.ts"
   },
   "keywords": [
     "datadog",
@@ -29,6 +30,12 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "checkly": "^6.9.10",
     "dotenv": "^17.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   }
 }

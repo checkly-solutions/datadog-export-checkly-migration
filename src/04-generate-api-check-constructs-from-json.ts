@@ -17,17 +17,64 @@ const OUTPUT_BASE = './checkly-migrated/__checks__/api';
 const OUTPUT_DIR_PUBLIC = `${OUTPUT_BASE}/public`;
 const OUTPUT_DIR_PRIVATE = `${OUTPUT_BASE}/private`;
 
+interface ChecklyAssertion {
+  source: string;
+  comparison: string;
+  target?: string | number | Record<string, unknown>;
+  property?: string;
+}
+
+interface ChecklyRetryStrategy {
+  type: string;
+  baseBackoffSeconds?: number;
+  maxRetries?: number;
+  maxDurationSeconds?: number;
+  sameRegion?: boolean;
+}
+
+interface ChecklyCheck {
+  logicalId: string;
+  name: string;
+  tags: string[];
+  request: {
+    url: string;
+    method: string;
+    headers?: Record<string, string>;
+    body?: string;
+    basicAuth?: {
+      username: string;
+      password: string;
+    };
+    queryParameters?: Record<string, string>;
+  };
+  assertions: ChecklyAssertion[];
+  frequency: string;
+  degradedResponseTime: number;
+  maxResponseTime: number;
+  locations: string[];
+  privateLocations: string[];
+  retryStrategy: ChecklyRetryStrategy;
+  activated: boolean;
+  muted: boolean;
+  _conversionError?: string;
+}
+
+interface GeneratedFile {
+  name: string;
+  filename: string;
+}
+
 /**
  * Determine if a check uses private locations
  */
-function hasPrivateLocations(check) {
+function hasPrivateLocations(check: ChecklyCheck): boolean {
   return check.privateLocations && check.privateLocations.length > 0;
 }
 
 /**
  * Sanitize a string to be a valid filename
  */
-function sanitizeFilename(str) {
+function sanitizeFilename(str: string): string {
   return str
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -38,7 +85,7 @@ function sanitizeFilename(str) {
 /**
  * Sanitize a string to be a valid TypeScript identifier
  */
-function sanitizeIdentifier(str) {
+function sanitizeIdentifier(str: string): string {
   return str
     .replace(/[^a-zA-Z0-9_]/g, '_')
     .replace(/^(\d)/, '_$1')
@@ -47,13 +94,34 @@ function sanitizeIdentifier(str) {
 }
 
 /**
- * Generate AssertionBuilder code for an assertion
+ * Check if target is a JSON path object from Datadog conversion
  */
-function generateAssertion(assertion) {
+interface JsonPathTarget {
+  jsonPath: string;
+  operator: string;
+  targetValue: string | number;
+}
+
+function isJsonPathTarget(target: unknown): target is JsonPathTarget {
+  return (
+    typeof target === 'object' &&
+    target !== null &&
+    'jsonPath' in target &&
+    'operator' in target &&
+    'targetValue' in target
+  );
+}
+
+/**
+ * Generate AssertionBuilder code for an assertion
+ * Returns null for unsupported assertion types
+ */
+function generateAssertion(assertion: ChecklyAssertion): string | null {
   const { source, comparison, target, property } = assertion;
 
   // Map source to AssertionBuilder method
-  const sourceMethodMap = {
+  // Only sources supported by Checkly's AssertionBuilder
+  const sourceMethodMap: Record<string, string> = {
     STATUS_CODE: 'statusCode',
     RESPONSE_TIME: 'responseTime',
     JSON_BODY: 'jsonBody',
@@ -61,14 +129,31 @@ function generateAssertion(assertion) {
     HEADERS: 'headers',
   };
 
+  // Unsupported Datadog assertion sources that have no Checkly equivalent
+  // These are typically from SSL and TCP checks
+  const unsupportedSources = [
+    'CERTIFICATE',
+    'TLSVERSION',
+    'CONNECTION',
+    'GRPC_HEALTHCHECK_STATUS',
+    'GRPC_METADATA',
+    'GRPC_PROTO',
+  ];
+
+  // Skip unsupported assertion sources with a comment
+  if (unsupportedSources.includes(source)) {
+    return null; // Will be filtered out and replaced with a comment
+  }
+
   // Map comparison to AssertionBuilder comparison method
-  const comparisonMethodMap = {
+  // Note: Checkly doesn't have lessThanOrEqual/greaterThanOrEqual, so we map to closest
+  const comparisonMethodMap: Record<string, string> = {
     EQUALS: 'equals',
     NOT_EQUALS: 'notEquals',
     LESS_THAN: 'lessThan',
-    LESS_THAN_OR_EQUAL: 'lessThanOrEqual',
+    LESS_THAN_OR_EQUAL: 'lessThan', // Checkly doesn't have lessThanOrEqual
     GREATER_THAN: 'greaterThan',
-    GREATER_THAN_OR_EQUAL: 'greaterThanOrEqual',
+    GREATER_THAN_OR_EQUAL: 'greaterThan', // Checkly doesn't have greaterThanOrEqual
     CONTAINS: 'contains',
     NOT_CONTAINS: 'notContains',
     MATCHES: 'matches',
@@ -77,6 +162,31 @@ function generateAssertion(assertion) {
     IS_NOT_EMPTY: 'isNotEmpty',
     IS_NULL: 'isNull',
   };
+
+  // Numeric comparison methods that require number arguments
+  const numericComparisonMethods = ['lessThan', 'greaterThan'];
+
+  // Handle JSON_PATH comparison with object target (from Datadog validatesJSONPath)
+  // Convert to jsonBody(jsonPath).operator(targetValue)
+  if (comparison === 'JSON_PATH' && isJsonPathTarget(target)) {
+    const { jsonPath, operator, targetValue } = target;
+    const method = comparisonMethodMap[operator.toUpperCase()] || 'contains';
+
+    // Format the target value
+    let formattedValue: string;
+    if (typeof targetValue === 'string') {
+      // Check if it's a numeric string for numeric methods
+      if (numericComparisonMethods.includes(method) && !isNaN(Number(targetValue))) {
+        formattedValue = String(Number(targetValue));
+      } else {
+        formattedValue = `"${targetValue.replace(/"/g, '\\"')}"`;
+      }
+    } else {
+      formattedValue = String(targetValue);
+    }
+
+    return `AssertionBuilder.jsonBody("${jsonPath}").${method}(${formattedValue})`;
+  }
 
   const sourceMethod = sourceMethodMap[source] || 'statusCode';
   const comparisonMethod = comparisonMethodMap[comparison] || 'equals';
@@ -97,7 +207,23 @@ function generateAssertion(assertion) {
   if (comparisonMethod === 'isEmpty' || comparisonMethod === 'isNotEmpty' || comparisonMethod === 'isNull') {
     code += `.${comparisonMethod}()`;
   } else {
-    const targetValue = typeof target === 'string' ? `"${target}"` : target;
+    // Handle different target types
+    let targetValue: string;
+    if (target === undefined || target === null) {
+      targetValue = '""';
+    } else if (typeof target === 'string') {
+      // For numeric comparison methods, convert string to number if valid
+      if (numericComparisonMethods.includes(comparisonMethod) && !isNaN(Number(target))) {
+        targetValue = String(Number(target));
+      } else {
+        targetValue = `"${target.replace(/"/g, '\\"')}"`;
+      }
+    } else if (typeof target === 'number' || typeof target === 'boolean') {
+      targetValue = String(target);
+    } else {
+      // For objects/arrays, stringify them
+      targetValue = JSON.stringify(target);
+    }
     code += `.${comparisonMethod}(${targetValue})`;
   }
 
@@ -107,14 +233,14 @@ function generateAssertion(assertion) {
 /**
  * Generate RetryStrategyBuilder code
  */
-function generateRetryStrategy(retryStrategy) {
+function generateRetryStrategy(retryStrategy: ChecklyRetryStrategy): string {
   if (!retryStrategy || retryStrategy.type === 'NONE') {
     return 'RetryStrategyBuilder.noRetries()';
   }
 
   const { type, baseBackoffSeconds, maxRetries, maxDurationSeconds, sameRegion } = retryStrategy;
 
-  const strategyMethodMap = {
+  const strategyMethodMap: Record<string, string> = {
     LINEAR: 'linearStrategy',
     EXPONENTIAL: 'exponentialStrategy',
     FIXED: 'fixedStrategy',
@@ -122,7 +248,7 @@ function generateRetryStrategy(retryStrategy) {
 
   const method = strategyMethodMap[type] || 'linearStrategy';
 
-  const options = [];
+  const options: string[] = [];
   if (baseBackoffSeconds !== undefined) options.push(`baseBackoffSeconds: ${baseBackoffSeconds}`);
   if (maxRetries !== undefined) options.push(`maxRetries: ${maxRetries}`);
   if (maxDurationSeconds !== undefined) options.push(`maxDurationSeconds: ${maxDurationSeconds}`);
@@ -136,7 +262,7 @@ function generateRetryStrategy(retryStrategy) {
 /**
  * Generate a single ApiCheck construct
  */
-function generateApiCheckCode(check) {
+function generateApiCheckCode(check: ChecklyCheck): string {
   const {
     logicalId,
     name,
@@ -154,13 +280,17 @@ function generateApiCheckCode(check) {
   } = check;
 
   // Build request object
-  const requestLines = [
+  const requestLines: string[] = [
     `url: "${request.url}"`,
     `method: "${request.method}"`,
   ];
 
   if (request.headers && Object.keys(request.headers).length > 0) {
-    requestLines.push(`headers: ${JSON.stringify(request.headers, null, 6).replace(/\n/g, '\n    ')}`);
+    // Convert headers from Record<string, string> to KeyValuePair[] format
+    const headerPairs = Object.entries(request.headers).map(
+      ([key, value]) => `{ key: "${key}", value: "${value.replace(/"/g, '\\"')}" }`
+    );
+    requestLines.push(`headers: [\n      ${headerPairs.join(',\n      ')},\n    ]`);
   }
 
   if (request.body) {
@@ -181,8 +311,26 @@ function generateApiCheckCode(check) {
     }`);
   }
 
-  // Build assertions array
-  const assertionLines = assertions.map(a => generateAssertion(a));
+  // Build assertions array - assertions go inside the request object
+  // Filter out null values (unsupported assertions) and add comment if any were skipped
+  const assertionResults = assertions.map(a => generateAssertion(a));
+  const validAssertions = assertionResults.filter((a): a is string => a !== null);
+  const skippedCount = assertionResults.length - validAssertions.length;
+
+  if (validAssertions.length > 0) {
+    const skippedComment = skippedCount > 0
+      ? ` // Note: ${skippedCount} unsupported assertion(s) from Datadog were skipped (e.g., SSL certificate, TCP connection)`
+      : '';
+    requestLines.push(`assertions: [${skippedComment}
+      ${validAssertions.join(',\n      ')},
+    ]`);
+  }
+
+  // Filter out unsupported location formats (azure:*, gcp:* are not valid Checkly locations)
+  // Valid Checkly locations are AWS region codes like us-east-1, eu-west-2, etc.
+  const validLocations = locations.filter(loc => !loc.includes(':') || loc.startsWith('aws:'));
+  // Remove aws: prefix if present
+  const cleanLocations = validLocations.map(loc => loc.replace(/^aws:/, ''));
 
   // Build the full construct
   const code = `import {
@@ -198,11 +346,8 @@ new ApiCheck("${logicalId}", {
   request: {
     ${requestLines.join(',\n    ')},
   },
-  assertions: [
-    ${assertionLines.join(',\n    ')},
-  ],
   frequency: Frequency.${frequency},
-  locations: ${JSON.stringify(locations)},${privateLocations.length > 0 ? `\n  privateLocations: ${JSON.stringify(privateLocations)},` : ''}
+  locations: ${JSON.stringify(cleanLocations)},${privateLocations.length > 0 ? `\n  privateLocations: ${JSON.stringify(privateLocations)},` : ''}
   degradedResponseTime: ${degradedResponseTime},
   maxResponseTime: ${maxResponseTime},
   activated: ${activated},
@@ -217,7 +362,7 @@ new ApiCheck("${logicalId}", {
 /**
  * Generate an index file that exports all checks
  */
-function generateIndexFile(generatedFiles) {
+function generateIndexFile(generatedFiles: GeneratedFile[]): string {
   const imports = generatedFiles.map(f => {
     // Use the already-generated filename (without .ts extension)
     const checkFilename = f.filename.replace('.ts', '');
@@ -236,7 +381,7 @@ ${imports.join('\n')}
 /**
  * Main generation function
  */
-async function main() {
+async function main(): Promise<void> {
   console.log('='.repeat(60));
   console.log('Checkly Construct Generator');
   console.log('='.repeat(60));
@@ -250,7 +395,10 @@ async function main() {
     process.exit(1);
   }
 
-  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8'));
+  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8')) as {
+    checks: ChecklyCheck[];
+    privateLocationsFound?: string[];
+  };
   console.log(`Found ${data.checks.length} checks to generate`);
 
   // Filter out checks with conversion errors
@@ -281,8 +429,8 @@ async function main() {
   let publicSuccess = 0;
   let privateSuccess = 0;
   let errorCount = 0;
-  const publicFiles = [];
-  const privateFiles = [];
+  const publicFiles: GeneratedFile[] = [];
+  const privateFiles: GeneratedFile[] = [];
 
   // Generate public checks
   for (const check of publicChecks) {
@@ -295,7 +443,7 @@ async function main() {
       publicSuccess++;
       publicFiles.push({ name: check.name, filename });
     } catch (err) {
-      console.error(`  Error generating ${check.logicalId}: ${err.message}`);
+      console.error(`  Error generating ${check.logicalId}: ${(err as Error).message}`);
       errorCount++;
     }
   }
@@ -311,7 +459,7 @@ async function main() {
       privateSuccess++;
       privateFiles.push({ name: check.name, filename });
     } catch (err) {
-      console.error(`  Error generating ${check.logicalId}: ${err.message}`);
+      console.error(`  Error generating ${check.logicalId}: ${(err as Error).message}`);
       errorCount++;
     }
   }
@@ -335,7 +483,7 @@ async function main() {
   console.log(`  Private checks generated: ${privateSuccess} → ${OUTPUT_DIR_PRIVATE}`);
   console.log(`  Errors: ${errorCount}`);
 
-  if (data.privateLocationsFound?.length > 0) {
+  if (data.privateLocationsFound?.length) {
     console.log('\n⚠️  Private Locations Found:');
     console.log('   These need to be mapped to Checkly private locations.');
     data.privateLocationsFound.forEach(loc => console.log(`   - ${loc}`));
@@ -352,6 +500,6 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error('Error:', err.message);
+  console.error('Error:', (err as Error).message);
   process.exit(1);
 });

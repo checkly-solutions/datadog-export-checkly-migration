@@ -20,10 +20,24 @@ import { existsSync } from 'fs';
 const INPUT_FILE = './exports/global-variables.json';
 const OUTPUT_DIR = './checkly-migrated/variables';
 
+interface DatadogVariable {
+  name: string;
+  value?: {
+    value?: string;
+    secure?: boolean;
+  };
+}
+
+interface ChecklyVariable {
+  key: string;
+  value: string;
+  locked: boolean;
+}
+
 /**
  * Main conversion function
  */
-async function main() {
+async function main(): Promise<void> {
   console.log('='.repeat(60));
   console.log('Datadog Global Variables → Checkly Environment Variables');
   console.log('='.repeat(60));
@@ -36,14 +50,14 @@ async function main() {
   }
 
   console.log(`\nReading: ${INPUT_FILE}`);
-  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8'));
+  const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8')) as { variables: DatadogVariable[] };
 
   const variables = data.variables || [];
   console.log(`Found ${variables.length} global variables`);
 
   // Separate secure vs non-secure
-  const envVariables = [];
-  const secrets = [];
+  const envVariables: ChecklyVariable[] = [];
+  const secrets: ChecklyVariable[] = [];
 
   for (const variable of variables) {
     const name = variable.name;
@@ -128,7 +142,7 @@ async function main() {
  * Generate a shell script to create variables via Checkly API
  * Reads from the JSON files at runtime
  */
-function generateCreateScript(allVars) {
+function generateCreateScript(allVars: ChecklyVariable[]): string {
   const lines = [
     '#!/bin/bash',
     '',
@@ -229,7 +243,7 @@ function generateCreateScript(allVars) {
 /**
  * Generate a shell script to delete variables via Checkly API
  */
-function generateDeleteScript(allVars) {
+function generateDeleteScript(allVars: ChecklyVariable[]): string {
   const lines = [
     '#!/bin/bash',
     '',
@@ -325,6 +339,6 @@ function generateDeleteScript(allVars) {
 }
 
 main().catch(err => {
-  console.error('Error:', err.message);
+  console.error('Error:', (err as Error).message);
   process.exit(1);
 });

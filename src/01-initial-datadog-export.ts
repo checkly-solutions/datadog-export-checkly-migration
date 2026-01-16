@@ -26,9 +26,39 @@ const DD_SITE = process.env.DD_SITE || 'datadoghq.com';
 const BASE_URL = `https://api.${DD_SITE}/api/v1`;
 const OUTPUT_DIR = './exports';
 
+interface DatadogTest {
+  public_id: string;
+  name: string;
+  type: string;
+  status?: string;
+  tags?: string[];
+  locations?: string[];
+  config?: Record<string, unknown>;
+  options?: Record<string, unknown>;
+  message?: string;
+  monitor_id?: number;
+  created_at?: string;
+  modified_at?: string;
+  creator?: Record<string, unknown>;
+  subtype?: string;
+}
+
+interface DatadogVariable {
+  name: string;
+  value?: {
+    value?: string;
+    secure?: boolean;
+  };
+}
+
+interface DatadogLocation {
+  id: string;
+  name: string;
+}
+
 // Validate required environment variables
-function validateConfig() {
-  const missing = [];
+function validateConfig(): void {
+  const missing: string[] = [];
   if (!DD_API_KEY) missing.push('DD_API_KEY');
   if (!DD_APP_KEY) missing.push('DD_APP_KEY');
 
@@ -51,16 +81,16 @@ function validateConfig() {
 }
 
 // HTTP headers for Datadog API
-function getHeaders() {
+function getHeaders(): Record<string, string> {
   return {
-    'DD-API-KEY': DD_API_KEY,
-    'DD-APPLICATION-KEY': DD_APP_KEY,
+    'DD-API-KEY': DD_API_KEY!,
+    'DD-APPLICATION-KEY': DD_APP_KEY!,
     'Content-Type': 'application/json',
   };
 }
 
 // Generic API request function with error handling
-async function apiRequest(endpoint) {
+async function apiRequest<T>(endpoint: string): Promise<T> {
   const url = `${BASE_URL}${endpoint}`;
   console.log(`  Fetching: ${endpoint}`);
 
@@ -74,55 +104,55 @@ async function apiRequest(endpoint) {
     throw new Error(`API request failed: ${response.status} ${response.statusText}\n${errorText}`);
   }
 
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
 // Fetch all synthetics tests (list only)
-async function fetchSyntheticsList() {
+async function fetchSyntheticsList(): Promise<DatadogTest[]> {
   console.log('\nFetching synthetics list...');
-  const data = await apiRequest('/synthetics/tests');
+  const data = await apiRequest<{ tests?: DatadogTest[] }>('/synthetics/tests');
   return data.tests || [];
 }
 
 // Fetch detailed configuration for an API test
-async function fetchApiTestDetails(publicId) {
-  return apiRequest(`/synthetics/tests/api/${publicId}`);
+async function fetchApiTestDetails(publicId: string): Promise<DatadogTest> {
+  return apiRequest<DatadogTest>(`/synthetics/tests/api/${publicId}`);
 }
 
 // Fetch detailed configuration for a Browser test
-async function fetchBrowserTestDetails(publicId) {
-  return apiRequest(`/synthetics/tests/browser/${publicId}`);
+async function fetchBrowserTestDetails(publicId: string): Promise<DatadogTest> {
+  return apiRequest<DatadogTest>(`/synthetics/tests/browser/${publicId}`);
 }
 
 // Fetch all global variables
-async function fetchGlobalVariables() {
+async function fetchGlobalVariables(): Promise<DatadogVariable[]> {
   console.log('\nFetching global variables...');
-  const data = await apiRequest('/synthetics/variables');
+  const data = await apiRequest<{ variables?: DatadogVariable[] }>('/synthetics/variables');
   return data.variables || [];
 }
 
 // Fetch private locations
-async function fetchPrivateLocations() {
+async function fetchPrivateLocations(): Promise<DatadogLocation[]> {
   console.log('\nFetching private locations...');
-  const data = await apiRequest('/synthetics/private-locations');
+  const data = await apiRequest<{ locations?: DatadogLocation[] }>('/synthetics/private-locations');
   return data.locations || [];
 }
 
 // Fetch detailed configs for all tests of a given type
-async function fetchDetailedConfigs(tests, type) {
+async function fetchDetailedConfigs(tests: DatadogTest[], type: string): Promise<DatadogTest[]> {
   const filteredTests = tests.filter(t => t.type === type);
   console.log(`\nFetching detailed configs for ${filteredTests.length} ${type} tests...`);
 
-  const detailed = [];
+  const detailed: DatadogTest[] = [];
   for (const test of filteredTests) {
     try {
       const fetchFn = type === 'browser' ? fetchBrowserTestDetails : fetchApiTestDetails;
       const details = await fetchFn(test.public_id);
       detailed.push(details);
     } catch (error) {
-      console.error(`  Error fetching ${test.public_id}: ${error.message}`);
+      console.error(`  Error fetching ${test.public_id}: ${(error as Error).message}`);
       // Include the basic info even if detailed fetch fails
-      detailed.push({ ...test, _fetchError: error.message });
+      detailed.push({ ...test, _fetchError: (error as Error).message } as DatadogTest & { _fetchError: string });
     }
   }
 
@@ -130,14 +160,14 @@ async function fetchDetailedConfigs(tests, type) {
 }
 
 // Write data to JSON file
-async function writeJsonFile(filename, data) {
+async function writeJsonFile(filename: string, data: unknown): Promise<void> {
   const filepath = path.join(OUTPUT_DIR, filename);
   await writeFile(filepath, JSON.stringify(data, null, 2), 'utf-8');
   console.log(`  Written: ${filepath}`);
 }
 
 // Main export function
-async function main() {
+async function main(): Promise<void> {
   console.log('='.repeat(60));
   console.log('Datadog Synthetics Export Tool');
   console.log('='.repeat(60));
@@ -228,7 +258,7 @@ async function main() {
     console.log('  - exports/export-summary.json');
 
   } catch (error) {
-    console.error('\nExport failed:', error.message);
+    console.error('\nExport failed:', (error as Error).message);
     process.exit(1);
   }
 }
