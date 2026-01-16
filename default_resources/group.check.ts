@@ -15,7 +15,7 @@ export const private_locations_group = new CheckGroupV2(
     name: `Datadog Migrated Private Checks`,
     activated: false,
     tags: [`migrated`, "cli", "deactivated", "private"],
-    alertChannels: alertChannels,
+    alertChannels,
   }
 );
 
@@ -25,6 +25,6 @@ export const public_locations_group = new CheckGroupV2(
     name: `Datadog Migrated Public Checks`,
     activated: false,
     tags: [`migrated`, "cli", "deactivated", "public"],
-    alertChannels: alertChannels,
+    alertChannels,
   }
 );

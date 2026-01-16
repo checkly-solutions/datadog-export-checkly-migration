@@ -146,7 +146,7 @@ async function updateCheckFile(filepath: string, checkType: string, locationType
   // Insert alertChannels and group before the final });
   newContent = newContent.replace(
     closingPattern,
-    `  alertChannels: alertChannels,\n  group: ${groupName},\n});`
+    `  alertChannels,\n  group: ${groupName},\n});`
   );
 
   await writeFile(filepath, newContent, 'utf-8');
