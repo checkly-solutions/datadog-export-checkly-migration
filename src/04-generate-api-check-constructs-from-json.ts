@@ -57,6 +57,15 @@ interface ChecklyCheck {
   activated: boolean;
   muted: boolean;
   _conversionError?: string;
+  _datadogMeta?: {
+    publicId: string;
+    monitorId?: number;
+    createdAt?: string;
+    modifiedAt?: string;
+    creator?: Record<string, unknown>;
+    message?: string;
+    subtype?: string;
+  };
 }
 
 interface GeneratedFile {
@@ -80,6 +89,17 @@ function sanitizeFilename(str: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .substring(0, 50);
+}
+
+/**
+ * Generate a slug from the check name for use as logicalId
+ */
+function generateLogicalId(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .substring(0, 64);
 }
 
 /**
@@ -264,7 +284,6 @@ function generateRetryStrategy(retryStrategy: ChecklyRetryStrategy): string {
  */
 function generateApiCheckCode(check: ChecklyCheck): string {
   const {
-    logicalId,
     name,
     tags,
     request,
@@ -277,7 +296,12 @@ function generateApiCheckCode(check: ChecklyCheck): string {
     retryStrategy,
     activated,
     muted,
+    _datadogMeta,
   } = check;
+
+  // Generate logicalId from name slug instead of Datadog public_id
+  const logicalId = generateLogicalId(name);
+  const datadogPublicId = _datadogMeta?.publicId || check.logicalId;
 
   // Build request object
   const requestLines: string[] = [
@@ -333,7 +357,10 @@ function generateApiCheckCode(check: ChecklyCheck): string {
   const cleanLocations = validLocations.map(loc => loc.replace(/^aws:/, ''));
 
   // Build the full construct
-  const code = `import {
+  const code = `/**
+ * Migrated from Datadog Synthetic: ${datadogPublicId}
+ */
+import {
   ApiCheck,
   AssertionBuilder,
   Frequency,

@@ -91,6 +91,17 @@ function sanitizeFilename(str: string): string {
 }
 
 /**
+ * Generate a slug from the check name for use as logicalId
+ */
+function generateLogicalId(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .substring(0, 64);
+}
+
+/**
  * Map Datadog tick_every to Checkly frequency
  */
 function convertFrequency(tickEvery?: number): string {
@@ -130,13 +141,16 @@ function generateRetryStrategy(ddRetry?: { count?: number; interval?: number }):
 function generateBrowserCheckCode(test: BrowserTest, specFilename: string, locationType: string): string {
   const { public_id, name, tags, options, locations, privateLocations } = test;
 
-  const logicalId = public_id;
+  const logicalId = generateLogicalId(name);
   const frequency = convertFrequency(options?.tick_every);
   const retryStrategy = generateRetryStrategy(options?.retry);
   const activated = test.status === 'live';
   const specsPath = `${SPECS_RELATIVE_PATH}/${locationType}`;
 
-  const code = `import {
+  const code = `/**
+ * Migrated from Datadog Synthetic: ${public_id}
+ */
+import {
   BrowserCheck,
   Frequency,
   RetryStrategyBuilder,

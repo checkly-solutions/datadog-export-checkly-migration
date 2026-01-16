@@ -330,17 +330,41 @@ async function main(): Promise<void> {
 
   console.log(`Found ${data.tests.length} API tests to convert`);
 
-  // Filter out multi-step tests (subtype: "multi") - they need different handling
-  const singleStepTests = data.tests.filter(test => test.subtype !== 'multi');
+  // Subtypes that can be converted to Checkly API checks
+  const CONVERTIBLE_SUBTYPES = ['http', undefined];
+
+  // Filter tests by subtype
   const multiStepTests = data.tests.filter(test => test.subtype === 'multi');
+  const httpTests = data.tests.filter(test =>
+    test.subtype !== 'multi' && (test.subtype === 'http' || !test.subtype)
+  );
+  const skippedTests = data.tests.filter(test =>
+    test.subtype !== 'multi' && test.subtype && test.subtype !== 'http'
+  );
+
+  // Group skipped tests by subtype for reporting
+  const skippedBySubtype: Record<string, Array<{ public_id: string; name: string }>> = {};
+  for (const test of skippedTests) {
+    const subtype = test.subtype || 'unknown';
+    if (!skippedBySubtype[subtype]) {
+      skippedBySubtype[subtype] = [];
+    }
+    skippedBySubtype[subtype].push({ public_id: test.public_id, name: test.name });
+  }
 
   if (multiStepTests.length > 0) {
     console.log(`  - Skipping ${multiStepTests.length} multi-step tests (require MultiStepCheck)`);
   }
-  console.log(`  - Converting ${singleStepTests.length} single-step API tests`);
+  if (skippedTests.length > 0) {
+    console.log(`  - Skipping ${skippedTests.length} non-HTTP tests (icmp/tcp/dns/ssl/etc - not supported)`);
+    for (const [subtype, tests] of Object.entries(skippedBySubtype)) {
+      console.log(`    - ${subtype}: ${tests.length} tests`);
+    }
+  }
+  console.log(`  - Converting ${httpTests.length} HTTP API tests`);
 
-  // Convert each test
-  const convertedChecks: ChecklyCheck[] = singleStepTests.map(test => {
+  // Convert each HTTP test
+  const convertedChecks: ChecklyCheck[] = httpTests.map(test => {
     try {
       return convertTest(test);
     } catch (err) {
@@ -371,11 +395,14 @@ async function main(): Promise<void> {
       site: data.site,
     },
     summary: {
-      total: singleStepTests.length,
+      total: data.tests.length,
+      converted: httpTests.length,
       successful,
       failed,
       skippedMultiStep: multiStepTests.length,
+      skippedNonHttp: skippedTests.length,
     },
+    skippedNonHttpTests: skippedBySubtype,
     privateLocationsFound: allPrivateLocations,
     checks: convertedChecks,
   };
@@ -386,10 +413,21 @@ async function main(): Promise<void> {
   console.log('\n' + '='.repeat(60));
   console.log('Conversion Summary');
   console.log('='.repeat(60));
-  console.log(`  Total processed: ${singleStepTests.length}`);
+  console.log(`  Total in file: ${data.tests.length}`);
+  console.log(`  Converted (HTTP): ${httpTests.length}`);
   console.log(`  Successful: ${successful}`);
   console.log(`  Failed: ${failed}`);
+  console.log(`  Skipped (multi-step): ${multiStepTests.length}`);
+  console.log(`  Skipped (non-HTTP): ${skippedTests.length}`);
   console.log(`  Private locations found: ${allPrivateLocations.length}`);
+
+  if (skippedTests.length > 0) {
+    console.log('\nSkipped non-HTTP tests (by subtype):');
+    for (const [subtype, tests] of Object.entries(skippedBySubtype)) {
+      console.log(`  ${subtype}: ${tests.length}`);
+      tests.forEach(t => console.log(`    - ${t.name} (${t.public_id})`));
+    }
+  }
 
   if (allPrivateLocations.length > 0) {
     console.log('\nPrivate locations (need mapping in Checkly):');
