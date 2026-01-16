@@ -167,14 +167,22 @@ Datadog variables are converted to Checkly environment variables:
 - Complex assertions with regex patterns may need refinement
 - `runApiTest` embedded API calls may need additional assertion logic
 
-## Deploy to Checkly
+## Test and Deploy to Checkly
+
+Use the appropriate config file for public or private checks:
 
 ```bash
-# Test locally
-npx checkly test
+# Test public browser checks
+npx checkly test --config checkly.public.config.ts
 
-# Deploy
-npx checkly deploy
+# Test private browser checks (requires private locations in your account)
+npx checkly test --config checkly.private.config.ts
+
+# Deploy public checks
+npx checkly deploy --config checkly.public.config.ts
+
+# Deploy private checks
+npx checkly deploy --config checkly.private.config.ts
 ```
 
 ## NPM Scripts

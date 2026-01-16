@@ -163,14 +163,22 @@ Checks using Datadog private locations (`pl:*`) are placed in the `private/` fol
 2. Map Datadog location IDs to Checkly private location slugs
 3. Update the generated files if needed
 
-## Deploy to Checkly
+## Test and Deploy to Checkly
+
+Use the appropriate config file for public or private checks:
 
 ```bash
-# Test locally
-npx checkly test
+# Test public API checks
+npx checkly test --config checkly.public.config.ts
 
-# Deploy
-npx checkly deploy
+# Test private API checks (requires private locations in your account)
+npx checkly test --config checkly.private.config.ts
+
+# Deploy public checks
+npx checkly deploy --config checkly.public.config.ts
+
+# Deploy private checks
+npx checkly deploy --config checkly.private.config.ts
 ```
 
 ## NPM Scripts

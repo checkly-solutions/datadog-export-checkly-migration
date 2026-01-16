@@ -85,12 +85,30 @@ npm run add:defaults
 
 This adds alert channels and groups to all generated checks.
 
-### 7. Deploy to Checkly
+### 7. Test and Deploy to Checkly
+
+The project uses separate config files for public and private checks:
+
+| Config | Purpose | Command |
+|--------|---------|---------|
+| `checkly.public.config.ts` | Public location checks only | `npx checkly test --config checkly.public.config.ts` |
+| `checkly.private.config.ts` | Private location checks only | `npx checkly test --config checkly.private.config.ts` |
 
 ```bash
-npx checkly test
-npx checkly deploy
+# Test public checks
+npx checkly test --config checkly.public.config.ts
+
+# Test private checks (requires private locations configured in your account)
+npx checkly test --config checkly.private.config.ts
+
+# Deploy public checks
+npx checkly deploy --config checkly.public.config.ts
+
+# Deploy private checks
+npx checkly deploy --config checkly.private.config.ts
 ```
+
+**Why separate configs?** The Checkly CLI validates all checks during parsing before applying tag filters. Private checks reference private locations that must exist in your account. Using separate configs prevents validation errors when testing only public checks.
 
 ## Output Structure
 
@@ -195,6 +213,19 @@ Tests using Datadog private locations (`pl:*`) are placed in `private/` folders.
 3. Update generated files if needed
 
 ## Troubleshooting
+
+### "Private location not found" errors when testing
+
+If you see an error like `ApiCheck 'xxx' is using a private-location not found in your account`, you're likely running checks that reference private locations not configured in your Checkly account.
+
+**Solution:** Use the appropriate config file:
+```bash
+# For public checks only
+npx checkly test --config checkly.public.config.ts
+
+# For private checks (requires private locations in your account)
+npx checkly test --config checkly.private.config.ts
+```
 
 ### "403 Forbidden" errors
 
