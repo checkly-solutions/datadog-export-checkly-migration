@@ -1,6 +1,15 @@
 .claude
-/checkly-migrated/
 /ai_instruct
+
+# dotenv environment variable files
+.env
+.env.*
+!.env.example
+
+# Datadog export output
+exports/*
+checkly-migrated/*
+
 
 # Logs
 logs
@@ -69,13 +78,6 @@ web_modules/
 # Yarn Integrity file
 .yarn-integrity
 
-# dotenv environment variable files
-.env
-.env.*
-!.env.example
-
-# Datadog export output
-exports/
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache

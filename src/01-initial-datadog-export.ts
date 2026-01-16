@@ -56,6 +56,40 @@ interface DatadogLocation {
   name: string;
 }
 
+interface ExtractedLocation {
+  id: string;
+  type: 'public' | 'private';
+  original: string;
+  checklyLocation?: string;
+}
+
+interface TransformedTest extends Omit<DatadogTest, 'locations'> {
+  locations: string[];           // Mapped public Checkly locations
+  privateLocations: string[];    // Private location IDs (pl:xxx)
+  originalLocations: string[];   // Original Datadog locations for reference
+}
+
+// Datadog to Checkly public location mapping
+const PUBLIC_LOCATION_MAP: Record<string, string> = {
+  // AWS locations
+  'aws:us-east-1': 'us-east-1',
+  'aws:us-east-2': 'us-east-2',
+  'aws:us-west-1': 'us-west-1',
+  'aws:us-west-2': 'us-west-2',
+  'aws:eu-central-1': 'eu-central-1',
+  'aws:eu-west-1': 'eu-west-1',
+  'aws:eu-west-2': 'eu-west-2',
+  'aws:eu-west-3': 'eu-west-3',
+  'aws:eu-north-1': 'eu-north-1',
+  'aws:ap-northeast-1': 'ap-northeast-1',
+  'aws:ap-northeast-2': 'ap-northeast-2',
+  'aws:ap-southeast-1': 'ap-southeast-1',
+  'aws:ap-southeast-2': 'ap-southeast-2',
+  'aws:ap-south-1': 'ap-south-1',
+  'aws:sa-east-1': 'sa-east-1',
+  'aws:ca-central-1': 'ca-central-1',
+};
+
 // Validate required environment variables
 function validateConfig(): void {
   const missing: string[] = [];
@@ -131,11 +165,102 @@ async function fetchGlobalVariables(): Promise<DatadogVariable[]> {
   return data.variables || [];
 }
 
-// Fetch private locations
+// Fetch private locations from API
 async function fetchPrivateLocations(): Promise<DatadogLocation[]> {
-  console.log('\nFetching private locations...');
-  const data = await apiRequest<{ locations?: DatadogLocation[] }>('/synthetics/private-locations');
-  return data.locations || [];
+  console.log('\nFetching private locations from API...');
+  try {
+    const data = await apiRequest<{ locations?: DatadogLocation[] }>('/synthetics/private-locations');
+    return data.locations || [];
+  } catch (error) {
+    console.log('  Note: Could not fetch private locations API (may not have permission)');
+    return [];
+  }
+}
+
+/**
+ * Extract and classify all locations from tests
+ * Private locations start with "pl:"
+ * Public locations are everything else (aws:, azure:, gcp:, etc.)
+ */
+function extractLocationsFromTests(tests: DatadogTest[]): {
+  publicLocations: ExtractedLocation[];
+  privateLocations: ExtractedLocation[];
+  unmappedLocations: string[];
+} {
+  const publicLocationsMap = new Map<string, ExtractedLocation>();
+  const privateLocationsMap = new Map<string, ExtractedLocation>();
+  const unmappedLocations = new Set<string>();
+
+  for (const test of tests) {
+    for (const loc of test.locations || []) {
+      if (loc.startsWith('pl:')) {
+        // Private location
+        if (!privateLocationsMap.has(loc)) {
+          privateLocationsMap.set(loc, {
+            id: loc,
+            type: 'private',
+            original: loc,
+          });
+        }
+      } else {
+        // Public location
+        const checklyLocation = PUBLIC_LOCATION_MAP[loc];
+        if (!publicLocationsMap.has(loc)) {
+          publicLocationsMap.set(loc, {
+            id: loc,
+            type: 'public',
+            original: loc,
+            checklyLocation: checklyLocation,
+          });
+        }
+        if (!checklyLocation) {
+          unmappedLocations.add(loc);
+        }
+      }
+    }
+  }
+
+  return {
+    publicLocations: Array.from(publicLocationsMap.values()),
+    privateLocations: Array.from(privateLocationsMap.values()),
+    unmappedLocations: Array.from(unmappedLocations),
+  };
+}
+
+/**
+ * Transform a test's locations into separated public/private arrays
+ * - locations: mapped Checkly public location IDs
+ * - privateLocations: private location IDs (unchanged, pl:xxx format)
+ * - originalLocations: original Datadog location strings for reference
+ */
+function transformTestLocations(test: DatadogTest): TransformedTest {
+  const originalLocations = test.locations || [];
+  const locations: string[] = [];
+  const privateLocations: string[] = [];
+
+  for (const loc of originalLocations) {
+    if (loc.startsWith('pl:')) {
+      privateLocations.push(loc);
+    } else {
+      const mapped = PUBLIC_LOCATION_MAP[loc];
+      if (mapped) {
+        locations.push(mapped);
+      } else {
+        // Keep unmapped locations as-is (will be flagged in unmapped report)
+        locations.push(loc);
+      }
+    }
+  }
+
+  // Remove original locations and add transformed ones
+  const { locations: _removed, ...testWithoutLocations } = test;
+
+  return {
+    ...testWithoutLocations,
+    locations,
+    privateLocations,
+    originalLocations,
+  };
 }
 
 // Fetch detailed configs for all tests of a given type
@@ -201,24 +326,77 @@ async function main(): Promise<void> {
     const globalVariables = await fetchGlobalVariables();
     console.log(`Found ${globalVariables.length} global variables`);
 
-    // Fetch private locations
-    const privateLocations = await fetchPrivateLocations();
-    console.log(`Found ${privateLocations.length} private locations`);
+    // Fetch private locations from API
+    const apiPrivateLocations = await fetchPrivateLocations();
+    console.log(`Found ${apiPrivateLocations.length} private locations from API`);
+
+    // Extract all locations from tests (both API and browser)
+    const allDetailedTests = [...apiTestsDetailed, ...browserTestsDetailed];
+    const extractedLocations = extractLocationsFromTests(allDetailedTests);
+
+    console.log('\nLocation analysis:');
+    console.log(`  - Public locations found in tests: ${extractedLocations.publicLocations.length}`);
+    console.log(`  - Private locations found in tests: ${extractedLocations.privateLocations.length}`);
+    if (extractedLocations.unmappedLocations.length > 0) {
+      console.log(`  - Unmapped locations (need review): ${extractedLocations.unmappedLocations.length}`);
+    }
+
+    // Merge API private locations with extracted ones
+    const allPrivateLocationIds = new Set<string>();
+    const mergedPrivateLocations: Array<{
+      id: string;
+      name?: string;
+      source: 'api' | 'test' | 'both';
+    }> = [];
+
+    // Add from API first
+    for (const loc of apiPrivateLocations) {
+      allPrivateLocationIds.add(loc.id);
+      mergedPrivateLocations.push({
+        id: loc.id,
+        name: loc.name,
+        source: 'api',
+      });
+    }
+
+    // Add from tests (merge if already exists)
+    for (const loc of extractedLocations.privateLocations) {
+      if (allPrivateLocationIds.has(loc.id)) {
+        // Update source to 'both'
+        const existing = mergedPrivateLocations.find(l => l.id === loc.id);
+        if (existing) {
+          existing.source = 'both';
+        }
+      } else {
+        allPrivateLocationIds.add(loc.id);
+        mergedPrivateLocations.push({
+          id: loc.id,
+          source: 'test',
+        });
+      }
+    }
+
+    console.log(`  - Total unique private locations: ${mergedPrivateLocations.length}`);
+
+    // Transform test locations (separate public/private, map to Checkly)
+    console.log('\nTransforming test locations...');
+    const transformedApiTests = apiTestsDetailed.map(transformTestLocations);
+    const transformedBrowserTests = browserTestsDetailed.map(transformTestLocations);
 
     // Write output files
     console.log('\nWriting export files...');
     await writeJsonFile('api-tests.json', {
       exportedAt: new Date().toISOString(),
       site: DD_SITE,
-      count: apiTestsDetailed.length,
-      tests: apiTestsDetailed,
+      count: transformedApiTests.length,
+      tests: transformedApiTests,
     });
 
     await writeJsonFile('browser-tests.json', {
       exportedAt: new Date().toISOString(),
       site: DD_SITE,
-      count: browserTestsDetailed.length,
-      tests: browserTestsDetailed,
+      count: transformedBrowserTests.length,
+      tests: transformedBrowserTests,
     });
 
     await writeJsonFile('global-variables.json', {
@@ -231,8 +409,19 @@ async function main(): Promise<void> {
     await writeJsonFile('private-locations.json', {
       exportedAt: new Date().toISOString(),
       site: DD_SITE,
-      count: privateLocations.length,
-      locations: privateLocations,
+      count: mergedPrivateLocations.length,
+      locations: mergedPrivateLocations,
+      note: 'Private locations extracted from test configurations. These need to be mapped to Checkly private location slugs.',
+    });
+
+    await writeJsonFile('public-locations.json', {
+      exportedAt: new Date().toISOString(),
+      site: DD_SITE,
+      count: extractedLocations.publicLocations.length,
+      locations: extractedLocations.publicLocations,
+      unmapped: extractedLocations.unmappedLocations,
+      locationMap: PUBLIC_LOCATION_MAP,
+      note: 'Datadog to Checkly location mapping. Unmapped locations may need manual review.',
     });
 
     // Summary file with all data
@@ -243,7 +432,9 @@ async function main(): Promise<void> {
         apiTests: apiTestsDetailed.length,
         browserTests: browserTestsDetailed.length,
         globalVariables: globalVariables.length,
-        privateLocations: privateLocations.length,
+        privateLocations: mergedPrivateLocations.length,
+        publicLocations: extractedLocations.publicLocations.length,
+        unmappedLocations: extractedLocations.unmappedLocations.length,
       },
     });
 
@@ -255,7 +446,18 @@ async function main(): Promise<void> {
     console.log('  - exports/browser-tests.json');
     console.log('  - exports/global-variables.json');
     console.log('  - exports/private-locations.json');
+    console.log('  - exports/public-locations.json');
     console.log('  - exports/export-summary.json');
+
+    if (extractedLocations.unmappedLocations.length > 0) {
+      console.log('\nUnmapped locations (need manual mapping):');
+      extractedLocations.unmappedLocations.forEach(loc => console.log(`  - ${loc}`));
+    }
+
+    if (mergedPrivateLocations.length > 0) {
+      console.log('\nPrivate locations (need Checkly private location setup):');
+      mergedPrivateLocations.forEach(loc => console.log(`  - ${loc.id}${loc.name ? ` (${loc.name})` : ''}`));
+    }
 
   } catch (error) {
     console.error('\nExport failed:', (error as Error).message);

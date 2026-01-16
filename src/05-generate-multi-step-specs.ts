@@ -42,7 +42,10 @@ interface DatadogStep {
 interface DatadogTest {
   public_id: string;
   name: string;
-  locations?: string[];
+  // Pre-processed by step 01:
+  locations: string[];           // Mapped public Checkly locations
+  privateLocations: string[];    // Private location IDs (pl:xxx)
+  originalLocations: string[];   // Original Datadog locations for reference
   status?: string;
   tags?: string[];
   options?: {
@@ -81,8 +84,7 @@ interface GenerationResult {
  * Check if a test has private locations
  */
 function hasPrivateLocations(test: DatadogTest): boolean {
-  const locations = test.locations || [];
-  return locations.some(loc => loc.startsWith('pl:'));
+  return test.privateLocations.length > 0;
 }
 
 /**

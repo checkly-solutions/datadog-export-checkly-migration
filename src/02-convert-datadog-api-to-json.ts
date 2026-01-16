@@ -40,7 +40,10 @@ interface DatadogTest {
   subtype?: string;
   status?: string;
   tags?: string[];
-  locations?: string[];
+  // Pre-processed by step 01:
+  locations: string[];           // Mapped public Checkly locations
+  privateLocations: string[];    // Private location IDs (pl:xxx)
+  originalLocations: string[];   // Original Datadog locations for reference
   config?: {
     request?: {
       url?: string;
@@ -164,25 +167,6 @@ const FREQUENCY_MAP: Record<number, string> = {
   86400: 'EVERY_24H',
 };
 
-// Common Datadog to Checkly location mapping
-const LOCATION_MAP: Record<string, string> = {
-  'aws:us-east-1': 'us-east-1',
-  'aws:us-east-2': 'us-east-2',
-  'aws:us-west-1': 'us-west-1',
-  'aws:us-west-2': 'us-west-2',
-  'aws:eu-central-1': 'eu-central-1',
-  'aws:eu-west-1': 'eu-west-1',
-  'aws:eu-west-2': 'eu-west-2',
-  'aws:eu-west-3': 'eu-west-3',
-  'aws:eu-north-1': 'eu-north-1',
-  'aws:ap-northeast-1': 'ap-northeast-1',
-  'aws:ap-northeast-2': 'ap-northeast-2',
-  'aws:ap-southeast-1': 'ap-southeast-1',
-  'aws:ap-southeast-2': 'ap-southeast-2',
-  'aws:ap-south-1': 'ap-south-1',
-  'aws:sa-east-1': 'sa-east-1',
-  'aws:ca-central-1': 'ca-central-1',
-};
 
 /**
  * Convert a Datadog assertion to Checkly assertion format
@@ -235,32 +219,6 @@ function convertRetryStrategy(ddRetry?: DatadogRetry): ChecklyRetryStrategy {
 }
 
 /**
- * Separate locations into public and private
- */
-function separateLocations(ddLocations?: string[]): { locations: string[]; privateLocations: string[] } {
-  const locations: string[] = [];
-  const privateLocations: string[] = [];
-
-  for (const loc of ddLocations || []) {
-    if (loc.startsWith('pl:')) {
-      // Private location - extract the identifier
-      privateLocations.push(loc);
-    } else {
-      // Public location - map to Checkly location
-      const mapped = LOCATION_MAP[loc];
-      if (mapped) {
-        locations.push(mapped);
-      } else {
-        // Keep original if no mapping found (might need manual review)
-        locations.push(loc);
-      }
-    }
-  }
-
-  return { locations, privateLocations };
-}
-
-/**
  * Map Datadog tick_every to Checkly frequency
  */
 function convertFrequency(tickEvery?: number): string {
@@ -282,7 +240,8 @@ function convertFrequency(tickEvery?: number): string {
  * Convert a single Datadog API test to Checkly config
  */
 function convertTest(ddTest: DatadogTest): ChecklyCheck {
-  const { locations, privateLocations } = separateLocations(ddTest.locations);
+  // Locations are pre-processed by step 01
+  const { locations, privateLocations } = ddTest;
 
   const config: ChecklyCheck = {
     // Identity
