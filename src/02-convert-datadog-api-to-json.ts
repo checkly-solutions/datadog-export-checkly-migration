@@ -11,6 +11,7 @@
 
 import { readFile, writeFile } from 'fs/promises';
 import path from 'path';
+import { FREQUENCY_MAP, convertFrequency } from './shared/utils.ts';
 
 const EXPORTS_DIR = './exports';
 const INPUT_FILE = path.join(EXPORTS_DIR, 'api-tests.json');
@@ -151,23 +152,6 @@ const ASSERTION_SOURCE_MAP: Record<string, string> = {
   certificate: 'CERTIFICATE',
 };
 
-// Datadog tick_every (seconds) to Checkly frequency mapping
-const FREQUENCY_MAP: Record<number, string> = {
-  60: 'EVERY_1M',
-  120: 'EVERY_2M',
-  300: 'EVERY_5M',
-  600: 'EVERY_10M',
-  900: 'EVERY_15M',
-  1800: 'EVERY_30M',
-  3600: 'EVERY_1H',
-  7200: 'EVERY_2H',
-  14400: 'EVERY_6H', // Checkly doesn't have EVERY_4H, using closest
-  21600: 'EVERY_6H',
-  43200: 'EVERY_12H',
-  86400: 'EVERY_24H',
-};
-
-
 /**
  * Convert a Datadog assertion to Checkly assertion format
  */
@@ -216,24 +200,6 @@ function convertRetryStrategy(ddRetry?: DatadogRetry): ChecklyRetryStrategy {
     maxDurationSeconds: 600,
     sameRegion: true,
   };
-}
-
-/**
- * Map Datadog tick_every to Checkly frequency
- */
-function convertFrequency(tickEvery?: number): string {
-  const tick = tickEvery || 300;
-  // Find closest frequency
-  const frequencies = Object.keys(FREQUENCY_MAP).map(Number).sort((a, b) => a - b);
-
-  for (const freq of frequencies) {
-    if (tick <= freq) {
-      return FREQUENCY_MAP[freq];
-    }
-  }
-
-  // Default to closest available
-  return FREQUENCY_MAP[tick] || 'EVERY_10M';
 }
 
 /**

@@ -11,6 +11,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { sanitizeFilename, generateLogicalId, hasPrivateLocations } from './shared/utils.ts';
 
 const INPUT_FILE = './exports/checkly-api-checks.json';
 const OUTPUT_BASE = './checkly-migrated/__checks__/api';
@@ -71,35 +72,6 @@ interface ChecklyCheck {
 interface GeneratedFile {
   name: string;
   filename: string;
-}
-
-/**
- * Determine if a check uses private locations
- */
-function hasPrivateLocations(check: ChecklyCheck): boolean {
-  return check.privateLocations && check.privateLocations.length > 0;
-}
-
-/**
- * Sanitize a string to be a valid filename
- */
-function sanitizeFilename(str: string): string {
-  return str
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .substring(0, 50);
-}
-
-/**
- * Generate a slug from the check name for use as logicalId
- */
-function generateLogicalId(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .substring(0, 64);
 }
 
 /**

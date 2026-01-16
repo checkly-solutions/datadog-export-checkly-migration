@@ -11,6 +11,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { FREQUENCY_MAP, sanitizeFilename, generateLogicalId, convertFrequency } from './shared/utils.ts';
 
 const INPUT_FILE = './exports/multi-step-tests.json';
 const MANIFEST_FILE_PUBLIC = './checkly-migrated/tests/multi/public/_manifest.json';
@@ -61,71 +62,6 @@ interface GenerationResult {
   successCount: number;
   errorCount: number;
   skippedCount: number;
-}
-
-// Datadog tick_every (seconds) to Checkly frequency mapping
-const FREQUENCY_MAP: Record<number, string> = {
-  60: 'EVERY_1M',
-  120: 'EVERY_2M',
-  300: 'EVERY_5M',
-  600: 'EVERY_10M',
-  900: 'EVERY_15M',
-  1800: 'EVERY_30M',
-  3600: 'EVERY_1H',
-  7200: 'EVERY_2H',
-  14400: 'EVERY_6H', // Checkly doesn't have EVERY_4H, using closest
-  21600: 'EVERY_6H',
-  43200: 'EVERY_12H',
-  86400: 'EVERY_24H',
-};
-
-/**
- * Sanitize a string to be a valid filename
- */
-function sanitizeFilename(str: string): string {
-  return str
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .substring(0, 50);
-}
-
-/**
- * Generate a slug from the check name for use as logicalId
- */
-function generateLogicalId(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .substring(0, 64);
-}
-
-/**
- * Sanitize a string to be a valid TypeScript identifier
- */
-function sanitizeIdentifier(str: string): string {
-  return str
-    .replace(/[^a-zA-Z0-9_]/g, '_')
-    .replace(/^(\d)/, '_$1')
-    .replace(/_+/g, '_')
-    .replace(/^_|_$/g, '');
-}
-
-/**
- * Map Datadog tick_every to Checkly frequency
- */
-function convertFrequency(tickEvery?: number): string {
-  const tick = tickEvery || 300;
-  const frequencies = Object.keys(FREQUENCY_MAP).map(Number).sort((a, b) => a - b);
-
-  for (const freq of frequencies) {
-    if (tick <= freq) {
-      return FREQUENCY_MAP[freq];
-    }
-  }
-
-  return FREQUENCY_MAP[tick] || 'EVERY_10M';
 }
 
 /**

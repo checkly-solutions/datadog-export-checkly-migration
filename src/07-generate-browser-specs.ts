@@ -10,6 +10,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { sanitizeFilename, hasPrivateLocations, escapeTemplateLiteral, escapeString } from './shared/utils.ts';
 
 const INPUT_FILE = './exports/browser-tests.json';
 const OUTPUT_BASE = './checkly-migrated/tests/browser';
@@ -82,48 +83,6 @@ interface GeneratedFile {
 interface GenerationResult {
   successCount: number;
   errorCount: number;
-}
-
-/**
- * Check if a test has private locations
- */
-function hasPrivateLocations(test: BrowserTest): boolean {
-  return test.privateLocations.length > 0;
-}
-
-/**
- * Sanitize a string to be a valid filename
- */
-function sanitizeFilename(str: string): string {
-  return str
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .substring(0, 50);
-}
-
-/**
- * Escape a string for use in a template literal
- */
-function escapeTemplateLiteral(str: string): string {
-  if (!str) return '';
-  return str
-    .replace(/\\/g, '\\\\')
-    .replace(/`/g, '\\`')
-    .replace(/\$\{/g, '\\${');
-}
-
-/**
- * Escape a string for use in a regular string
- */
-function escapeString(str: string): string {
-  if (!str) return '';
-  return str
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\t/g, '\\t');
 }
 
 /**
