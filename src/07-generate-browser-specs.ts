@@ -59,6 +59,11 @@ interface BrowserTest {
   status?: string;
   tags?: string[];
   steps?: BrowserStep[];
+  config?: {
+    request?: {
+      url?: string;              // Start URL for the browser test
+    };
+  };
   options?: {
     tick_every?: number;
     retry?: {
@@ -411,8 +416,15 @@ function generateStepCode(step: BrowserStep, stepIndex: number): string {
  * Generate a complete spec file for a browser test
  */
 function generateSpecFile(test: BrowserTest): string {
-  const { name, steps } = test;
+  const { name, steps, config } = test;
   const testName = escapeString(name);
+  const startUrl = config?.request?.url;
+  const stepsArray = steps || [];
+
+  // Check if we need to prepend a goto for the start URL
+  // Only add if: 1) startUrl exists AND 2) first step is NOT already a goToUrl
+  const firstStepIsGoTo = stepsArray.length > 0 && stepsArray[0].type === 'goToUrl';
+  const needsStartUrlGoto = startUrl && !firstStepIsGoTo;
 
   let spec = `import { test, expect } from "@playwright/test";
 
@@ -420,10 +432,20 @@ test.describe("${testName}", () => {
   test("${testName}", async ({ page }) => {
 `;
 
+  // Prepend navigation to start URL if needed
+  if (needsStartUrlGoto) {
+    const convertedUrl = convertVariables(startUrl);
+    spec += `  // Navigate to start URL\n`;
+    spec += `  await page.goto(\`${escapeTemplateLiteral(convertedUrl)}\`);\n`;
+    if (stepsArray.length > 0) {
+      spec += '\n';
+    }
+  }
+
   // Generate code for each step
-  for (let i = 0; i < (steps || []).length; i++) {
-    spec += generateStepCode(steps![i], i);
-    if (i < steps!.length - 1) {
+  for (let i = 0; i < stepsArray.length; i++) {
+    spec += generateStepCode(stepsArray[i], i);
+    if (i < stepsArray.length - 1) {
       spec += '\n\n';
     }
   }

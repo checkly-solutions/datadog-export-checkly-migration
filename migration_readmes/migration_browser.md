@@ -74,12 +74,14 @@ checkly-migrated/
 
 ## Generated Spec Example
 
+The generator automatically handles the start URL from `config.request.url`. If the first step is not a `goToUrl`, a navigation to the start URL is prepended:
+
 ```typescript
 import { test, expect } from "@playwright/test";
 
 test.describe("My Browser Test", () => {
   test("My Browser Test", async ({ page }) => {
-    // Step 1: Navigate to link
+    // Navigate to start URL
     await page.goto(`https://example.com`);
 
     // Step 2: Type text on input #username
