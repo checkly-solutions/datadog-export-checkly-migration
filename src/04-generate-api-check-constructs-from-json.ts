@@ -349,7 +349,7 @@ new ApiCheck("${logicalId}", {
   locations: ${JSON.stringify(cleanLocations)},${privateLocations.length > 0 ? `\n  privateLocations: ${JSON.stringify(privateLocations)},` : ''}
   degradedResponseTime: ${degradedResponseTime},
   maxResponseTime: ${maxResponseTime},
-  activated: ${activated},
+  activated: true, // Always activate checks; group controls overall activation
   muted: ${muted},
   retryStrategy: ${generateRetryStrategy(retryStrategy)},
 });

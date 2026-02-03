@@ -91,7 +91,7 @@ function generateMultiStepCheckCode(test: DatadogTest, specFilename: string, loc
   const logicalId = generateLogicalId(name);
   const frequency = convertFrequency(options?.tick_every);
   const retryStrategy = generateRetryStrategy(options?.retry);
-  const activated = test.status === 'live';
+  const activated = true; // Always activate checks; group controls overall activation
   const specsPath = `${SPECS_RELATIVE_PATH}/${locationType}`;
 
   const code = `/**
