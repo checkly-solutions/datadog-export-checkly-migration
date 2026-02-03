@@ -32,6 +32,16 @@ interface ProcessResult {
 }
 
 /**
+ * Calculate relative path from check file to groups directory
+ */
+function getRelativePathToGroups(checkType: string, locationType: string): string {
+  // From checkly-migrated/__checks__/{type}/{location}/*.check.ts
+  // To checkly-migrated/__checks__/groups/{location}/
+  // That's: ../../groups/{location}
+  return `../../groups/${locationType}`;
+}
+
+/**
  * Calculate relative path from check file to default_resources
  */
 function getRelativePathToDefaultResources(checkType: string, locationType: string): string {
@@ -69,7 +79,8 @@ async function updateCheckFile(filepath: string, checkType: string, locationType
 
   // Build the new imports to add
   const alertChannelsImport = `import { alertChannels } from "${relativePath}/alertChannels";`;
-  const groupImport = `import { ${groupName} } from "${relativePath}/group.check";`;
+  const groupsPath = getRelativePathToGroups(checkType, locationType);
+  const groupImport = `import { ${groupName} } from "${groupsPath}/group.check";`;
 
   // Find the last import statement and add our imports after it
   // This regex handles both single-line and multi-line imports
@@ -242,7 +253,7 @@ async function main(): Promise<void> {
 
   console.log('\nNext steps:');
   console.log('  1. Review default_resources/alertChannels.ts');
-  console.log('  2. Review default_resources/group.check.ts');
+  console.log('  2. Review checkly-migrated/__checks__/groups/{public,private}/group.check.ts');
   console.log('  3. Run "npx checkly test" to validate');
   console.log('  4. Run "npx checkly deploy" to deploy');
 
