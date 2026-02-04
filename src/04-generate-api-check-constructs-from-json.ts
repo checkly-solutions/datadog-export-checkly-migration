@@ -408,7 +408,7 @@ new ApiCheck("${logicalId}", {
   locations: ${JSON.stringify(cleanLocations)},${privateLocations.length > 0 ? `\n  privateLocations: ${JSON.stringify(privateLocations)},` : ''}
   degradedResponseTime: ${degradedResponseTime},
   maxResponseTime: ${maxResponseTime},
-  activated: true, // Always activate checks; group controls overall activation
+  activated: ${activated}, // Preserves paused status from Datadog (status !== 'live' -> activated: false)
   muted: ${muted},
   retryStrategy: ${generateRetryStrategy(retryStrategy)},
 });

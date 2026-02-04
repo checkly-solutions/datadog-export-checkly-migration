@@ -422,7 +422,7 @@ function generateMarkdownReport(report: MigrationReport): string {
   lines.push('- Browser test element locators may need manual review for accuracy');
   lines.push('- Multi-step test variable extraction between steps may need adjustment');
   lines.push('- Check groups are created but set to `activated: false` by default');
-  lines.push('- Individual checks are set to `activated: true`');
+  lines.push('- Individual checks preserve their Datadog status: `paused` monitors become `activated: false`');
   lines.push('');
   lines.push('### Unsupported Features');
   lines.push('The following Datadog features cannot be automatically migrated:');
