@@ -11,6 +11,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { sanitizeFilename, hasPrivateLocations, escapeTemplateLiteral, escapeString } from './shared/utils.ts';
+import { trackVariablesFromMultiple, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
 
 const INPUT_FILE = './exports/browser-tests.json';
 const OUTPUT_BASE = './checkly-migrated/tests/browser';
@@ -88,6 +89,31 @@ interface GeneratedFile {
 interface GenerationResult {
   successCount: number;
   errorCount: number;
+}
+
+/**
+ * Extract all content strings that might contain variables from a browser test
+ */
+function extractVariableContent(test: BrowserTest): string[] {
+  const content: string[] = [];
+
+  // Start URL
+  if (test.config?.request?.url) {
+    content.push(test.config.request.url);
+  }
+
+  // Step values
+  for (const step of test.steps || []) {
+    if (step.params?.value) {
+      content.push(step.params.value);
+    }
+    // API test URLs within browser tests
+    if (step.params?.request?.config?.request?.url) {
+      content.push(step.params.request.config.request.url);
+    }
+  }
+
+  return content;
 }
 
 /**
@@ -472,6 +498,10 @@ async function generateSpecsForTests(
 
   for (const test of tests) {
     try {
+      // Track variable usage for this test
+      const variableContent = extractVariableContent(test);
+      trackVariablesFromMultiple(test.name, variableContent);
+
       const spec = generateSpecFile(test);
       const filename = `${sanitizeFilename(test.name)}.spec.ts`;
       const filepath = path.join(outputDir, filename);
@@ -517,6 +547,9 @@ async function main(): Promise<void> {
   console.log('Browser Test Playwright Spec Generator');
   console.log('='.repeat(60));
 
+  // Load existing variable usage (for merging across generator runs)
+  await loadExistingVariableUsage();
+
   // Check input file exists
   if (!existsSync(INPUT_FILE)) {
     console.log(`\nSkipping: Input file not found: ${INPUT_FILE}`);
@@ -553,6 +586,10 @@ async function main(): Promise<void> {
   // Generate specs for private tests
   console.log('\nGenerating private location specs...');
   const privateResult = await generateSpecsForTests(privateTests, OUTPUT_DIR_PRIVATE, 'private');
+
+  // Write variable usage report
+  console.log('\nWriting variable usage report...');
+  await writeVariableUsageReport();
 
   // Summary
   console.log('\n' + '='.repeat(60));

@@ -12,6 +12,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { sanitizeFilename, generateLogicalId, hasPrivateLocations } from './shared/utils.ts';
+import { trackVariablesFromMultiple, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
 
 const INPUT_FILE = './exports/checkly-api-checks.json';
 const OUTPUT_BASE = './checkly-migrated/__checks__/api';
@@ -72,6 +73,45 @@ interface ChecklyCheck {
 interface GeneratedFile {
   name: string;
   filename: string;
+}
+
+/**
+ * Extract all content strings that might contain variables from an API check
+ */
+function extractVariableContent(check: ChecklyCheck): string[] {
+  const content: string[] = [];
+
+  // Request URL
+  if (check.request?.url) {
+    content.push(check.request.url);
+  }
+
+  // Request body
+  if (check.request?.body) {
+    content.push(check.request.body);
+  }
+
+  // Request headers
+  if (check.request?.headers) {
+    for (const value of Object.values(check.request.headers)) {
+      content.push(value);
+    }
+  }
+
+  // Query parameters
+  if (check.request?.queryParameters) {
+    for (const value of Object.values(check.request.queryParameters)) {
+      content.push(value);
+    }
+  }
+
+  // Basic auth credentials
+  if (check.request?.basicAuth) {
+    content.push(check.request.basicAuth.username);
+    content.push(check.request.basicAuth.password);
+  }
+
+  return content;
 }
 
 /**
@@ -404,6 +444,9 @@ async function main(): Promise<void> {
   console.log('Checkly Construct Generator');
   console.log('='.repeat(60));
 
+  // Load existing variable usage (for merging across generator runs)
+  await loadExistingVariableUsage();
+
   // Read input
   console.log(`\nReading: ${INPUT_FILE}`);
 
@@ -453,6 +496,10 @@ async function main(): Promise<void> {
   // Generate public checks
   for (const check of publicChecks) {
     try {
+      // Track variable usage for this check
+      const variableContent = extractVariableContent(check);
+      trackVariablesFromMultiple(check.name, variableContent);
+
       const code = generateApiCheckCode(check);
       const filename = `${sanitizeFilename(check.name)}.check.ts`;
       const filepath = path.join(OUTPUT_DIR_PUBLIC, filename);
@@ -469,6 +516,10 @@ async function main(): Promise<void> {
   // Generate private checks
   for (const check of privateChecks) {
     try {
+      // Track variable usage for this check
+      const variableContent = extractVariableContent(check);
+      trackVariablesFromMultiple(check.name, variableContent);
+
       const code = generateApiCheckCode(check);
       const filename = `${sanitizeFilename(check.name)}.check.ts`;
       const filepath = path.join(OUTPUT_DIR_PRIVATE, filename);
@@ -506,6 +557,10 @@ async function main(): Promise<void> {
     console.log('   These need to be mapped to Checkly private locations.');
     data.privateLocationsFound.forEach(loc => console.log(`   - ${loc}`));
   }
+
+  // Write variable usage report
+  console.log('\nWriting variable usage report...');
+  await writeVariableUsageReport();
 
   console.log('\nNext steps:');
   console.log('  1. Review generated files in', OUTPUT_BASE);

@@ -12,6 +12,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { sanitizeFilename, hasPrivateLocations, escapeTemplateLiteral, escapeString } from './shared/utils.ts';
+import { trackVariablesFromMultiple, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
 
 const INPUT_FILE = './exports/multi-step-tests.json';
 const OUTPUT_BASE = './checkly-migrated/tests/multi';
@@ -77,6 +78,32 @@ interface SkippedTest {
   logicalId: string;
   name: string;
   incompatibleSubtypes: string[];
+}
+
+/**
+ * Extract all content strings that might contain variables from a multi-step test
+ */
+function extractVariableContent(test: DatadogTest): string[] {
+  const content: string[] = [];
+
+  for (const step of test.config?.steps || []) {
+    // Request URL
+    if (step.request?.url) {
+      content.push(step.request.url);
+    }
+    // Request body
+    if (step.request?.body) {
+      content.push(step.request.body);
+    }
+    // Request headers
+    if (step.request?.headers) {
+      for (const value of Object.values(step.request.headers)) {
+        content.push(value);
+      }
+    }
+  }
+
+  return content;
 }
 
 interface GenerationResult {
@@ -395,6 +422,10 @@ async function generateSpecsForTests(
     }
 
     try {
+      // Track variable usage for this test
+      const variableContent = extractVariableContent(test);
+      trackVariablesFromMultiple(test.name, variableContent);
+
       const spec = generateSpecFile(test);
       const filename = `${sanitizeFilename(test.name)}.spec.ts`;
       const filepath = path.join(outputDir, filename);
@@ -440,6 +471,9 @@ async function main(): Promise<void> {
   console.log('='.repeat(60));
   console.log('Multi-Step Playwright Spec Generator');
   console.log('='.repeat(60));
+
+  // Load existing variable usage (for merging across generator runs)
+  await loadExistingVariableUsage();
 
   // Check input file exists
   if (!existsSync(INPUT_FILE)) {
@@ -497,6 +531,10 @@ async function main(): Promise<void> {
     });
     console.log('\nThese tests require manual conversion or alternative Checkly check types.');
   }
+
+  // Write variable usage report
+  console.log('\nWriting variable usage report...');
+  await writeVariableUsageReport();
 
   console.log('\nNext: Run "npm run generate:multi-checks" to create MultiStepCheck constructs');
   console.log('Done!');

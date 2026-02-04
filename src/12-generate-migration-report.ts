@@ -29,6 +29,7 @@ const FILES = {
   browserTests: path.join(EXPORTS_DIR, 'browser-tests.json'),
   envVariables: path.join(CHECKLY_DIR, 'variables', 'env-variables.json'),
   secrets: path.join(CHECKLY_DIR, 'variables', 'secrets.json'),
+  variableUsage: path.join(EXPORTS_DIR, 'variable-usage.json'),
   browserManifestPublic: path.join(CHECKLY_DIR, 'tests', 'browser', 'public', '_manifest.json'),
   browserManifestPrivate: path.join(CHECKLY_DIR, 'tests', 'browser', 'private', '_manifest.json'),
   multiManifestPublic: path.join(CHECKLY_DIR, 'tests', 'multi', 'public', '_manifest.json'),
@@ -117,6 +118,17 @@ interface Variable {
   locked: boolean;
 }
 
+interface VariableUsageEntry {
+  usageCount: number;
+  checks: string[];
+}
+
+interface VariableUsageFile {
+  generatedAt: string;
+  totalVariablesReferenced: number;
+  variables: Record<string, VariableUsageEntry>;
+}
+
 interface Manifest {
   generatedAt: string;
   outputDir: string;
@@ -157,6 +169,10 @@ interface MigrationReport {
     nonSecure: number;
     secureNeedingValues: number;
     secretKeys: string[];
+    usage: {
+      totalReferenced: number;
+      byVariable: Record<string, { usageCount: number; checks: string[] }>;
+    };
   };
   privateLocations: {
     count: number;
@@ -279,17 +295,47 @@ function generateMarkdownReport(report: MigrationReport): string {
     lines.push('');
     lines.push('**Edit:** `checkly-migrated/variables/secrets.json`');
     lines.push('');
-    lines.push('Variables needing values:');
-    lines.push('');
-    // Show first 10, then indicate there are more
-    const displaySecrets = report.variables.secretKeys.slice(0, 10);
-    for (const key of displaySecrets) {
-      lines.push(`- \`${key}\``);
+
+    // Show secrets with usage counts, sorted by priority (most used first)
+    const secretsWithUsage = report.variables.secretKeys.map(key => ({
+      key,
+      usageCount: report.variables.usage.byVariable[key]?.usageCount || 0,
+    })).sort((a, b) => b.usageCount - a.usageCount);
+
+    const usedSecrets = secretsWithUsage.filter(s => s.usageCount > 0);
+    const unusedSecrets = secretsWithUsage.filter(s => s.usageCount === 0);
+
+    if (usedSecrets.length > 0) {
+      lines.push('**Priority secrets** (used by checks - fill these first):');
+      lines.push('');
+      lines.push('| Variable | Checks Using It |');
+      lines.push('|----------|-----------------|');
+      // Show top 15 used secrets
+      const displayUsedSecrets = usedSecrets.slice(0, 15);
+      for (const secret of displayUsedSecrets) {
+        lines.push(`| \`${secret.key}\` | ${secret.usageCount} |`);
+      }
+      if (usedSecrets.length > 15) {
+        lines.push(`| ... | ${usedSecrets.length - 15} more in secrets.json |`);
+      }
+      lines.push('');
     }
-    if (report.variables.secretKeys.length > 10) {
-      lines.push(`- ... and ${report.variables.secretKeys.length - 10} more (see secrets.json)`);
+
+    if (unusedSecrets.length > 0) {
+      lines.push(`**Unused secrets** (${unusedSecrets.length} variables not referenced by any check):`);
+      lines.push('');
+      // Show first 5 unused, then summarize
+      const displayUnused = unusedSecrets.slice(0, 5);
+      for (const secret of displayUnused) {
+        lines.push(`- \`${secret.key}\``);
+      }
+      if (unusedSecrets.length > 5) {
+        lines.push(`- ... and ${unusedSecrets.length - 5} more`);
+      }
+      lines.push('');
+      lines.push('> These may be legacy variables or used by tests that were not converted.');
+      lines.push('');
     }
-    lines.push('');
   }
 
   // Next steps
@@ -330,6 +376,42 @@ function generateMarkdownReport(report: MigrationReport): string {
   lines.push('npm run deploy:private');
   lines.push('```');
   lines.push('');
+
+  // Variable Usage Summary
+  if (report.variables.usage.totalReferenced > 0) {
+    lines.push('---');
+    lines.push('');
+    lines.push('## Environment Variable Usage');
+    lines.push('');
+    lines.push(`**${report.variables.usage.totalReferenced} unique variables** are referenced across all checks.`);
+    lines.push('');
+
+    // Sort all variables by usage count
+    const allVarsWithUsage = Object.entries(report.variables.usage.byVariable)
+      .map(([key, usage]) => ({ key, ...usage }))
+      .sort((a, b) => b.usageCount - a.usageCount);
+
+    if (allVarsWithUsage.length > 0) {
+      lines.push('### Most Used Variables');
+      lines.push('');
+      lines.push('| Variable | Checks | Example Checks |');
+      lines.push('|----------|--------|----------------|');
+
+      // Show top 10 most used
+      const topVars = allVarsWithUsage.slice(0, 10);
+      for (const v of topVars) {
+        const exampleChecks = v.checks.slice(0, 2).join(', ');
+        const moreCount = v.checks.length > 2 ? ` (+${v.checks.length - 2} more)` : '';
+        lines.push(`| \`${v.key}\` | ${v.usageCount} | ${exampleChecks}${moreCount} |`);
+      }
+      lines.push('');
+
+      if (allVarsWithUsage.length > 10) {
+        lines.push(`> See \`exports/variable-usage.json\` for complete usage details.`);
+        lines.push('');
+      }
+    }
+  }
 
   // Notes
   lines.push('---');
@@ -374,6 +456,7 @@ async function main(): Promise<void> {
   const browserTests = await readJsonFile<BrowserTestsFile>(FILES.browserTests);
   const envVariables = await readJsonFile<Variable[]>(FILES.envVariables);
   const secrets = await readJsonFile<Variable[]>(FILES.secrets);
+  const variableUsage = await readJsonFile<VariableUsageFile>(FILES.variableUsage);
   const browserManifestPublic = await readJsonFile<Manifest>(FILES.browserManifestPublic);
   const browserManifestPrivate = await readJsonFile<Manifest>(FILES.browserManifestPrivate);
   const multiManifestPublic = await readJsonFile<Manifest>(FILES.multiManifestPublic);
@@ -391,6 +474,7 @@ async function main(): Promise<void> {
   console.log(`  - browser-tests.json: ${browserTests ? 'found' : 'not found'}`);
   console.log(`  - env-variables.json: ${envVariables ? 'found' : 'not found'}`);
   console.log(`  - secrets.json: ${secrets ? 'found' : 'not found'}`);
+  console.log(`  - variable-usage.json: ${variableUsage ? 'found' : 'not found'}`);
 
   // Calculate counts
   const apiPublicCount = apiChecks?.checks.filter(c =>
@@ -484,6 +568,10 @@ async function main(): Promise<void> {
       nonSecure: envVariables?.length || 0,
       secureNeedingValues: secrets?.length || 0,
       secretKeys: secrets?.map(s => s.key) || [],
+      usage: {
+        totalReferenced: variableUsage?.totalVariablesReferenced || 0,
+        byVariable: variableUsage?.variables || {},
+      },
     },
     privateLocations: {
       count: privateLocationsFile?.locations.length || 0,
@@ -534,6 +622,7 @@ async function main(): Promise<void> {
   console.log(`  Conversion rate: ${report.summary.conversionRate}`);
   console.log(`  Private locations to create: ${report.privateLocations.count}`);
   console.log(`  Secrets needing values: ${report.variables.secureNeedingValues}`);
+  console.log(`  Variables referenced in checks: ${report.variables.usage.totalReferenced}`);
 
   if (report.notConverted.nonHttpTests.count > 0) {
     console.log(`  Non-HTTP tests skipped: ${report.notConverted.nonHttpTests.count}`);
