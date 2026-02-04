@@ -102,3 +102,42 @@ export function escapeString(str: string): string {
     .replace(/\r/g, '\\r')
     .replace(/\t/g, '\\t');
 }
+
+/**
+ * Derive a Checkly-friendly slug from a Datadog private location ID.
+ *
+ * Datadog format: pl:niq-aks-eastus2-private-location-4f05fbbffeea9ce3c90caee1c58e7883
+ * Checkly slug:   niq-aks-eastus2
+ *
+ * Pattern: pl:{meaningful-name}-private-location-{hash}
+ * We extract the meaningful-name part.
+ */
+export function deriveChecklySlugFromDatadogPrivateLocation(datadogId: string): string {
+  // Remove 'pl:' prefix if present
+  let id = datadogId.startsWith('pl:') ? datadogId.slice(3) : datadogId;
+
+  // Try to find and remove the '-private-location-{hash}' suffix
+  const privateLocationPattern = /-private-location-[a-f0-9]+$/i;
+  if (privateLocationPattern.test(id)) {
+    id = id.replace(privateLocationPattern, '');
+  }
+
+  // Sanitize: only allow lowercase alphanumeric and hyphens
+  id = id.toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  // Limit length for Checkly compatibility
+  return id.substring(0, 64);
+}
+
+/**
+ * Private location mapping with Checkly slug and usage tracking
+ */
+export interface PrivateLocationMapping {
+  datadogId: string;
+  checklySlug: string;
+  name?: string;
+  usageCount: number;
+}

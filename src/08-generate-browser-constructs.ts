@@ -26,7 +26,7 @@ interface BrowserTest {
   name: string;
   // Pre-processed by step 01:
   locations: string[];           // Mapped public Checkly locations
-  privateLocations: string[];    // Private location IDs (pl:xxx)
+  privateLocations: string[];    // Checkly private location slugs (derived from Datadog pl:xxx)
   originalLocations: string[];   // Original Datadog locations for reference
   status?: string;
   tags?: string[];

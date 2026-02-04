@@ -18,6 +18,7 @@ import 'dotenv/config';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { deriveChecklySlugFromDatadogPrivateLocation } from './shared/utils.ts';
 
 // Configuration
 const DD_API_KEY = process.env.DD_API_KEY;
@@ -65,8 +66,16 @@ interface ExtractedLocation {
 
 interface TransformedTest extends Omit<DatadogTest, 'locations'> {
   locations: string[];           // Mapped public Checkly locations
-  privateLocations: string[];    // Private location IDs (pl:xxx)
+  privateLocations: string[];    // Checkly private location slugs (derived from pl:xxx)
   originalLocations: string[];   // Original Datadog locations for reference
+}
+
+interface PrivateLocationInfo {
+  datadogId: string;
+  checklySlug: string;
+  name?: string;
+  usageCount: number;
+  source: 'api' | 'test' | 'both';
 }
 
 // Datadog to Checkly public location mapping
@@ -297,17 +306,29 @@ function extractLocationsFromTests(tests: DatadogTest[]): {
 /**
  * Transform a test's locations into separated public/private arrays
  * - locations: mapped Checkly public location IDs
- * - privateLocations: private location IDs (unchanged, pl:xxx format)
+ * - privateLocations: Checkly slugs (derived from Datadog pl:xxx format)
  * - originalLocations: original Datadog location strings for reference
+ *
+ * @param privateLocationSlugMap - Map of Datadog ID to Checkly slug
+ * @param privateLocationUsage - Map to track usage counts (will be mutated)
  */
-function transformTestLocations(test: DatadogTest): TransformedTest {
+function transformTestLocations(
+  test: DatadogTest,
+  privateLocationSlugMap: Map<string, string>,
+  privateLocationUsage: Map<string, number>
+): TransformedTest {
   const originalLocations = test.locations || [];
   const locations: string[] = [];
   const privateLocations: string[] = [];
 
   for (const loc of originalLocations) {
     if (loc.startsWith('pl:')) {
-      privateLocations.push(loc);
+      // Use the Checkly slug instead of Datadog ID
+      const slug = privateLocationSlugMap.get(loc) || deriveChecklySlugFromDatadogPrivateLocation(loc);
+      privateLocations.push(slug);
+
+      // Track usage count
+      privateLocationUsage.set(loc, (privateLocationUsage.get(loc) || 0) + 1);
     } else {
       const mapped = PUBLIC_LOCATION_MAP[loc];
       if (mapped) {
@@ -408,20 +429,22 @@ async function main(): Promise<void> {
       console.log(`  - Unmapped locations (need review): ${extractedLocations.unmappedLocations.length}`);
     }
 
-    // Merge API private locations with extracted ones
+    // Merge API private locations with extracted ones and derive Checkly slugs
     const allPrivateLocationIds = new Set<string>();
-    const mergedPrivateLocations: Array<{
-      id: string;
-      name?: string;
-      source: 'api' | 'test' | 'both';
-    }> = [];
+    const mergedPrivateLocations: PrivateLocationInfo[] = [];
+    const privateLocationSlugMap = new Map<string, string>(); // Datadog ID -> Checkly slug
+    const privateLocationUsage = new Map<string, number>(); // Datadog ID -> usage count
 
     // Add from API first
     for (const loc of apiPrivateLocations) {
       allPrivateLocationIds.add(loc.id);
+      const checklySlug = deriveChecklySlugFromDatadogPrivateLocation(loc.id);
+      privateLocationSlugMap.set(loc.id, checklySlug);
       mergedPrivateLocations.push({
-        id: loc.id,
+        datadogId: loc.id,
+        checklySlug,
         name: loc.name,
+        usageCount: 0, // Will be updated during transformation
         source: 'api',
       });
     }
@@ -430,14 +453,18 @@ async function main(): Promise<void> {
     for (const loc of extractedLocations.privateLocations) {
       if (allPrivateLocationIds.has(loc.id)) {
         // Update source to 'both'
-        const existing = mergedPrivateLocations.find(l => l.id === loc.id);
+        const existing = mergedPrivateLocations.find(l => l.datadogId === loc.id);
         if (existing) {
           existing.source = 'both';
         }
       } else {
         allPrivateLocationIds.add(loc.id);
+        const checklySlug = deriveChecklySlugFromDatadogPrivateLocation(loc.id);
+        privateLocationSlugMap.set(loc.id, checklySlug);
         mergedPrivateLocations.push({
-          id: loc.id,
+          datadogId: loc.id,
+          checklySlug,
+          usageCount: 0, // Will be updated during transformation
           source: 'test',
         });
       }
@@ -445,10 +472,22 @@ async function main(): Promise<void> {
 
     console.log(`  - Total unique private locations: ${mergedPrivateLocations.length}`);
 
-    // Transform test locations (separate public/private, map to Checkly)
+    // Transform test locations (separate public/private, map to Checkly slugs)
     console.log('\nTransforming test locations...');
-    const transformedApiTests = apiTestsDetailed.map(transformTestLocations);
-    const transformedBrowserTests = browserTestsDetailed.map(transformTestLocations);
+    const transformedApiTests = apiTestsDetailed.map(test =>
+      transformTestLocations(test, privateLocationSlugMap, privateLocationUsage)
+    );
+    const transformedBrowserTests = browserTestsDetailed.map(test =>
+      transformTestLocations(test, privateLocationSlugMap, privateLocationUsage)
+    );
+
+    // Update usage counts in mergedPrivateLocations
+    for (const loc of mergedPrivateLocations) {
+      loc.usageCount = privateLocationUsage.get(loc.datadogId) || 0;
+    }
+
+    // Sort by usage count (highest first) for easier prioritization
+    mergedPrivateLocations.sort((a, b) => b.usageCount - a.usageCount);
 
     // Write output files
     console.log('\nWriting export files...');
@@ -478,7 +517,7 @@ async function main(): Promise<void> {
       site: DD_SITE,
       count: mergedPrivateLocations.length,
       locations: mergedPrivateLocations,
-      note: 'Private locations extracted from test configurations. These need to be mapped to Checkly private location slugs.',
+      note: 'Private locations with Checkly slugs. Create these private locations in Checkly using the checklySlug as the slug.',
     });
 
     await writeJsonFile('public-locations.json', {
@@ -522,8 +561,11 @@ async function main(): Promise<void> {
     }
 
     if (mergedPrivateLocations.length > 0) {
-      console.log('\nPrivate locations (need Checkly private location setup):');
-      mergedPrivateLocations.forEach(loc => console.log(`  - ${loc.id}${loc.name ? ` (${loc.name})` : ''}`));
+      console.log('\nPrivate locations (create in Checkly with these slugs):');
+      mergedPrivateLocations.forEach(loc => {
+        const nameInfo = loc.name ? ` (${loc.name})` : '';
+        console.log(`  - ${loc.checklySlug}${nameInfo} [${loc.usageCount} checks]`);
+      });
     }
 
   } catch (error) {
