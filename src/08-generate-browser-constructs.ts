@@ -88,7 +88,7 @@ function generateRetryStrategy(ddRetry?: { count?: number; interval?: number }):
 function generateBrowserCheckCode(test: BrowserTest, specFilename: string, locationType: string): string {
   const { public_id, name, tags, options, locations, privateLocations } = test;
 
-  const logicalId = generateLogicalId(name);
+  const logicalId = `browser-${generateLogicalId(name)}`;
   const frequency = convertFrequency(options?.tick_every);
   const retryStrategy = generateRetryStrategy(options?.retry);
   const activated = true; // Always activate checks; group controls overall activation

@@ -137,6 +137,16 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
     return null; // Will be filtered out and replaced with a comment
   }
 
+  // Numeric sources that don't support string comparison methods
+  const numericSources = ['STATUS_CODE', 'RESPONSE_TIME'];
+  // String comparison methods that don't work with numeric sources
+  const stringOnlyComparisons = ['MATCHES', 'NOT_MATCHES', 'CONTAINS', 'NOT_CONTAINS', 'IS_EMPTY', 'IS_NOT_EMPTY'];
+
+  // Skip incompatible source/comparison combinations
+  if (numericSources.includes(source) && stringOnlyComparisons.includes(comparison)) {
+    return null; // Will be filtered out - regex/string comparisons don't work on status codes
+  }
+
   // Map comparison to AssertionBuilder comparison method
   // Note: Checkly doesn't have lessThanOrEqual/greaterThanOrEqual, so we map to closest
   const comparisonMethodMap: Record<string, string> = {
@@ -164,6 +174,9 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
     const { jsonPath, operator, targetValue } = target;
     const method = comparisonMethodMap[operator.toUpperCase()] || 'contains';
 
+    // Escape quotes in jsonPath
+    const escapedJsonPath = jsonPath.replace(/"/g, '\\"');
+
     // Format the target value
     let formattedValue: string;
     if (typeof targetValue === 'string') {
@@ -177,7 +190,7 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
       formattedValue = String(targetValue);
     }
 
-    return `AssertionBuilder.jsonBody("${jsonPath}").${method}(${formattedValue})`;
+    return `AssertionBuilder.jsonBody("${escapedJsonPath}").${method}(${formattedValue})`;
   }
 
   const sourceMethod = sourceMethodMap[source] || 'statusCode';
@@ -186,11 +199,13 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
   // Build the assertion chain
   let code = 'AssertionBuilder';
 
-  // Add source method with optional property
+  // Add source method with optional property (escape quotes in property)
   if (source === 'JSON_BODY' && property) {
-    code += `.jsonBody("${property}")`;
+    const escapedProperty = property.replace(/"/g, '\\"');
+    code += `.jsonBody("${escapedProperty}")`;
   } else if (source === 'HEADERS' && property) {
-    code += `.headers("${property}")`;
+    const escapedProperty = property.replace(/"/g, '\\"');
+    code += `.headers("${escapedProperty}")`;
   } else {
     code += `.${sourceMethod}()`;
   }
@@ -271,9 +286,8 @@ function generateApiCheckCode(check: ChecklyCheck): string {
     _datadogMeta,
   } = check;
 
-  // Generate logicalId from name slug instead of Datadog public_id
-  const logicalId = generateLogicalId(name);
   const datadogPublicId = _datadogMeta?.publicId || check.logicalId;
+  const logicalId = `api-${generateLogicalId(name)}`;
 
   // Build request object
   const requestLines: string[] = [
@@ -291,13 +305,18 @@ function generateApiCheckCode(check: ChecklyCheck): string {
 
   if (request.body) {
     const bodyStr = typeof request.body === 'string'
-      ? `"${request.body.replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`
+      // Escape backslashes first, then quotes, then newlines
+      ? `"${request.body.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"`
       : JSON.stringify(request.body);
     requestLines.push(`body: ${bodyStr}`);
   }
 
   if (request.queryParameters && Object.keys(request.queryParameters).length > 0) {
-    requestLines.push(`queryParameters: ${JSON.stringify(request.queryParameters, null, 6).replace(/\n/g, '\n    ')}`);
+    // Convert query params from Record<string, string> to KeyValuePair[] format
+    const queryPairs = Object.entries(request.queryParameters).map(
+      ([key, value]) => `{ key: "${key}", value: "${String(value).replace(/"/g, '\\"')}" }`
+    );
+    requestLines.push(`queryParameters: [\n      ${queryPairs.join(',\n      ')},\n    ]`);
   }
 
   if (request.basicAuth) {

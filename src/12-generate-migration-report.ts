@@ -147,7 +147,10 @@ interface MigrationReport {
       count: number;
       byType: Record<string, number>;
     };
-    failedConversions: { count: number };
+    failedConversions: {
+      count: number;
+      byReason: Record<string, number>;
+    };
   };
   variables: {
     total: number;
@@ -221,7 +224,7 @@ function generateMarkdownReport(report: MigrationReport): string {
     if (report.notConverted.nonHttpTests.count > 0) {
       lines.push(`### Non-HTTP Tests (${report.notConverted.nonHttpTests.count} tests)`);
       lines.push('');
-      lines.push('Checkly does not support TCP/DNS/ICMP/SSL tests directly. These tests were skipped:');
+      lines.push('Checkly migrator does not currently support TCP/DNS/ICMP/SSL tests directly. These tests were skipped:');
       lines.push('');
       for (const [type, count] of Object.entries(report.notConverted.nonHttpTests.byType)) {
         lines.push(`- **${type.toUpperCase()}:** ${count} tests`);
@@ -232,7 +235,14 @@ function generateMarkdownReport(report: MigrationReport): string {
     if (report.notConverted.failedConversions.count > 0) {
       lines.push(`### Failed Conversions (${report.notConverted.failedConversions.count} tests)`);
       lines.push('');
-      lines.push('These tests encountered errors during conversion. Check the logs for details.');
+      lines.push('These tests could not be converted:');
+      lines.push('');
+      for (const [reason, count] of Object.entries(report.notConverted.failedConversions.byReason)) {
+        lines.push(`- **${reason}:** ${count} test(s)`);
+      }
+      lines.push('');
+      lines.push('> **Note:** Tests with unsupported HTTP methods (like OPTIONS) are skipped entirely.');
+      lines.push('> Tests with JavaScript assertions are converted but without those assertions - review and add equivalent Playwright assertions manually.');
       lines.push('');
     }
   }
@@ -326,10 +336,21 @@ function generateMarkdownReport(report: MigrationReport): string {
   lines.push('');
   lines.push('## Notes');
   lines.push('');
+  lines.push('### Conversion Notes');
   lines.push('- Browser test element locators may need manual review for accuracy');
   lines.push('- Multi-step test variable extraction between steps may need adjustment');
   lines.push('- Check groups are created but set to `activated: false` by default');
   lines.push('- Individual checks are set to `activated: true`');
+  lines.push('');
+  lines.push('### Unsupported Features');
+  lines.push('The following Datadog features cannot be automatically migrated:');
+  lines.push('');
+  lines.push('| Feature | Reason |');
+  lines.push('|---------|--------|');
+  lines.push('| TCP/DNS/SSL/ICMP tests | Checkly doesn\'t have direct equivalents |');
+  lines.push('| OPTIONS HTTP method | Checkly supports: GET, POST, PUT, HEAD, DELETE, PATCH |');
+  lines.push('| JavaScript assertions | Custom JS assertions must be manually converted to Playwright |');
+  lines.push('| Multi-step wait steps | Steps with `subtype: wait` are not supported |');
   lines.push('');
 
   return lines.join('\n');
@@ -401,7 +422,24 @@ async function main(): Promise<void> {
   }
   const nonHttpTotal = Object.values(nonHttpByType).reduce((a, b) => a + b, 0);
 
-  const failedCount = apiChecks?.checks.filter(c => c._conversionError).length || 0;
+  // Calculate failed conversions and categorize by reason
+  const failedChecks = apiChecks?.checks.filter(c => c._conversionError) || [];
+  const failedCount = failedChecks.length;
+  const failedByReason: Record<string, number> = {};
+  for (const check of failedChecks) {
+    const error = check._conversionError || 'Unknown error';
+    // Categorize by error type
+    let category: string;
+    if (error.includes('Unsupported HTTP method')) {
+      const methodMatch = error.match(/method: (\w+)/);
+      category = methodMatch ? `Unsupported HTTP method: ${methodMatch[1]}` : 'Unsupported HTTP method';
+    } else if (error.includes('JavaScript')) {
+      category = 'JavaScript assertions not supported';
+    } else {
+      category = error.length > 60 ? error.substring(0, 57) + '...' : error;
+    }
+    failedByReason[category] = (failedByReason[category] || 0) + 1;
+  }
 
   // Build the report
   const report: MigrationReport = {
@@ -439,7 +477,7 @@ async function main(): Promise<void> {
         count: nonHttpTotal,
         byType: nonHttpByType,
       },
-      failedConversions: { count: failedCount },
+      failedConversions: { count: failedCount, byReason: failedByReason },
     },
     variables: {
       total: (envVariables?.length || 0) + (secrets?.length || 0),

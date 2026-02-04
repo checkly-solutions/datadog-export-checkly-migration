@@ -21,8 +21,13 @@ const OUTPUT_DIR_PRIVATE = `${OUTPUT_BASE}/private`;
 interface DatadogAssertion {
   type: string;
   operator: string;
-  target?: string | number;
+  target?: string | number | object;
   property?: string;
+  targetjsonpath?: {
+    jsonpath: string;
+    operator: string;
+    targetvalue: string | number;
+  };
 }
 
 interface DatadogRequest {
@@ -88,42 +93,98 @@ function generateAssertionCode(
   assertion: DatadogAssertion,
   responseVar: string,
   bodyVar: string,
+  jsonBodyVar: string,
   softPrefix: string = ''
-): string {
-  const { type, operator, target, property } = assertion;
+): { code: string; needsJsonBody: boolean } {
+  const { type, operator, target, property, targetjsonpath } = assertion;
   const expect = softPrefix ? 'expect.soft' : 'expect';
 
   switch (type) {
     case 'statusCode':
-      return generateComparisonCode(`${expect}(${responseVar}.status())`, operator, target);
+      return { code: generateComparisonCode(`${expect}(${responseVar}.status())`, operator, target), needsJsonBody: false };
 
     case 'responseTime':
       // Response time assertions are handled separately via timing
-      return `// Response time assertion: ${operator} ${target}ms (handled by Checkly)`;
+      return { code: `// Response time assertion: ${operator} ${target}ms (handled by Checkly)`, needsJsonBody: false };
 
     case 'body':
-      return generateComparisonCode(`${expect}(${bodyVar})`, operator, target);
+      // Handle validatesJSONPath operator specially
+      // JSON path config can be in targetjsonpath OR in target (as an object)
+      if (operator === 'validatesJSONPath') {
+        let jsonPathConfig: { jsonpath?: string; jsonPath?: string; operator: string; targetvalue?: string | number; targetValue?: string | number } | null = null;
+
+        if (targetjsonpath) {
+          jsonPathConfig = targetjsonpath;
+        } else if (target && typeof target === 'object' && 'jsonPath' in target) {
+          // Target contains the JSON path config directly (alternate Datadog format)
+          jsonPathConfig = target as typeof jsonPathConfig;
+        }
+
+        if (jsonPathConfig) {
+          const jsonpath = jsonPathConfig.jsonpath || jsonPathConfig.jsonPath || '';
+          const jsonOp = jsonPathConfig.operator || 'is';
+          const targetvalue = jsonPathConfig.targetvalue ?? jsonPathConfig.targetValue ?? '';
+
+          // Convert JSONPath to simple property access (basic support)
+          // JSONPath like "$.status" becomes jsonBody.status
+          // Handle deep paths like "$..status" (recursive descent)
+          let accessor = jsonBodyVar;
+          const cleanPath = jsonpath.replace(/^\$\.?\.?/, ''); // Remove $. or $..
+
+          if (cleanPath) {
+            const pathParts = cleanPath.split('.');
+            for (const part of pathParts) {
+              if (part) {
+                // Handle array notation like [0] or ["key"]
+                if (part.match(/^\[/)) {
+                  accessor += part;
+                } else {
+                  accessor += `?.${part}`;
+                }
+              }
+            }
+          }
+          return { code: generateComparisonCode(`${expect}(${accessor})`, jsonOp, targetvalue), needsJsonBody: true };
+        }
+      }
+      return { code: generateComparisonCode(`${expect}(${bodyVar})`, operator, target), needsJsonBody: false };
 
     case 'header':
       if (property) {
-        return generateComparisonCode(
-          `${expect}(${responseVar}.headers()["${property.toLowerCase()}"])`,
-          operator,
-          target
-        );
+        return {
+          code: generateComparisonCode(
+            `${expect}(${responseVar}.headers()["${property.toLowerCase()}"])`,
+            operator,
+            target
+          ),
+          needsJsonBody: false
+        };
       }
-      return `// Header assertion missing property`;
+      return { code: `// Header assertion missing property`, needsJsonBody: false };
 
     default:
-      return `// Unknown assertion type: ${type}`;
+      return { code: `// Unknown assertion type: ${type}`, needsJsonBody: false };
   }
 }
 
 /**
  * Generate comparison code based on operator
  */
-function generateComparisonCode(expectExpr: string, operator: string, target?: string | number): string {
-  const targetValue = typeof target === 'string' ? `"${escapeString(target)}"` : target;
+function generateComparisonCode(expectExpr: string, operator: string, target?: string | number | object): string {
+  // Handle different target types
+  let targetValue: string;
+  if (target === undefined || target === null) {
+    targetValue = 'undefined';
+  } else if (typeof target === 'string') {
+    targetValue = `"${escapeString(target)}"`;
+  } else if (typeof target === 'number') {
+    targetValue = String(target);
+  } else if (typeof target === 'object') {
+    // Object targets (like JSON path assertions) - stringify them
+    targetValue = JSON.stringify(target);
+  } else {
+    targetValue = String(target);
+  }
 
   switch (operator) {
     case 'is':
@@ -143,9 +204,9 @@ function generateComparisonCode(expectExpr: string, operator: string, target?: s
     case 'doesNotContain':
       return `${expectExpr}.not.toContain(${targetValue});`;
     case 'matches':
-      return `${expectExpr}.toMatch(${typeof target === 'string' ? `/${target}/` : targetValue});`;
+      return `${expectExpr}.toMatch(${typeof target === 'string' ? `/${escapeString(target).replace(/\//g, '\\/')}/` : targetValue});`;
     case 'doesNotMatch':
-      return `${expectExpr}.not.toMatch(${typeof target === 'string' ? `/${target}/` : targetValue});`;
+      return `${expectExpr}.not.toMatch(${typeof target === 'string' ? `/${escapeString(target).replace(/\//g, '\\/')}/` : targetValue});`;
     case 'isEmpty':
       return `${expectExpr}.toBeFalsy();`;
     case 'isNotEmpty':
@@ -231,27 +292,37 @@ function generateStepCode(step: DatadogStep, stepIndex: number): string {
   const { name, request, assertions, allowFailure } = step;
   const { code: requestCode, responseVar } = generateRequestCode(request, stepIndex);
   const bodyVar = `body${stepIndex}`;
+  const jsonBodyVar = `jsonBody${stepIndex}`;
+
+  // Pre-process assertions to determine what we need
+  const assertionResults = assertions.map(a => generateAssertionCode(
+    a,
+    responseVar,
+    bodyVar,
+    jsonBodyVar,
+    allowFailure ? '' : ''
+  ));
 
   // Check if we need to read body (for body assertions)
   const needsBody = assertions.some(a => a.type === 'body');
+  const needsJsonBody = assertionResults.some(r => r.needsJsonBody);
 
   let stepCode = `    // Step ${stepIndex + 1}: ${name}\n`;
   stepCode += `    ${requestCode}\n`;
 
-  if (needsBody) {
+  if (needsBody && !needsJsonBody) {
     stepCode += `    const ${bodyVar} = await ${responseVar}.text();\n`;
+  } else if (needsJsonBody) {
+    stepCode += `    const ${bodyVar} = await ${responseVar}.text();\n`;
+    stepCode += `    let ${jsonBodyVar}: any;\n`;
+    stepCode += `    try { ${jsonBodyVar} = JSON.parse(${bodyVar}); } catch { ${jsonBodyVar} = {}; }\n`;
   }
 
   stepCode += '\n';
 
   // Generate assertions
-  for (const assertion of assertions) {
-    const assertionCode = generateAssertionCode(
-      assertion,
-      responseVar,
-      bodyVar,
-      allowFailure ? '' : '' // We'll use expect.soft for allowFailure
-    );
+  for (const result of assertionResults) {
+    const { code: assertionCode } = result;
 
     if (allowFailure && !assertionCode.startsWith('//')) {
       // Replace expect with expect.soft for allowFailure steps

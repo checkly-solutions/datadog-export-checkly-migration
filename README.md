@@ -239,6 +239,40 @@ Tests using Datadog private locations (`pl:*`) are placed in `private/` folders.
 2. Map Datadog location IDs to Checkly slugs
 3. Update generated files if needed
 
+## Limitations / Unsupported Features
+
+Some Datadog features cannot be automatically migrated to Checkly:
+
+### Test Types Not Supported
+
+| Type | Reason |
+|------|--------|
+| **TCP tests** | Checkly doesn't have a direct TCP check equivalent |
+| **DNS tests** | Checkly doesn't have a direct DNS check equivalent |
+| **SSL/TLS tests** | Checkly doesn't have a direct SSL certificate check equivalent |
+| **ICMP tests** | Checkly doesn't support ICMP/ping checks |
+
+### HTTP Methods Not Supported
+
+| Method | Reason |
+|--------|--------|
+| **OPTIONS** | Checkly API checks only support: GET, POST, PUT, HEAD, DELETE, PATCH |
+
+### Assertion Types Not Supported
+
+| Assertion | Reason |
+|-----------|--------|
+| **JavaScript assertions** | Datadog custom JS assertions (`type: javascript`) are skipped. The check is still created but without these assertions. Review and add equivalent Playwright assertions manually. |
+
+### Other Limitations
+
+- **Multi-step wait steps**: Steps with `subtype: wait` are not supported
+- **Secure variable values**: Datadog does not expose secret values via API - fill them in manually in `secrets.json`
+- **Browser test locators**: Element selectors may need manual review for accuracy
+- **Variable extraction**: Multi-step test variable extraction between steps may need adjustment
+
+The migration report (`exports/migration-report.md`) lists all skipped tests and the reasons.
+
 ## Troubleshooting
 
 ### "Private location not found" errors when testing

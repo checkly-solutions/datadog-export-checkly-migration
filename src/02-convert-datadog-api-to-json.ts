@@ -156,12 +156,17 @@ const ASSERTION_SOURCE_MAP: Record<string, string> = {
 /**
  * Convert a Datadog assertion to Checkly assertion format
  */
-function convertAssertion(ddAssertion: DatadogAssertion): ChecklyAssertion {
+function convertAssertion(ddAssertion: DatadogAssertion): ChecklyAssertion | null {
   const { type, operator, target, property } = ddAssertion;
 
+  // Skip JavaScript assertions - they require custom handling
+  if (type === 'javascript') {
+    return null;
+  }
+
   const assertion: ChecklyAssertion = {
-    source: ASSERTION_SOURCE_MAP[type] || type.toUpperCase(),
-    comparison: OPERATOR_MAP[operator] || operator.toUpperCase(),
+    source: ASSERTION_SOURCE_MAP[type] || type?.toUpperCase() || 'STATUS_CODE',
+    comparison: OPERATOR_MAP[operator] || operator?.toUpperCase() || 'EQUALS',
     target: target,
   };
 
@@ -203,12 +208,39 @@ function convertRetryStrategy(ddRetry?: DatadogRetry): ChecklyRetryStrategy {
   };
 }
 
+// Checkly supported HTTP methods
+const SUPPORTED_METHODS = ['GET', 'POST', 'PUT', 'HEAD', 'DELETE', 'PATCH'];
+
 /**
  * Convert a single Datadog API test to Checkly config
  */
 function convertTest(ddTest: DatadogTest): ChecklyCheck {
   // Locations are pre-processed by step 01
   const { locations, privateLocations } = ddTest;
+
+  // Check for unsupported HTTP method
+  const rawMethod = ddTest.config?.request?.method;
+  const method = (rawMethod || 'GET').toUpperCase();
+  if (!SUPPORTED_METHODS.includes(method)) {
+    return {
+      logicalId: ddTest.public_id,
+      name: ddTest.name,
+      tags: ddTest.tags || [],
+      request: { url: '', method: 'GET' },
+      assertions: [],
+      frequency: 'EVERY_10M',
+      degradedResponseTime: 10000,
+      maxResponseTime: 30000,
+      locations: [],
+      privateLocations: [],
+      retryStrategy: { type: 'NONE' },
+      activated: false,
+      muted: false,
+      shouldFail: false,
+      _datadogMeta: { publicId: ddTest.public_id, subtype: ddTest.subtype },
+      _conversionError: `Unsupported HTTP method: ${method}. Checkly supports: ${SUPPORTED_METHODS.join(', ')}`,
+    };
+  }
 
   const config: ChecklyCheck = {
     // Identity
@@ -222,8 +254,8 @@ function convertTest(ddTest: DatadogTest): ChecklyCheck {
       method: ddTest.config?.request?.method || 'GET',
     },
 
-    // Assertions
-    assertions: (ddTest.config?.assertions || []).map(convertAssertion),
+    // Assertions (filter out null values from unsupported assertion types like javascript)
+    assertions: (ddTest.config?.assertions || []).map(convertAssertion).filter((a): a is ChecklyAssertion => a !== null),
 
     // Timing
     frequency: convertFrequency(ddTest.options?.tick_every),

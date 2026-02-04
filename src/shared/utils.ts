@@ -32,14 +32,14 @@ export function sanitizeFilename(str: string): string {
 }
 
 /**
- * Generate a slug from the check name for use as logicalId
+ * Generate a slug from the check name for use as logicalId.
  */
 export function generateLogicalId(name: string): string {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
-    .substring(0, 64);
+    .replace(/-+/g, '-'); // collapse multiple dashes
 }
 
 /**
