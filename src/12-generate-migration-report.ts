@@ -30,6 +30,7 @@ const FILES = {
   envVariables: path.join(CHECKLY_DIR, 'variables', 'env-variables.json'),
   secrets: path.join(CHECKLY_DIR, 'variables', 'secrets.json'),
   variableUsage: path.join(EXPORTS_DIR, 'variable-usage.json'),
+  ddTestStatus: path.join(EXPORTS_DIR, 'dd-test-status.json'),
   browserManifestPublic: path.join(CHECKLY_DIR, 'tests', 'browser', 'public', '_manifest.json'),
   browserManifestPrivate: path.join(CHECKLY_DIR, 'tests', 'browser', 'private', '_manifest.json'),
   multiManifestPublic: path.join(CHECKLY_DIR, 'tests', 'multi', 'public', '_manifest.json'),
@@ -137,6 +138,26 @@ interface Manifest {
   skipped?: Array<{ logicalId: string; name: string; reason?: string }>;
 }
 
+interface DdTestStatusFile {
+  fetchedAt: string;
+  site: string;
+  summary: {
+    total: number;
+    passing: number;
+    failing: number;
+    noData: number;
+    fetchErrors: number;
+  };
+  tests: Array<{
+    publicId: string;
+    name: string;
+    monitorId: number | null;
+    overallState: string;
+    isFailing: boolean;
+    fetchedAt: string;
+  }>;
+}
+
 // Report structure
 interface MigrationReport {
   generatedAt: string;
@@ -180,6 +201,20 @@ interface MigrationReport {
       checklySlug: string;
       usageCount: number;
       datadogId: string;
+    }>;
+  };
+  datadogStatus?: {
+    checkedAt: string;
+    summary: {
+      total: number;
+      passing: number;
+      failing: number;
+      noData: number;
+      fetchErrors: number;
+    };
+    failingTests: Array<{
+      publicId: string;
+      name: string;
     }>;
   };
   nextSteps: string[];
@@ -259,6 +294,40 @@ function generateMarkdownReport(report: MigrationReport): string {
       lines.push('');
       lines.push('> **Note:** Tests with unsupported HTTP methods (like OPTIONS) are skipped entirely.');
       lines.push('> Tests with JavaScript assertions are converted but without those assertions - review and add equivalent Playwright assertions manually.');
+      lines.push('');
+    }
+  }
+
+  // Datadog Test Status at Migration Time
+  if (report.datadogStatus) {
+    const ds = report.datadogStatus;
+    lines.push('## Datadog Test Status at Migration Time');
+    lines.push('');
+    lines.push(`**Checked at:** ${new Date(ds.checkedAt).toLocaleString()}`);
+    lines.push('');
+    lines.push('| Status | Count |');
+    lines.push('|--------|-------|');
+    lines.push(`| Passing (OK) | ${ds.summary.passing} |`);
+    lines.push(`| Failing (Alert) | ${ds.summary.failing} |`);
+    lines.push(`| No Data | ${ds.summary.noData} |`);
+    lines.push(`| Unknown/Error | ${ds.summary.fetchErrors} |`);
+    lines.push(`| **Total** | **${ds.summary.total}** |`);
+    lines.push('');
+
+    if (ds.failingTests.length > 0) {
+      lines.push(`### Deactivated Checks (${ds.failingTests.length} tests failing in Datadog)`);
+      lines.push('');
+      lines.push('These checks have been set to `activated: false` and tagged with `"failingInDatadog"`:');
+      lines.push('');
+      const displayTests = ds.failingTests.slice(0, 25);
+      for (const test of displayTests) {
+        lines.push(`- \`${test.publicId}\` — ${test.name}`);
+      }
+      if (ds.failingTests.length > 25) {
+        lines.push(`- ... and ${ds.failingTests.length - 25} more (see dd-test-status.json)`);
+      }
+      lines.push('');
+      lines.push('> **Action:** Fix these tests in Datadog or investigate root causes before re-activating in Checkly.');
       lines.push('');
     }
   }
@@ -461,6 +530,7 @@ async function main(): Promise<void> {
   const browserManifestPrivate = await readJsonFile<Manifest>(FILES.browserManifestPrivate);
   const multiManifestPublic = await readJsonFile<Manifest>(FILES.multiManifestPublic);
   const multiManifestPrivate = await readJsonFile<Manifest>(FILES.multiManifestPrivate);
+  const ddTestStatus = await readJsonFile<DdTestStatusFile>(FILES.ddTestStatus);
 
   if (!exportSummary) {
     console.error('\nError: export-summary.json not found. Run the export first.');
@@ -475,6 +545,7 @@ async function main(): Promise<void> {
   console.log(`  - env-variables.json: ${envVariables ? 'found' : 'not found'}`);
   console.log(`  - secrets.json: ${secrets ? 'found' : 'not found'}`);
   console.log(`  - variable-usage.json: ${variableUsage ? 'found' : 'not found'}`);
+  console.log(`  - dd-test-status.json: ${ddTestStatus ? 'found' : 'not found'}`);
 
   // Calculate counts
   const apiPublicCount = apiChecks?.checks.filter(c =>
@@ -581,12 +652,22 @@ async function main(): Promise<void> {
         datadogId: loc.datadogId,
       })),
     },
+    datadogStatus: ddTestStatus ? {
+      checkedAt: ddTestStatus.fetchedAt,
+      summary: ddTestStatus.summary,
+      failingTests: ddTestStatus.tests
+        .filter(t => t.isFailing)
+        .map(t => ({ publicId: t.publicId, name: t.name })),
+    } : undefined,
     nextSteps: [
       privateLocationsFile && privateLocationsFile.locations.length > 0
         ? `Create ${privateLocationsFile.locations.length} private location(s) in Checkly with the slugs shown in the report`
         : null,
       secrets && secrets.length > 0
         ? `Fill in values for ${secrets.length} secret variable(s) in checkly-migrated/variables/secrets.json`
+        : null,
+      ddTestStatus && ddTestStatus.summary.failing > 0
+        ? `Review ${ddTestStatus.summary.failing} check(s) tagged "failingInDatadog" — these were failing in Datadog and are deactivated`
         : null,
       'Run "npm run create:variables" to import variables to Checkly',
       'Configure alert channels in checkly-migrated/default_resources/alertChannels.ts',
@@ -626,6 +707,11 @@ async function main(): Promise<void> {
 
   if (report.notConverted.nonHttpTests.count > 0) {
     console.log(`  Non-HTTP tests skipped: ${report.notConverted.nonHttpTests.count}`);
+  }
+
+  if (report.datadogStatus) {
+    console.log(`  Datadog tests failing: ${report.datadogStatus.summary.failing}`);
+    console.log(`  Checks deactivated (failingInDatadog): ${report.datadogStatus.failingTests.length}`);
   }
 
   console.log('\nView the full report:');
