@@ -141,6 +141,25 @@ function isJsonPathTarget(target: unknown): target is JsonPathTarget {
 }
 
 /**
+ * Check if target is an XPath object from Datadog conversion
+ */
+interface XPathTarget {
+  xPath: string;
+  operator: string;
+  targetValue: string | number;
+}
+
+function isXPathTarget(target: unknown): target is XPathTarget {
+  return (
+    typeof target === 'object' &&
+    target !== null &&
+    'xPath' in target &&
+    'operator' in target &&
+    'targetValue' in target
+  );
+}
+
+/**
  * Generate AssertionBuilder code for an assertion
  * Returns null for unsupported assertion types
  */
@@ -229,6 +248,19 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
     return `AssertionBuilder.jsonBody("${escapedJsonPath}").${method}(${formattedValue})`;
   }
 
+  // Handle VALIDATESXPATH comparison with object target (from Datadog validatesXPath)
+  // Checkly has no XPath support, so extract the targetValue and use textBody().contains()
+  if (comparison === 'VALIDATESXPATH' && isXPathTarget(target)) {
+    const { targetValue } = target;
+    let formattedValue: string;
+    if (typeof targetValue === 'string') {
+      formattedValue = `"${targetValue.replace(/"/g, '\\"')}"`;
+    } else {
+      formattedValue = String(targetValue);
+    }
+    return `AssertionBuilder.textBody().contains(${formattedValue})`;
+  }
+
   const sourceMethod = sourceMethodMap[source] || 'statusCode';
   const comparisonMethod = comparisonMethodMap[comparison] || 'equals';
 
@@ -263,8 +295,16 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
       }
     } else if (typeof target === 'number' || typeof target === 'boolean') {
       targetValue = String(target);
+    } else if (typeof target === 'object' && target !== null && 'targetValue' in target) {
+      // Object with targetValue (e.g. unhandled xPath/jsonPath assertion) — extract the value
+      const tv = (target as Record<string, unknown>).targetValue;
+      if (typeof tv === 'string') {
+        targetValue = `"${tv.replace(/"/g, '\\"')}"`;
+      } else {
+        targetValue = String(tv);
+      }
     } else {
-      // For objects/arrays, stringify them
+      // For other objects/arrays, stringify them
       targetValue = JSON.stringify(target);
     }
     code += `.${comparisonMethod}(${targetValue})`;
