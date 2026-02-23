@@ -14,12 +14,12 @@ import { EmailAlertChannel } from "checkly/constructs";
  * - PagerdutyAlertChannel
  * - MSTeamsAlertChannel
  *
- * Example:
- *   import { SlackAlertChannel } from "checkly/constructs";
- *   export const slackChannel = new SlackAlertChannel("slack-channel-1", {
- *     url: "https://hooks.slack.com/services/xxx/yyy/zzz",
- *   });
- */
+//  * Example:
+//  *   import { SlackAlertChannel } from "checkly/constructs";
+//  *   export const slackChannel = new SlackAlertChannel("slack-channel-1", {
+//  *     url: "https://hooks.slack.com/services/xxx/yyy/zzz",
+//  *   });
+//  */
 
 export const emailChannel = new EmailAlertChannel("email-channel-1", {
   address: "alerts@acme.com",

@@ -3,8 +3,8 @@
  *
  * This script:
  * 1. Reads exported test data to collect public_id → monitor_id mappings
- * 2. Bulk-fetches monitor statuses from Datadog API (paginated)
- * 3. Classifies tests: Alert = failing, everything else = not failing
+ * 2. Fetches synthetic monitor statuses via monitor search API (type:synthetics filter)
+ * 3. Classifies tests: Alert or No Data = deactivate, OK = leave active
  * 4. Writes exports/dd-test-status.json with full status report
  * 5. Modifies generated .check.ts files for failing tests:
  *    - Sets activated: false
@@ -37,6 +37,7 @@ const CHECK_TYPES = ['api', 'multi', 'browser'];
 const LOCATION_TYPES = ['public', 'private'];
 
 const MAX_RETRIES = 3;
+
 const PAGE_SIZE = 1000;
 
 // Types
@@ -45,17 +46,23 @@ interface ExportedTestFile {
     public_id: string;
     name: string;
     monitor_id?: number;
-    type?: string;
-    subtype?: string;
-    status?: string;
+    privateLocations?: string[];
   }>;
 }
 
-interface DatadogMonitor {
+interface MonitorSearchResult {
   id: number;
-  overall_state: string;
-  name?: string;
-  type?: string;
+  status: string;
+}
+
+interface MonitorSearchResponse {
+  monitors: MonitorSearchResult[];
+  metadata: {
+    total_count: number;
+    page: number;
+    per_page: number;
+    page_count: number;
+  };
 }
 
 interface TestStatusEntry {
@@ -63,20 +70,26 @@ interface TestStatusEntry {
   name: string;
   monitorId: number | null;
   overallState: string;
-  isFailing: boolean;
+  isDeactivated: boolean;
+  locationType: 'public' | 'private';
   fetchedAt: string;
+}
+
+interface StatusCounts {
+  total: number;
+  passing: number;
+  failing: number;
+  noData: number;
+  unknown: number;
+  deactivated: number;
 }
 
 interface TestStatusReport {
   fetchedAt: string;
   site: string;
-  summary: {
-    total: number;
-    passing: number;
-    failing: number;
-    noData: number;
-    fetchErrors: number;
-  };
+  summary: StatusCounts;
+  publicSummary: StatusCounts;
+  privateSummary: StatusCounts;
   tests: TestStatusEntry[];
 }
 
@@ -131,45 +144,54 @@ async function apiRequestWithRetry<T>(endpoint: string): Promise<T> {
 }
 
 /**
- * Fetch all monitors from Datadog with pagination
+ * Fetch synthetic monitor statuses using the monitor search API.
+ * Uses GET /api/v1/monitor/search?query=type:synthetics which correctly
+ * filters to only synthetic monitors (~1400 vs 19k+ total monitors).
  */
-async function fetchAllMonitors(): Promise<Map<number, string>> {
-  console.log('\nFetching monitor statuses from Datadog...');
+async function fetchSyntheticMonitorStatuses(): Promise<Map<number, string>> {
+  console.log('\nFetching synthetic monitor statuses from Datadog...');
   const monitorMap = new Map<number, string>();
   let page = 0;
-  let hasMore = true;
+  let totalCount = 0;
 
-  while (hasMore) {
-    console.log(`  Fetching monitors page ${page}...`);
-    const monitors = await apiRequestWithRetry<DatadogMonitor[]>(
-      `/monitor?page_size=${PAGE_SIZE}&page=${page}`
+  while (true) {
+    console.log(`  Fetching monitor search page ${page}...`);
+    const data = await apiRequestWithRetry<MonitorSearchResponse>(
+      `/monitor/search?query=type:synthetics&per_page=${PAGE_SIZE}&page=${page}`
     );
 
-    if (!monitors || monitors.length === 0) {
-      hasMore = false;
+    if (!data.monitors || data.monitors.length === 0) {
       break;
     }
 
-    for (const monitor of monitors) {
-      monitorMap.set(monitor.id, monitor.overall_state || 'Unknown');
+    totalCount = data.metadata.total_count;
+
+    for (const monitor of data.monitors) {
+      monitorMap.set(monitor.id, monitor.status || 'Unknown');
     }
 
-    if (monitors.length < PAGE_SIZE) {
-      hasMore = false;
-    } else {
-      page++;
+    if ((page + 1) * PAGE_SIZE >= totalCount) {
+      break;
     }
+    page++;
   }
 
-  console.log(`  Fetched ${monitorMap.size} total monitors`);
+  console.log(`  Fetched ${monitorMap.size} synthetic monitors (of ${totalCount} total)`);
   return monitorMap;
 }
 
 /**
  * Read exported test files and collect public_id → monitor_id mappings
  */
-async function collectTestMappings(): Promise<Array<{ publicId: string; name: string; monitorId: number | null }>> {
-  const tests: Array<{ publicId: string; name: string; monitorId: number | null }> = [];
+interface TestMapping {
+  publicId: string;
+  name: string;
+  monitorId: number | null;
+  locationType: 'public' | 'private';
+}
+
+async function collectTestMappings(): Promise<TestMapping[]> {
+  const tests: TestMapping[] = [];
   const exportFiles = ['api-tests.json', 'browser-tests.json', 'multi-step-tests.json'];
 
   for (const filename of exportFiles) {
@@ -185,10 +207,12 @@ async function collectTestMappings(): Promise<Array<{ publicId: string; name: st
 
       if (data.tests && Array.isArray(data.tests)) {
         for (const test of data.tests) {
+          const hasPrivateLocations = test.privateLocations && test.privateLocations.length > 0;
           tests.push({
             publicId: test.public_id,
             name: test.name,
             monitorId: test.monitor_id ?? null,
+            locationType: hasPrivateLocations ? 'private' : 'public',
           });
         }
         console.log(`  ${filename}: ${data.tests.length} tests`);
@@ -201,19 +225,32 @@ async function collectTestMappings(): Promise<Array<{ publicId: string; name: st
   return tests;
 }
 
+function emptyCounts(): StatusCounts {
+  return { total: 0, passing: 0, failing: 0, noData: 0, unknown: 0, deactivated: 0 };
+}
+
+function incrementCounts(counts: StatusCounts, overallState: string, isDeactivated: boolean): void {
+  counts.total++;
+  if (overallState === 'OK') counts.passing++;
+  else if (overallState === 'Alert') counts.failing++;
+  else if (overallState === 'No Data') counts.noData++;
+  else counts.unknown++;
+  if (isDeactivated) counts.deactivated++;
+}
+
 /**
- * Build the test status report by correlating test mappings with monitor statuses
+ * Build the test status report by correlating test mappings with monitor statuses.
+ * Both Alert and No Data states are treated as deactivated.
  */
 function buildStatusReport(
-  testMappings: Array<{ publicId: string; name: string; monitorId: number | null }>,
+  testMappings: TestMapping[],
   monitorMap: Map<number, string>
 ): TestStatusReport {
   const fetchedAt = new Date().toISOString();
   const tests: TestStatusEntry[] = [];
-  let passing = 0;
-  let failing = 0;
-  let noData = 0;
-  let fetchErrors = 0;
+  const summary = emptyCounts();
+  const publicSummary = emptyCounts();
+  const privateSummary = emptyCounts();
 
   for (const test of testMappings) {
     let overallState = 'Unknown';
@@ -222,29 +259,26 @@ function buildStatusReport(
       const state = monitorMap.get(test.monitorId);
       if (state) {
         overallState = state;
-      } else {
-        fetchErrors++;
       }
-    } else {
-      fetchErrors++;
     }
 
-    const isFailing = overallState === 'Alert';
+    // Deactivate both Alert (failing) and No Data (not running) tests
+    const isDeactivated = overallState === 'Alert' || overallState === 'No Data';
 
-    if (overallState === 'OK') {
-      passing++;
-    } else if (overallState === 'Alert') {
-      failing++;
-    } else if (overallState === 'No Data') {
-      noData++;
-    }
+    incrementCounts(summary, overallState, isDeactivated);
+    incrementCounts(
+      test.locationType === 'private' ? privateSummary : publicSummary,
+      overallState,
+      isDeactivated
+    );
 
     tests.push({
       publicId: test.publicId,
       name: test.name,
       monitorId: test.monitorId,
       overallState,
-      isFailing,
+      isDeactivated,
+      locationType: test.locationType,
       fetchedAt,
     });
   }
@@ -252,25 +286,24 @@ function buildStatusReport(
   return {
     fetchedAt,
     site: DD_SITE,
-    summary: {
-      total: tests.length,
-      passing,
-      failing,
-      noData,
-      fetchErrors,
-    },
+    summary,
+    publicSummary,
+    privateSummary,
     tests,
   };
 }
 
 /**
- * Modify a check file to deactivate it and add failingInDatadog tag
+ * Modify a check file to deactivate it and add the appropriate tag.
+ * Alert → "failingInDatadog", No Data → "noDataInDatadog"
  */
-async function deactivateCheckFile(filepath: string, publicId: string): Promise<boolean> {
+async function deactivateCheckFile(filepath: string, publicId: string, overallState: string): Promise<boolean> {
   const content = await readFile(filepath, 'utf-8');
 
-  // Idempotency: skip if already tagged
-  if (content.includes('failingInDatadog')) {
+  const tag = overallState === 'Alert' ? 'failingInDatadog' : 'noDataInDatadog';
+
+  // Idempotency: skip if already tagged with this specific tag
+  if (content.includes(tag)) {
     return false;
   }
 
@@ -282,7 +315,7 @@ async function deactivateCheckFile(filepath: string, publicId: string): Promise<
     'activated: false'
   );
 
-  // Add "failingInDatadog" tag to the tags array
+  // Add tag to the tags array
   const tagsPattern = /tags:\s*\[([^\]]*)\]/;
   const tagsMatch = newContent.match(tagsPattern);
 
@@ -291,21 +324,23 @@ async function deactivateCheckFile(filepath: string, publicId: string): Promise<
     let newTags: string;
 
     if (existingTags === '') {
-      newTags = `tags: ["failingInDatadog"]`;
+      newTags = `tags: ["${tag}"]`;
     } else {
-      newTags = `tags: [${existingTags}, "failingInDatadog"]`;
+      newTags = `tags: [${existingTags}, "${tag}"]`;
     }
 
     newContent = newContent.replace(tagsPattern, newTags);
   }
 
   // Add comment after the "Migrated from Datadog" comment line
+  const reason = overallState === 'Alert'
+    ? 'This test was failing (Alert) in Datadog at migration time'
+    : 'This test had no data (paused/not running) in Datadog at migration time';
   const migratedCommentPattern = /(\/\/\s*Migrated from Datadog Synthetic:.*)/;
-  const commentMatch = newContent.match(migratedCommentPattern);
-  if (commentMatch) {
+  if (migratedCommentPattern.test(newContent)) {
     newContent = newContent.replace(
       migratedCommentPattern,
-      `$1\n// ⚠ Deactivated: This test was failing (Alert) in Datadog at migration time`
+      `$1\n// Deactivated: ${reason}`
     );
   }
 
@@ -318,10 +353,11 @@ async function deactivateCheckFile(filepath: string, publicId: string): Promise<
 }
 
 /**
- * Scan check directories and deactivate failing tests
+ * Scan check directories and deactivate tests that are failing or have no data.
+ * deactivateMap: publicId → overallState (Alert or No Data)
  */
-async function deactivateFailingTests(
-  failingPublicIds: Set<string>
+async function deactivateTests(
+  deactivateMap: Map<string, string>
 ): Promise<{ modified: number; skipped: number; errors: number }> {
   let modified = 0;
   let skipped = 0;
@@ -350,14 +386,16 @@ async function deactivateFailingTests(
           }
 
           const publicId = idMatch[1];
-          if (!failingPublicIds.has(publicId)) {
+          const overallState = deactivateMap.get(publicId);
+          if (!overallState) {
             continue;
           }
 
-          const wasModified = await deactivateCheckFile(filepath, publicId);
+          const wasModified = await deactivateCheckFile(filepath, publicId, overallState);
           if (wasModified) {
             modified++;
-            console.log(`  Deactivated: ${file} (${publicId})`);
+            const tag = overallState === 'Alert' ? 'failingInDatadog' : 'noDataInDatadog';
+            console.log(`  Deactivated [${tag}]: ${locationType}/${file} (${publicId})`);
           } else {
             skipped++;
           }
@@ -406,10 +444,10 @@ async function main(): Promise<void> {
 
   console.log(`\nFound ${testMappings.length} total tests`);
 
-  // Step 2: Fetch monitor statuses from Datadog
+  // Step 2: Fetch synthetic monitor statuses from Datadog
   let monitorMap: Map<number, string>;
   try {
-    monitorMap = await fetchAllMonitors();
+    monitorMap = await fetchSyntheticMonitorStatuses();
   } catch (err) {
     const msg = (err as Error).message;
     if (msg.includes('403')) {
@@ -429,31 +467,42 @@ async function main(): Promise<void> {
   await writeFile(outputPath, JSON.stringify(report, null, 2), 'utf-8');
   console.log(`\nWritten: ${outputPath}`);
 
-  // Print summary
-  console.log('\n' + '-'.repeat(40));
-  console.log('Status Summary');
-  console.log('-'.repeat(40));
-  console.log(`  Total tests:    ${report.summary.total}`);
-  console.log(`  Passing (OK):   ${report.summary.passing}`);
-  console.log(`  Failing (Alert):${report.summary.failing}`);
-  console.log(`  No Data:        ${report.summary.noData}`);
-  console.log(`  Unknown/Error:  ${report.summary.fetchErrors}`);
+  // Print summary with public/private breakdown
+  function printCounts(label: string, counts: StatusCounts): void {
+    console.log(`\n${label}`);
+    console.log('-'.repeat(40));
+    console.log(`  Total:          ${counts.total}`);
+    console.log(`  Passing (OK):   ${counts.passing}`);
+    console.log(`  Failing (Alert):${counts.failing}`);
+    console.log(`  No Data:        ${counts.noData}`);
+    console.log(`  Unknown:        ${counts.unknown}`);
+    console.log(`  To deactivate:  ${counts.deactivated}`);
+  }
 
-  // Step 5: Deactivate failing tests in check files
-  if (report.summary.failing === 0) {
-    console.log('\nNo failing tests found — no check files to modify.');
+  printCounts('Status Summary (All)', report.summary);
+  printCounts('Public Checks', report.publicSummary);
+  printCounts('Private Checks', report.privateSummary);
+
+  // Step 5: Deactivate failing and no-data tests in check files
+  if (report.summary.deactivated === 0) {
+    console.log('\nNo tests to deactivate — all checks are passing.');
   } else {
-    console.log(`\nDeactivating ${report.summary.failing} failing test(s) in check files...`);
+    console.log(`\nDeactivating ${report.summary.deactivated} test(s) in check files...`);
+    console.log(`  (${report.summary.failing} failing + ${report.summary.noData} no data)`);
 
-    const failingIds = new Set(
-      report.tests.filter(t => t.isFailing).map(t => t.publicId)
-    );
+    // Build map of publicId → overallState for tests that need deactivation
+    const deactivateMap = new Map<string, string>();
+    for (const test of report.tests) {
+      if (test.isDeactivated) {
+        deactivateMap.set(test.publicId, test.overallState);
+      }
+    }
 
     if (!existsSync(CHECKS_BASE)) {
       console.log(`\nSkipping file modifications: ${CHECKS_BASE} not found.`);
       console.log('Run the migration scripts first to generate check files.');
     } else {
-      const { modified, skipped, errors } = await deactivateFailingTests(failingIds);
+      const { modified, skipped, errors } = await deactivateTests(deactivateMap);
 
       console.log('\n' + '-'.repeat(40));
       console.log('File Modification Summary');
@@ -469,10 +518,15 @@ async function main(): Promise<void> {
   console.log('Done!');
   console.log('='.repeat(60));
 
-  if (report.summary.failing > 0) {
-    console.log(`\n${report.summary.failing} test(s) were failing in Datadog.`);
-    console.log('These checks have been deactivated and tagged with "failingInDatadog".');
-    console.log('Review them after migration and re-activate once the underlying issues are fixed.');
+  if (report.summary.deactivated > 0) {
+    console.log(`\n${report.summary.deactivated} test(s) deactivated:`);
+    if (report.summary.failing > 0) {
+      console.log(`  - ${report.summary.failing} failing (Alert) → tagged "failingInDatadog"`);
+    }
+    if (report.summary.noData > 0) {
+      console.log(`  - ${report.summary.noData} no data (paused) → tagged "noDataInDatadog"`);
+    }
+    console.log('Review these after migration and re-activate once ready.');
   }
 }
 

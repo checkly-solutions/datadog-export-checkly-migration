@@ -138,22 +138,28 @@ interface Manifest {
   skipped?: Array<{ logicalId: string; name: string; reason?: string }>;
 }
 
+interface DdStatusCounts {
+  total: number;
+  passing: number;
+  failing: number;
+  noData: number;
+  unknown: number;
+  deactivated: number;
+}
+
 interface DdTestStatusFile {
   fetchedAt: string;
   site: string;
-  summary: {
-    total: number;
-    passing: number;
-    failing: number;
-    noData: number;
-    fetchErrors: number;
-  };
+  summary: DdStatusCounts;
+  publicSummary: DdStatusCounts;
+  privateSummary: DdStatusCounts;
   tests: Array<{
     publicId: string;
     name: string;
     monitorId: number | null;
     overallState: string;
-    isFailing: boolean;
+    isDeactivated: boolean;
+    locationType: 'public' | 'private';
     fetchedAt: string;
   }>;
 }
@@ -178,12 +184,13 @@ interface MigrationReport {
   notConverted: {
     nonHttpTests: {
       count: number;
-      byType: Record<string, number>;
+      byType: Record<string, Array<{ publicId: string; name: string }>>;
     };
     failedConversions: {
       count: number;
-      byReason: Record<string, number>;
+      tests: Array<{ publicId: string; name: string; reason: string }>;
     };
+    skippedFromManifests: Array<{ publicId: string; name: string; reason: string }>;
   };
   variables: {
     total: number;
@@ -205,16 +212,14 @@ interface MigrationReport {
   };
   datadogStatus?: {
     checkedAt: string;
-    summary: {
-      total: number;
-      passing: number;
-      failing: number;
-      noData: number;
-      fetchErrors: number;
-    };
-    failingTests: Array<{
+    summary: DdStatusCounts;
+    publicSummary: DdStatusCounts;
+    privateSummary: DdStatusCounts;
+    deactivatedTests: Array<{
       publicId: string;
       name: string;
+      reason: string;
+      locationType: string;
     }>;
   };
   nextSteps: string[];
@@ -275,12 +280,16 @@ function generateMarkdownReport(report: MigrationReport): string {
     if (report.notConverted.nonHttpTests.count > 0) {
       lines.push(`### Non-HTTP Tests (${report.notConverted.nonHttpTests.count} tests)`);
       lines.push('');
-      lines.push('Checkly migrator does not currently support TCP/DNS/ICMP/SSL tests directly. These tests were skipped:');
+      lines.push('Checkly does not support TCP/DNS/ICMP/SSL tests. These were skipped:');
       lines.push('');
-      for (const [type, count] of Object.entries(report.notConverted.nonHttpTests.byType)) {
-        lines.push(`- **${type.toUpperCase()}:** ${count} tests`);
+      for (const [type, tests] of Object.entries(report.notConverted.nonHttpTests.byType)) {
+        lines.push(`#### ${type.toUpperCase()} (${tests.length})`);
+        lines.push('');
+        for (const test of tests) {
+          lines.push(`- \`${test.publicId}\` — ${test.name}`);
+        }
+        lines.push('');
       }
-      lines.push('');
     }
 
     if (report.notConverted.failedConversions.count > 0) {
@@ -288,12 +297,23 @@ function generateMarkdownReport(report: MigrationReport): string {
       lines.push('');
       lines.push('These tests could not be converted:');
       lines.push('');
-      for (const [reason, count] of Object.entries(report.notConverted.failedConversions.byReason)) {
-        lines.push(`- **${reason}:** ${count} test(s)`);
+      for (const test of report.notConverted.failedConversions.tests) {
+        lines.push(`- \`${test.publicId}\` — ${test.name} (**${test.reason}**)`);
       }
       lines.push('');
       lines.push('> **Note:** Tests with unsupported HTTP methods (like OPTIONS) are skipped entirely.');
       lines.push('> Tests with JavaScript assertions are converted but without those assertions - review and add equivalent Playwright assertions manually.');
+      lines.push('');
+    }
+
+    if (report.notConverted.skippedFromManifests.length > 0) {
+      lines.push(`### Skipped Multi-Step/Browser Tests (${report.notConverted.skippedFromManifests.length} tests)`);
+      lines.push('');
+      lines.push('These tests were skipped during spec generation:');
+      lines.push('');
+      for (const test of report.notConverted.skippedFromManifests) {
+        lines.push(`- \`${test.publicId}\` — ${test.name} (**${test.reason}**)`);
+      }
       lines.push('');
     }
   }
@@ -305,29 +325,47 @@ function generateMarkdownReport(report: MigrationReport): string {
     lines.push('');
     lines.push(`**Checked at:** ${new Date(ds.checkedAt).toLocaleString()}`);
     lines.push('');
-    lines.push('| Status | Count |');
-    lines.push('|--------|-------|');
-    lines.push(`| Passing (OK) | ${ds.summary.passing} |`);
-    lines.push(`| Failing (Alert) | ${ds.summary.failing} |`);
-    lines.push(`| No Data | ${ds.summary.noData} |`);
-    lines.push(`| Unknown/Error | ${ds.summary.fetchErrors} |`);
-    lines.push(`| **Total** | **${ds.summary.total}** |`);
+    lines.push('| Status | Public | Private | Total |');
+    lines.push('|--------|--------|---------|-------|');
+    lines.push(`| Passing (OK) | ${ds.publicSummary.passing} | ${ds.privateSummary.passing} | ${ds.summary.passing} |`);
+    lines.push(`| Failing (Alert) | ${ds.publicSummary.failing} | ${ds.privateSummary.failing} | ${ds.summary.failing} |`);
+    lines.push(`| No Data | ${ds.publicSummary.noData} | ${ds.privateSummary.noData} | ${ds.summary.noData} |`);
+    lines.push(`| Unknown | ${ds.publicSummary.unknown} | ${ds.privateSummary.unknown} | ${ds.summary.unknown} |`);
+    lines.push(`| **Total** | **${ds.publicSummary.total}** | **${ds.privateSummary.total}** | **${ds.summary.total}** |`);
+    lines.push(`| **Deactivated** | **${ds.publicSummary.deactivated}** | **${ds.privateSummary.deactivated}** | **${ds.summary.deactivated}** |`);
     lines.push('');
 
-    if (ds.failingTests.length > 0) {
-      lines.push(`### Deactivated Checks (${ds.failingTests.length} tests failing in Datadog)`);
-      lines.push('');
-      lines.push('These checks have been set to `activated: false` and tagged with `"failingInDatadog"`:');
-      lines.push('');
-      const displayTests = ds.failingTests.slice(0, 25);
-      for (const test of displayTests) {
-        lines.push(`- \`${test.publicId}\` — ${test.name}`);
+    if (ds.deactivatedTests.length > 0) {
+      const failingTests = ds.deactivatedTests.filter(t => t.reason === 'Alert');
+      const noDataTests = ds.deactivatedTests.filter(t => t.reason === 'No Data');
+
+      if (failingTests.length > 0) {
+        lines.push(`### Failing Tests (${failingTests.length} — tagged \`failingInDatadog\`)`);
+        lines.push('');
+        const display = failingTests.slice(0, 25);
+        for (const test of display) {
+          lines.push(`- \`${test.publicId}\` [${test.locationType}] — ${test.name}`);
+        }
+        if (failingTests.length > 25) {
+          lines.push(`- ... and ${failingTests.length - 25} more`);
+        }
+        lines.push('');
       }
-      if (ds.failingTests.length > 25) {
-        lines.push(`- ... and ${ds.failingTests.length - 25} more (see dd-test-status.json)`);
+
+      if (noDataTests.length > 0) {
+        lines.push(`### No Data Tests (${noDataTests.length} — tagged \`noDataInDatadog\`)`);
+        lines.push('');
+        const display = noDataTests.slice(0, 25);
+        for (const test of display) {
+          lines.push(`- \`${test.publicId}\` [${test.locationType}] — ${test.name}`);
+        }
+        if (noDataTests.length > 25) {
+          lines.push(`- ... and ${noDataTests.length - 25} more (see dd-test-status.json)`);
+        }
+        lines.push('');
       }
-      lines.push('');
-      lines.push('> **Action:** Fix these tests in Datadog or investigate root causes before re-activating in Checkly.');
+
+      lines.push('> **Action:** Review deactivated checks. Fix failing tests or re-activate paused tests as needed.');
       lines.push('');
     }
   }
@@ -568,32 +606,45 @@ async function main(): Promise<void> {
 
   const totalDatadogTests = exportSummary.summary.apiTests + exportSummary.summary.browserTests;
 
-  // Calculate non-HTTP test counts
-  const nonHttpByType: Record<string, number> = {};
+  // Collect non-HTTP tests with names, grouped by type
+  const nonHttpByType: Record<string, Array<{ publicId: string; name: string }>> = {};
   if (apiChecks?.skippedNonHttpTests) {
     for (const [type, tests] of Object.entries(apiChecks.skippedNonHttpTests)) {
-      nonHttpByType[type] = tests.length;
+      nonHttpByType[type] = tests.map(t => ({ publicId: t.public_id, name: t.name }));
     }
   }
-  const nonHttpTotal = Object.values(nonHttpByType).reduce((a, b) => a + b, 0);
+  const nonHttpTotal = Object.values(nonHttpByType).reduce((sum, tests) => sum + tests.length, 0);
 
-  // Calculate failed conversions and categorize by reason
+  // Collect failed conversions with names and reasons
   const failedChecks = apiChecks?.checks.filter(c => c._conversionError) || [];
-  const failedCount = failedChecks.length;
-  const failedByReason: Record<string, number> = {};
+  const failedTests: Array<{ publicId: string; name: string; reason: string }> = [];
   for (const check of failedChecks) {
     const error = check._conversionError || 'Unknown error';
-    // Categorize by error type
-    let category: string;
+    let reason: string;
     if (error.includes('Unsupported HTTP method')) {
       const methodMatch = error.match(/method: (\w+)/);
-      category = methodMatch ? `Unsupported HTTP method: ${methodMatch[1]}` : 'Unsupported HTTP method';
+      reason = methodMatch ? `Unsupported HTTP method: ${methodMatch[1]}` : 'Unsupported HTTP method';
     } else if (error.includes('JavaScript')) {
-      category = 'JavaScript assertions not supported';
+      reason = 'JavaScript assertions not supported';
     } else {
-      category = error.length > 60 ? error.substring(0, 57) + '...' : error;
+      reason = error.length > 60 ? error.substring(0, 57) + '...' : error;
     }
-    failedByReason[category] = (failedByReason[category] || 0) + 1;
+    failedTests.push({ publicId: check.logicalId, name: check.name, reason });
+  }
+
+  // Collect skipped tests from manifests (multi-step and browser)
+  const skippedFromManifests: Array<{ publicId: string; name: string; reason: string }> = [];
+  const manifests = [browserManifestPublic, browserManifestPrivate, multiManifestPublic, multiManifestPrivate];
+  for (const manifest of manifests) {
+    if (manifest?.skipped) {
+      for (const s of manifest.skipped) {
+        skippedFromManifests.push({
+          publicId: s.logicalId,
+          name: s.name,
+          reason: s.reason || 'Incompatible step types',
+        });
+      }
+    }
   }
 
   // Build the report
@@ -632,7 +683,11 @@ async function main(): Promise<void> {
         count: nonHttpTotal,
         byType: nonHttpByType,
       },
-      failedConversions: { count: failedCount, byReason: failedByReason },
+      failedConversions: {
+        count: failedTests.length,
+        tests: failedTests,
+      },
+      skippedFromManifests,
     },
     variables: {
       total: (envVariables?.length || 0) + (secrets?.length || 0),
@@ -655,9 +710,16 @@ async function main(): Promise<void> {
     datadogStatus: ddTestStatus ? {
       checkedAt: ddTestStatus.fetchedAt,
       summary: ddTestStatus.summary,
-      failingTests: ddTestStatus.tests
-        .filter(t => t.isFailing)
-        .map(t => ({ publicId: t.publicId, name: t.name })),
+      publicSummary: ddTestStatus.publicSummary,
+      privateSummary: ddTestStatus.privateSummary,
+      deactivatedTests: ddTestStatus.tests
+        .filter(t => t.isDeactivated)
+        .map(t => ({
+          publicId: t.publicId,
+          name: t.name,
+          reason: t.overallState,
+          locationType: t.locationType,
+        })),
     } : undefined,
     nextSteps: [
       privateLocationsFile && privateLocationsFile.locations.length > 0
@@ -666,8 +728,8 @@ async function main(): Promise<void> {
       secrets && secrets.length > 0
         ? `Fill in values for ${secrets.length} secret variable(s) in checkly-migrated/variables/secrets.json`
         : null,
-      ddTestStatus && ddTestStatus.summary.failing > 0
-        ? `Review ${ddTestStatus.summary.failing} check(s) tagged "failingInDatadog" — these were failing in Datadog and are deactivated`
+      ddTestStatus && ddTestStatus.summary.deactivated > 0
+        ? `Review ${ddTestStatus.summary.deactivated} deactivated check(s) tagged "failingInDatadog" or "noDataInDatadog"`
         : null,
       'Run "npm run create:variables" to import variables to Checkly',
       'Configure alert channels in checkly-migrated/default_resources/alertChannels.ts',
@@ -711,7 +773,8 @@ async function main(): Promise<void> {
 
   if (report.datadogStatus) {
     console.log(`  Datadog tests failing: ${report.datadogStatus.summary.failing}`);
-    console.log(`  Checks deactivated (failingInDatadog): ${report.datadogStatus.failingTests.length}`);
+    console.log(`  Datadog tests no data: ${report.datadogStatus.summary.noData}`);
+    console.log(`  Total checks deactivated: ${report.datadogStatus.deactivatedTests.length}`);
   }
 
   console.log('\nView the full report:');
