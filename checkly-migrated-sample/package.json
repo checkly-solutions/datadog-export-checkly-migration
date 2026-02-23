@@ -1,0 +1,12 @@
+{
+  "name": "checkly-migration-sample",
+  "private": true,
+  "scripts": {
+    "test:private": "npx checkly test --config=./checkly.private.config.ts --record",
+    "test:public": "npx checkly test --config=./checkly.public.config.ts --record",
+    "deploy:private": "npx checkly deploy --config=./checkly.private.config.ts --force",
+    "deploy:public": "npx checkly deploy --config=./checkly.public.config.ts --force",
+    "create-variables": "ts-node variables/create-variables.ts",
+    "delete-variables": "ts-node variables/delete-variables.ts"
+  }
+}
