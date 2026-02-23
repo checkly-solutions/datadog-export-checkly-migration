@@ -7,10 +7,10 @@ Automated migration of Datadog Synthetic monitors to Checkly. Converts API, Brow
 ```bash
 npm install
 cp .env.example .env   # Edit with your credentials
-npm run migrate:all     # Prompts for customer name, outputs a self-contained project
+npm run migrate:all     # Reads CHECKLY_ACCOUNT_NAME from .env, outputs a self-contained project
 ```
 
-The pipeline prompts for a **customer name** (e.g. `acme`) and writes all output to `checkly-migrated/<customer-name>/` — a self-contained Checkly project directory.
+The pipeline reads `CHECKLY_ACCOUNT_NAME` from `.env` (e.g. `acme`) and writes all output to `checkly-migrated/<account-name>/` — a self-contained Checkly project directory. If the variable is not set, you'll be prompted.
 
 ## Configuration
 
@@ -31,9 +31,12 @@ DD_SITE=datadoghq.com  # Optional, see regions below
 
 ```bash
 DD_CHECK_STATUS=true  # Check Datadog test status and deactivate failing tests
+CHECKLY_ACCOUNT_NAME=acme  # Account name for output directory
 ```
 
-When enabled, the migration pipeline queries Datadog for current monitor statuses and deactivates checks that are already failing. See [Failing Test Deactivation](#failing-test-deactivation) below.
+When `DD_CHECK_STATUS` is enabled, the migration pipeline queries Datadog for current monitor statuses and deactivates checks that are already failing. See [Failing Test Deactivation](#failing-test-deactivation) below.
+
+`CHECKLY_ACCOUNT_NAME` sets the output directory name. Output goes to `checkly-migrated/<account-name>/`. If not set, you'll be prompted at runtime.
 
 ### Checkly Credentials (Required for variable import)
 
@@ -73,14 +76,14 @@ CHECKLY_ACCOUNT_ID=your_checkly_account_id
 - **OPTIONS HTTP method** - Not supported
 - **JavaScript assertions** - Must be manually converted to Playwright
 
-See `checkly-migrated/<customer-name>/migration-report.md` for a full breakdown of your specific migration.
+See `checkly-migrated/<account-name>/migration-report.md` for a full breakdown of your specific migration.
 
 ## After Migration: What To Do Next
 
-All commands below run from the customer directory:
+All commands below run from the account directory:
 
 ```bash
-cd checkly-migrated/<customer-name>
+cd checkly-migrated/<account-name>
 ```
 
 ### 1. Review the Migration Report
@@ -132,7 +135,7 @@ npm run deploy:private  # Deploy private checks
 ## Output Structure
 
 ```
-checkly-migrated/<customer-name>/
+checkly-migrated/<account-name>/
 ├── __checks__/
 │   ├── api/{public,private}/       # ApiCheck constructs
 │   ├── browser/{public,private}/   # BrowserCheck constructs
@@ -152,7 +155,7 @@ checkly-migrated/<customer-name>/
 ├── checkly.config.ts               # All checks config
 ├── checkly.private.config.ts       # Private checks config
 ├── checkly.public.config.ts        # Public checks config
-├── package.json                    # Customer project scripts
+├── package.json                    # Account project scripts
 ├── migration-report.json           # Machine-readable report
 └── migration-report.md             # Human-readable report
 ```
@@ -198,9 +201,9 @@ Tests are separated by location type:
 
 This allows you to deploy public checks immediately while setting up private locations.
 
-### Re-running for a Different Customer
+### Re-running for a Different Account
 
-Delete the `.customer-name` cache file at the project root, then run `npm run migrate:all` again. You'll be prompted for a new customer name.
+Change the `CHECKLY_ACCOUNT_NAME` value in `.env` and run `npm run migrate:all` again.
 
 ## Detailed Guides
 

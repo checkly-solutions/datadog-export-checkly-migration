@@ -32,7 +32,7 @@ npm run migrate:browser
 npm run generate:browser-specs
 ```
 
-Generates `.spec.ts` files in `checkly-migrated/<customer-name>/tests/browser/{public,private}/`.
+Generates `.spec.ts` files in `checkly-migrated/<account-name>/tests/browser/{public,private}/`.
 
 ### Step 2: Generate BrowserCheck Constructs
 
@@ -40,7 +40,7 @@ Generates `.spec.ts` files in `checkly-migrated/<customer-name>/tests/browser/{p
 npm run generate:browser-checks
 ```
 
-Generates `.check.ts` files in `checkly-migrated/<customer-name>/__checks__/browser/{public,private}/`.
+Generates `.check.ts` files in `checkly-migrated/<account-name>/__checks__/browser/{public,private}/`.
 
 ### One-Command Migration
 
@@ -53,7 +53,7 @@ Runs steps 1-2 together.
 ## Output Structure
 
 ```
-checkly-migrated/<customer-name>/
+checkly-migrated/<account-name>/
 ├── __checks__/
 │   └── browser/
 │       ├── public/
@@ -171,10 +171,10 @@ Datadog variables are converted to Checkly environment variables:
 
 ## Test and Deploy to Checkly
 
-Run from the customer directory:
+Run from the account directory:
 
 ```bash
-cd checkly-migrated/<customer-name>
+cd checkly-migrated/<account-name>
 
 # Test public browser checks
 npm run test:public

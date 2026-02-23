@@ -34,7 +34,7 @@ npm run migrate:api
 npm run export
 ```
 
-Creates `checkly-migrated/<customer-name>/exports/api-tests.json` with all your Datadog API synthetic tests.
+Creates `checkly-migrated/<account-name>/exports/api-tests.json` with all your Datadog API synthetic tests.
 
 ### Step 2: Filter Multi-Step Tests
 
@@ -61,7 +61,7 @@ Transforms Datadog tests into intermediate format at `exports/checkly-api-checks
 npm run generate:checkly
 ```
 
-Generates TypeScript files in `checkly-migrated/<customer-name>/__checks__/api/{public,private}/`.
+Generates TypeScript files in `checkly-migrated/<account-name>/__checks__/api/{public,private}/`.
 
 ### One-Command Migration
 
@@ -73,10 +73,10 @@ npm run migrate:api
 
 ## Output Structure
 
-Checks are separated by location type inside the customer directory:
+Checks are separated by location type inside the account directory:
 
 ```
-checkly-migrated/<customer-name>/
+checkly-migrated/<account-name>/
 └── __checks__/
     └── api/
         ├── public/              # Checks using public locations only
@@ -165,10 +165,10 @@ Checks using Datadog private locations (`pl:*`) are placed in the `private/` fol
 
 ## Test and Deploy to Checkly
 
-Run from the customer directory:
+Run from the account directory:
 
 ```bash
-cd checkly-migrated/<customer-name>
+cd checkly-migrated/<account-name>
 
 # Test public API checks
 npm run test:public

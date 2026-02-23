@@ -15,7 +15,7 @@
 import { readFile, writeFile, readdir, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import { getOutputRoot, getCustomerName } from './shared/output-config.ts';
+import { getOutputRoot, getAccountName } from './shared/output-config.ts';
 
 let CHECKS_BASE = '';
 const CHECK_TYPES = ['api', 'multi', 'browser'];
@@ -211,7 +211,7 @@ async function main(): Promise<void> {
   console.log('Add Default Resources to Checkly Checks');
   console.log('='.repeat(60));
 
-  // Generate default_resources inside customer directory
+  // Generate default_resources inside account directory
   const defaultResourcesDir = `${outputRoot}/default_resources`;
   if (!existsSync(defaultResourcesDir)) {
     await mkdir(defaultResourcesDir, { recursive: true });
@@ -293,9 +293,9 @@ export const alertChannels = [emailChannel];
   console.log('  - group: public_locations_group or private_locations_group');
   console.log('  - tags: added "public" or "private" tag to each check');
 
-  // Generate checkly config files and package.json inside customer directory
-  const customerName = await getCustomerName();
-  await generateProjectFiles(outputRoot, customerName);
+  // Generate checkly config files and package.json inside account directory
+  const accountName = await getAccountName();
+  await generateProjectFiles(outputRoot, accountName);
 
   console.log('\nTo customize alert channels:');
   console.log(`  1. Edit ${outputRoot}/default_resources/alertChannels.ts`);
@@ -312,17 +312,17 @@ export const alertChannels = [emailChannel];
 }
 
 /**
- * Generate checkly config files and package.json inside the customer directory
+ * Generate checkly config files and package.json inside the account directory
  */
-async function generateProjectFiles(outputRoot: string, customerName: string): Promise<void> {
+async function generateProjectFiles(outputRoot: string, accountName: string): Promise<void> {
   console.log('\nGenerating project files...');
 
   // checkly.config.ts
   const checklyConfig = `import { defineConfig } from "checkly";
 
 const config = defineConfig({
-  projectName: \`${customerName} migrated checks\`,
-  logicalId: \`${customerName}-migrated-checks\`,
+  projectName: \`${accountName} migrated checks\`,
+  logicalId: \`${accountName}-migrated-checks\`,
   repoUrl: "",
   checks: {
     activated: true,
@@ -345,8 +345,8 @@ export default config;
   const privateConfig = `import { defineConfig } from "checkly";
 
 const config = defineConfig({
-  projectName: \`${customerName} migrated checks - private\`,
-  logicalId: \`${customerName}-migrated-checks-private\`,
+  projectName: \`${accountName} migrated checks - private\`,
+  logicalId: \`${accountName}-migrated-checks-private\`,
   repoUrl: "",
   checks: {
     activated: true,
@@ -369,8 +369,8 @@ export default config;
   const publicConfig = `import { defineConfig } from "checkly";
 
 const config = defineConfig({
-  projectName: \`${customerName} migrated checks - public\`,
-  logicalId: \`${customerName}-migrated-checks-public\`,
+  projectName: \`${accountName} migrated checks - public\`,
+  logicalId: \`${accountName}-migrated-checks-public\`,
   repoUrl: "",
   checks: {
     activated: true,
@@ -391,7 +391,7 @@ export default config;
 
   // package.json
   const packageJson = {
-    name: `checkly-${customerName}`,
+    name: `checkly-${accountName}`,
     private: true,
     scripts: {
       "test:private": "npx checkly test --config=./checkly.private.config.ts --record",

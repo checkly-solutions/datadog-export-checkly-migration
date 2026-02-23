@@ -9,9 +9,6 @@
 # Datadog export output
 checkly-migrated/*
 
-# Customer name cache
-.customer-name
-
 
 # Logs
 logs

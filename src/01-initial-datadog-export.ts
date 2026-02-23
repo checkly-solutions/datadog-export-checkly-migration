@@ -382,7 +382,7 @@ async function writeJsonFile(filename: string, data: unknown): Promise<void> {
 
 // Main export function
 async function main(): Promise<void> {
-  // Prompt for customer name early so it's cached for all subsequent pipeline steps
+  // Resolve account name early so it's available for all subsequent pipeline steps
   const outputRoot = await getOutputRoot();
   OUTPUT_DIR = await getExportsDir();
   console.log(`Output will be written to: ${outputRoot}`);

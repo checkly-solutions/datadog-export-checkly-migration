@@ -18,17 +18,17 @@ npm run convert:variables
 # 4. Fill in secret values in secrets.json
 # migrated secrets do not contain original values
 
-# 5. Run the import from the customer directory
-cd checkly-migrated/<customer-name>
+# 5. Run the import from the account directory
+cd checkly-migrated/<account-name>
 npm run create-variables
 ```
 
 ## Output Structure
 
-All output is written to the customer directory:
+All output is written to the account directory:
 
 ```
-checkly-migrated/<customer-name>/
+checkly-migrated/<account-name>/
 └── variables/
     ├── env-variables.json      # Non-secure vars (values included)
     ├── secrets.json            # Secure vars (values empty - fill manually)
@@ -90,12 +90,12 @@ Get these from [Checkly Settings](https://app.checklyhq.com/settings/account/api
 
 ### Step 2: Fill in Secret Values
 
-Edit `checkly-migrated/<customer-name>/variables/secrets.json` and add the actual values for each secret.
+Edit `checkly-migrated/<account-name>/variables/secrets.json` and add the actual values for each secret.
 
 ### Step 3: Run the Create Script
 
 ```bash
-cd checkly-migrated/<customer-name>
+cd checkly-migrated/<account-name>
 npm run create-variables
 ```
 
@@ -109,7 +109,7 @@ The script:
 To remove all variables (for cleanup or re-import):
 
 ```bash
-cd checkly-migrated/<customer-name>
+cd checkly-migrated/<account-name>
 npm run delete-variables
 ```
 

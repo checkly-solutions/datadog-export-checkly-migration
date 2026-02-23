@@ -43,7 +43,7 @@ Creates `exports/multi-step-tests.json` with all tests that have `subtype: "mult
 npm run generate:multi-specs
 ```
 
-Generates `.spec.ts` files in `checkly-migrated/<customer-name>/tests/multi/{public,private}/`.
+Generates `.spec.ts` files in `checkly-migrated/<account-name>/tests/multi/{public,private}/`.
 
 ### Step 3: Generate MultiStepCheck Constructs
 
@@ -51,7 +51,7 @@ Generates `.spec.ts` files in `checkly-migrated/<customer-name>/tests/multi/{pub
 npm run generate:multi-checks
 ```
 
-Generates `.check.ts` files in `checkly-migrated/<customer-name>/__checks__/multi/{public,private}/`.
+Generates `.check.ts` files in `checkly-migrated/<account-name>/__checks__/multi/{public,private}/`.
 
 ### One-Command Migration
 
@@ -64,7 +64,7 @@ Runs steps 2-3 together.
 ## Output Structure
 
 ```
-checkly-migrated/<customer-name>/
+checkly-migrated/<account-name>/
 ├── __checks__/
 │   └── multi/
 │       ├── public/
@@ -184,10 +184,10 @@ Skipped tests are recorded in `_manifest.json`:
 
 ## Test and Deploy to Checkly
 
-Run from the customer directory:
+Run from the account directory:
 
 ```bash
-cd checkly-migrated/<customer-name>
+cd checkly-migrated/<account-name>
 
 # Test public multi-step checks
 npm run test:public
