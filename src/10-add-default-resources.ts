@@ -401,6 +401,11 @@ export default config;
       "create-variables": "ts-node variables/create-variables.ts",
       "delete-variables": "ts-node variables/delete-variables.ts",
     },
+    devDependencies: {
+      "checkly": "^7.1.0",
+      "ts-node": "^10.9.2",
+      "typescript": "^5.9.3",
+    },
   };
   await writeFile(path.join(outputRoot, 'package.json'), JSON.stringify(packageJson, null, 2) + '\n', 'utf-8');
   console.log(`  Generated: ${outputRoot}/package.json`);
