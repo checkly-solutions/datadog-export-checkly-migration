@@ -456,6 +456,7 @@ function generateSpecFile(test: BrowserTest): string {
 
 test.describe("${testName}", () => {
   test("${testName}", async ({ page }) => {
+    test.setTimeout(120_000);
 `;
 
   // Prepend navigation to start URL if needed
