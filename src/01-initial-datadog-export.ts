@@ -19,13 +19,14 @@ import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { deriveChecklySlugFromDatadogPrivateLocation } from './shared/utils.ts';
+import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
 // Configuration
 const DD_API_KEY = process.env.DD_API_KEY;
 const DD_APP_KEY = process.env.DD_APP_KEY;
 const DD_SITE = process.env.DD_SITE || 'datadoghq.com';
 const BASE_URL = `https://api.${DD_SITE}/api/v1`;
-const OUTPUT_DIR = './exports';
+let OUTPUT_DIR = '';
 
 interface DatadogTest {
   public_id: string;
@@ -381,6 +382,11 @@ async function writeJsonFile(filename: string, data: unknown): Promise<void> {
 
 // Main export function
 async function main(): Promise<void> {
+  // Prompt for customer name early so it's cached for all subsequent pipeline steps
+  const outputRoot = await getOutputRoot();
+  OUTPUT_DIR = await getExportsDir();
+  console.log(`Output will be written to: ${outputRoot}`);
+
   console.log('='.repeat(60));
   console.log('Datadog Synthetics Export Tool');
   console.log('='.repeat(60));

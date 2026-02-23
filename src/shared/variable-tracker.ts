@@ -10,8 +10,7 @@
 
 import { writeFile, readFile } from 'fs/promises';
 import { existsSync } from 'fs';
-
-const OUTPUT_FILE = './exports/variable-usage.json';
+import { getExportsDir } from './output-config.ts';
 
 export interface VariableUsage {
   usageCount: number;
@@ -104,6 +103,8 @@ export function getVariableUsage(): Record<string, VariableUsage> {
  * Write the variable usage report to disk
  */
 export async function writeVariableUsageReport(): Promise<void> {
+  const exportsDir = await getExportsDir();
+  const outputFile = `${exportsDir}/variable-usage.json`;
   const usage = getVariableUsage();
 
   const report: VariableUsageReport = {
@@ -121,20 +122,23 @@ export async function writeVariableUsageReport(): Promise<void> {
   }
   report.variables = sortedVariables;
 
-  await writeFile(OUTPUT_FILE, JSON.stringify(report, null, 2), 'utf-8');
-  console.log(`  Written: ${OUTPUT_FILE}`);
+  await writeFile(outputFile, JSON.stringify(report, null, 2), 'utf-8');
+  console.log(`  Written: ${outputFile}`);
 }
 
 /**
  * Load existing variable usage report (for merging across generator runs)
  */
 export async function loadExistingVariableUsage(): Promise<void> {
-  if (!existsSync(OUTPUT_FILE)) {
+  const exportsDir = await getExportsDir();
+  const outputFile = `${exportsDir}/variable-usage.json`;
+
+  if (!existsSync(outputFile)) {
     return;
   }
 
   try {
-    const content = await readFile(OUTPUT_FILE, 'utf-8');
+    const content = await readFile(outputFile, 'utf-8');
     const report = JSON.parse(content) as VariableUsageReport;
 
     // Merge existing data into in-memory store

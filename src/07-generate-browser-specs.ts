@@ -12,11 +12,7 @@ import { existsSync } from 'fs';
 import path from 'path';
 import { sanitizeFilename, hasPrivateLocations, escapeTemplateLiteral, escapeString } from './shared/utils.ts';
 import { trackVariablesFromMultiple, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
-
-const INPUT_FILE = './exports/browser-tests.json';
-const OUTPUT_BASE = './checkly-migrated/tests/browser';
-const OUTPUT_DIR_PUBLIC = `${OUTPUT_BASE}/public`;
-const OUTPUT_DIR_PRIVATE = `${OUTPUT_BASE}/private`;
+import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
 interface ElementLocator {
   targetOuterHTML?: string;
@@ -544,6 +540,13 @@ async function generateSpecsForTests(
  * Main generation function
  */
 async function main(): Promise<void> {
+  const outputRoot = await getOutputRoot();
+  const exportsDir = await getExportsDir();
+  const INPUT_FILE = `${exportsDir}/browser-tests.json`;
+  const OUTPUT_BASE = `${outputRoot}/tests/browser`;
+  const OUTPUT_DIR_PUBLIC = `${OUTPUT_BASE}/public`;
+  const OUTPUT_DIR_PRIVATE = `${OUTPUT_BASE}/private`;
+
   console.log('='.repeat(60));
   console.log('Browser Test Playwright Spec Generator');
   console.log('='.repeat(60));

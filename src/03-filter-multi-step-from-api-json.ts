@@ -9,10 +9,11 @@
 import { readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { getExportsDir } from './shared/output-config.ts';
 
-const EXPORTS_DIR = './exports';
-const API_TESTS_FILE = path.join(EXPORTS_DIR, 'api-tests.json');
-const MULTI_STEP_FILE = path.join(EXPORTS_DIR, 'multi-step-tests.json');
+let EXPORTS_DIR = '';
+let API_TESTS_FILE = '';
+let MULTI_STEP_FILE = '';
 
 interface DatadogTest {
   public_id: string;
@@ -29,6 +30,10 @@ interface ExportData {
 }
 
 async function main(): Promise<void> {
+  EXPORTS_DIR = await getExportsDir();
+  API_TESTS_FILE = path.join(EXPORTS_DIR, 'api-tests.json');
+  MULTI_STEP_FILE = path.join(EXPORTS_DIR, 'multi-step-tests.json');
+
   console.log('Filtering multi-step tests from API tests...');
 
   // Check input file exists

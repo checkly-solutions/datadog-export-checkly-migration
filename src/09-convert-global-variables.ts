@@ -16,9 +16,7 @@
 
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
-
-const INPUT_FILE = './exports/global-variables.json';
-const OUTPUT_DIR = './checkly-migrated/variables';
+import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
 interface DatadogVariable {
   name: string;
@@ -38,6 +36,11 @@ interface ChecklyVariable {
  * Main conversion function
  */
 async function main(): Promise<void> {
+  const outputRoot = await getOutputRoot();
+  const exportsDir = await getExportsDir();
+  const INPUT_FILE = `${exportsDir}/global-variables.json`;
+  const OUTPUT_DIR = `${outputRoot}/variables`;
+
   console.log('='.repeat(60));
   console.log('Datadog Global Variables → Checkly Environment Variables');
   console.log('='.repeat(60));
@@ -133,7 +136,7 @@ async function main(): Promise<void> {
   console.log('\nNext steps:');
   console.log('  1. Add CHECKLY_API_KEY and CHECKLY_ACCOUNT_ID to .env file');
   console.log('  2. Fill in secret values in secrets.json');
-  console.log('  3. Run: npm run create:variables');
+  console.log(`  3. Run: cd ${OUTPUT_DIR}/.. && npm run create-variables`);
   console.log('\nDone!');
 }
 
@@ -146,7 +149,7 @@ function generateCreateScript(): string {
  * Creates Checkly environment variables via API
  * and appends them to the local .env file.
  *
- * Usage: npm run create:variables
+ * Usage: npm run create-variables
  */
 
 import { readFile, writeFile, appendFile } from 'fs/promises';
@@ -154,7 +157,7 @@ import { existsSync } from 'fs';
 import 'dotenv/config';
 import path from 'path';
 
-const SCRIPT_DIR = './checkly-migrated/variables';
+const SCRIPT_DIR = './variables';
 const ENV_FILE = './.env';
 const API_URL = 'https://api.checklyhq.com/v1/variables';
 
@@ -336,7 +339,7 @@ function generateDeleteScript(): string {
  * Deletes Checkly environment variables via API
  * and removes them from the local .env file.
  *
- * Usage: npm run delete:variables
+ * Usage: npm run delete-variables
  */
 
 import { readFile, writeFile } from 'fs/promises';
@@ -345,7 +348,7 @@ import 'dotenv/config';
 import path from 'path';
 import * as readline from 'readline';
 
-const SCRIPT_DIR = './checkly-migrated/variables';
+const SCRIPT_DIR = './variables';
 const ENV_FILE = './.env';
 const API_URL = 'https://api.checklyhq.com/v1/variables';
 

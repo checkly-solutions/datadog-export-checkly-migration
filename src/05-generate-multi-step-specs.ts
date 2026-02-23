@@ -13,11 +13,7 @@ import { existsSync } from 'fs';
 import path from 'path';
 import { sanitizeFilename, hasPrivateLocations, escapeTemplateLiteral, escapeString } from './shared/utils.ts';
 import { trackVariablesFromMultiple, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
-
-const INPUT_FILE = './exports/multi-step-tests.json';
-const OUTPUT_BASE = './checkly-migrated/tests/multi';
-const OUTPUT_DIR_PUBLIC = `${OUTPUT_BASE}/public`;
-const OUTPUT_DIR_PRIVATE = `${OUTPUT_BASE}/private`;
+import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
 interface DatadogAssertion {
   type: string;
@@ -468,6 +464,13 @@ async function generateSpecsForTests(
  * Main generation function
  */
 async function main(): Promise<void> {
+  const outputRoot = await getOutputRoot();
+  const exportsDir = await getExportsDir();
+  const INPUT_FILE = `${exportsDir}/multi-step-tests.json`;
+  const OUTPUT_BASE = `${outputRoot}/tests/multi`;
+  const OUTPUT_DIR_PUBLIC = `${OUTPUT_BASE}/public`;
+  const OUTPUT_DIR_PRIVATE = `${OUTPUT_BASE}/private`;
+
   console.log('='.repeat(60));
   console.log('Multi-Step Playwright Spec Generator');
   console.log('='.repeat(60));

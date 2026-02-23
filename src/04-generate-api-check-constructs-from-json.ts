@@ -13,11 +13,7 @@ import { existsSync } from 'fs';
 import path from 'path';
 import { sanitizeFilename, generateLogicalId, hasPrivateLocations } from './shared/utils.ts';
 import { trackVariablesFromMultiple, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
-
-const INPUT_FILE = './exports/checkly-api-checks.json';
-const OUTPUT_BASE = './checkly-migrated/__checks__/api';
-const OUTPUT_DIR_PUBLIC = `${OUTPUT_BASE}/public`;
-const OUTPUT_DIR_PRIVATE = `${OUTPUT_BASE}/private`;
+import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
 interface ChecklyAssertion {
   source: string;
@@ -440,6 +436,13 @@ ${imports.join('\n')}
  * Main generation function
  */
 async function main(): Promise<void> {
+  const outputRoot = await getOutputRoot();
+  const exportsDir = await getExportsDir();
+  const INPUT_FILE = `${exportsDir}/checkly-api-checks.json`;
+  const OUTPUT_BASE = `${outputRoot}/__checks__/api`;
+  const OUTPUT_DIR_PUBLIC = `${OUTPUT_BASE}/public`;
+  const OUTPUT_DIR_PRIVATE = `${OUTPUT_BASE}/private`;
+
   console.log('='.repeat(60));
   console.log('Checkly Construct Generator');
   console.log('='.repeat(60));

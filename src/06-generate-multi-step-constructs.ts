@@ -12,12 +12,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { FREQUENCY_MAP, sanitizeFilename, generateLogicalId, convertFrequency } from './shared/utils.ts';
-
-const INPUT_FILE = './exports/multi-step-tests.json';
-const MANIFEST_FILE_PUBLIC = './checkly-migrated/tests/multi/public/_manifest.json';
-const MANIFEST_FILE_PRIVATE = './checkly-migrated/tests/multi/private/_manifest.json';
-const OUTPUT_DIR_PUBLIC = './checkly-migrated/__checks__/multi/public';
-const OUTPUT_DIR_PRIVATE = './checkly-migrated/__checks__/multi/private';
+import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 // Relative path from __checks__/multi/{public,private} to tests/multi/{public,private}
 const SPECS_RELATIVE_PATH = '../../../tests/multi';
 
@@ -194,6 +189,14 @@ async function generateConstructsForLocationType(
  * Main generation function
  */
 async function main(): Promise<void> {
+  const outputRoot = await getOutputRoot();
+  const exportsDir = await getExportsDir();
+  const INPUT_FILE = `${exportsDir}/multi-step-tests.json`;
+  const MANIFEST_FILE_PUBLIC = `${outputRoot}/tests/multi/public/_manifest.json`;
+  const MANIFEST_FILE_PRIVATE = `${outputRoot}/tests/multi/private/_manifest.json`;
+  const OUTPUT_DIR_PUBLIC = `${outputRoot}/__checks__/multi/public`;
+  const OUTPUT_DIR_PRIVATE = `${outputRoot}/__checks__/multi/private`;
+
   console.log('='.repeat(60));
   console.log('MultiStepCheck Construct Generator');
   console.log('='.repeat(60));

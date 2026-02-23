@@ -32,7 +32,7 @@ npm run migrate:browser
 npm run generate:browser-specs
 ```
 
-Generates `.spec.ts` files in `checkly-migrated/tests/browser/{public,private}/`.
+Generates `.spec.ts` files in `checkly-migrated/<customer-name>/tests/browser/{public,private}/`.
 
 ### Step 2: Generate BrowserCheck Constructs
 
@@ -40,7 +40,7 @@ Generates `.spec.ts` files in `checkly-migrated/tests/browser/{public,private}/`
 npm run generate:browser-checks
 ```
 
-Generates `.check.ts` files in `checkly-migrated/__checks__/browser/{public,private}/`.
+Generates `.check.ts` files in `checkly-migrated/<customer-name>/__checks__/browser/{public,private}/`.
 
 ### One-Command Migration
 
@@ -53,7 +53,7 @@ Runs steps 1-2 together.
 ## Output Structure
 
 ```
-checkly-migrated/
+checkly-migrated/<customer-name>/
 ├── __checks__/
 │   └── browser/
 │       ├── public/
@@ -171,20 +171,22 @@ Datadog variables are converted to Checkly environment variables:
 
 ## Test and Deploy to Checkly
 
-Use the appropriate config file for public or private checks:
+Run from the customer directory:
 
 ```bash
+cd checkly-migrated/<customer-name>
+
 # Test public browser checks
-npx checkly test --config checkly.public.config.ts
+npm run test:public
 
 # Test private browser checks (requires private locations in your account)
-npx checkly test --config checkly.private.config.ts
+npm run test:private
 
 # Deploy public checks
-npx checkly deploy --config checkly.public.config.ts
+npm run deploy:public
 
 # Deploy private checks
-npx checkly deploy --config checkly.private.config.ts
+npm run deploy:private
 ```
 
 ## NPM Scripts

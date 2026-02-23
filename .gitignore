@@ -7,8 +7,10 @@
 !.env.example
 
 # Datadog export output
-exports/*
 checkly-migrated/*
+
+# Customer name cache
+.customer-name
 
 
 # Logs

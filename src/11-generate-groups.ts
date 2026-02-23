@@ -12,8 +12,9 @@
 
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
+import { getOutputRoot } from './shared/output-config.ts';
 
-const OUTPUT_BASE = './checkly-migrated/__checks__/groups';
+let OUTPUT_BASE = '';
 
 const PRIVATE_GROUP = `import { CheckGroupV2 } from "checkly/constructs";
 
@@ -40,6 +41,8 @@ export const public_locations_group = new CheckGroupV2(
 `;
 
 async function main(): Promise<void> {
+  OUTPUT_BASE = `${await getOutputRoot()}/__checks__/groups`;
+
   console.log('='.repeat(60));
   console.log('Generate Check Groups');
   console.log('='.repeat(60));

@@ -13,10 +13,11 @@ import { readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { FREQUENCY_MAP, convertFrequency } from './shared/utils.ts';
+import { getExportsDir } from './shared/output-config.ts';
 
-const EXPORTS_DIR = './exports';
-const INPUT_FILE = path.join(EXPORTS_DIR, 'api-tests.json');
-const OUTPUT_FILE = path.join(EXPORTS_DIR, 'checkly-api-checks.json');
+let EXPORTS_DIR = '';
+let INPUT_FILE = '';
+let OUTPUT_FILE = '';
 
 interface DatadogAssertion {
   type: string;
@@ -316,6 +317,10 @@ function convertTest(ddTest: DatadogTest): ChecklyCheck {
  * Main conversion function
  */
 async function main(): Promise<void> {
+  EXPORTS_DIR = await getExportsDir();
+  INPUT_FILE = path.join(EXPORTS_DIR, 'api-tests.json');
+  OUTPUT_FILE = path.join(EXPORTS_DIR, 'checkly-api-checks.json');
+
   console.log('='.repeat(60));
   console.log('Datadog to Checkly API Check Converter');
   console.log('='.repeat(60));

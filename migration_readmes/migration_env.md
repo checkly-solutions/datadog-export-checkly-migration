@@ -15,24 +15,25 @@ npm run convert:variables
 # CHECKLY_API_KEY=your_key
 # CHECKLY_ACCOUNT_ID=your_account_id
 
-# 4. Fill in secret values in secrets.json 
+# 4. Fill in secret values in secrets.json
 # migrated secrets do not contain original values
 
-# 5. Run the import
-cd checkly-migrated/variables
-chmod +x create-variables.sh
-./create-variables.sh
+# 5. Run the import from the customer directory
+cd checkly-migrated/<customer-name>
+npm run create-variables
 ```
 
 ## Output Structure
 
+All output is written to the customer directory:
+
 ```
-checkly-migrated/
+checkly-migrated/<customer-name>/
 └── variables/
     ├── env-variables.json      # Non-secure vars (values included)
     ├── secrets.json            # Secure vars (values empty - fill manually)
-    ├── create-variables.sh     # Script to create vars via API
-    └── delete-variables.sh     # Script to delete vars via API
+    ├── create-variables.ts     # Script to create vars via API
+    └── delete-variables.ts     # Script to delete vars via API
 ```
 
 ## JSON Format
@@ -89,14 +90,13 @@ Get these from [Checkly Settings](https://app.checklyhq.com/settings/account/api
 
 ### Step 2: Fill in Secret Values
 
-Edit `checkly-migrated/variables/secrets.json` and add the actual values for each secret.
+Edit `checkly-migrated/<customer-name>/variables/secrets.json` and add the actual values for each secret.
 
 ### Step 3: Run the Create Script
 
 ```bash
-cd checkly-migrated/variables
-chmod +x create-variables.sh
-./create-variables.sh
+cd checkly-migrated/<customer-name>
+npm run create-variables
 ```
 
 The script:
@@ -109,7 +109,8 @@ The script:
 To remove all variables (for cleanup or re-import):
 
 ```bash
-./delete-variables.sh
+cd checkly-migrated/<customer-name>
+npm run delete-variables
 ```
 
 Prompts for confirmation before deleting.
@@ -124,11 +125,6 @@ The scripts use the Checkly API:
 | Delete | `DELETE https://api.checklyhq.com/v1/variables/{key}` |
 
 See [Checkly API Docs](https://developers.checklyhq.com/reference/postv1variables) for details.
-
-## Requirements
-
-- `jq` must be installed (for JSON parsing in shell scripts)
-- Checkly API key with write permissions
 
 ## Security Notes
 

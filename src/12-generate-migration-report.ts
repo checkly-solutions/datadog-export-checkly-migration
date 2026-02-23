@@ -16,30 +16,31 @@
 import { readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
-const EXPORTS_DIR = './exports';
-const CHECKLY_DIR = './checkly-migrated';
+let EXPORTS_DIR = '';
+let CHECKLY_DIR = '';
 
-// Input files
-const FILES = {
-  exportSummary: path.join(EXPORTS_DIR, 'export-summary.json'),
-  privateLocations: path.join(EXPORTS_DIR, 'private-locations.json'),
-  apiChecks: path.join(EXPORTS_DIR, 'checkly-api-checks.json'),
-  multiStepTests: path.join(EXPORTS_DIR, 'multi-step-tests.json'),
-  browserTests: path.join(EXPORTS_DIR, 'browser-tests.json'),
-  envVariables: path.join(CHECKLY_DIR, 'variables', 'env-variables.json'),
-  secrets: path.join(CHECKLY_DIR, 'variables', 'secrets.json'),
-  variableUsage: path.join(EXPORTS_DIR, 'variable-usage.json'),
-  ddTestStatus: path.join(EXPORTS_DIR, 'dd-test-status.json'),
-  browserManifestPublic: path.join(CHECKLY_DIR, 'tests', 'browser', 'public', '_manifest.json'),
-  browserManifestPrivate: path.join(CHECKLY_DIR, 'tests', 'browser', 'private', '_manifest.json'),
-  multiManifestPublic: path.join(CHECKLY_DIR, 'tests', 'multi', 'public', '_manifest.json'),
-  multiManifestPrivate: path.join(CHECKLY_DIR, 'tests', 'multi', 'private', '_manifest.json'),
+// Input files - initialized in main() after CHECKLY_DIR is set
+let FILES: {
+  exportSummary: string;
+  privateLocations: string;
+  apiChecks: string;
+  multiStepTests: string;
+  browserTests: string;
+  envVariables: string;
+  secrets: string;
+  variableUsage: string;
+  ddTestStatus: string;
+  browserManifestPublic: string;
+  browserManifestPrivate: string;
+  multiManifestPublic: string;
+  multiManifestPrivate: string;
 };
 
-// Output files
-const OUTPUT_JSON = path.join(EXPORTS_DIR, 'migration-report.json');
-const OUTPUT_MD = path.join(EXPORTS_DIR, 'migration-report.md');
+// Output files - initialized in main() after CHECKLY_DIR is set
+let OUTPUT_JSON = '';
+let OUTPUT_MD = '';
 
 // Types for the input data
 interface ExportSummary {
@@ -400,7 +401,7 @@ function generateMarkdownReport(report: MigrationReport): string {
     lines.push('');
     lines.push('Secure variables were exported without values (Datadog does not expose them).');
     lines.push('');
-    lines.push('**Edit:** `checkly-migrated/variables/secrets.json`');
+    lines.push(`**Edit:** \`${CHECKLY_DIR}/variables/secrets.json\``);
     lines.push('');
 
     // Show secrets with usage counts, sorted by priority (most used first)
@@ -448,21 +449,23 @@ function generateMarkdownReport(report: MigrationReport): string {
   // Next steps
   lines.push('### 3. Import Variables to Checkly');
   lines.push('');
-  lines.push('After filling in secret values:');
+  lines.push(`After filling in secret values, run from \`${CHECKLY_DIR}/\`:`);
   lines.push('');
   lines.push('```bash');
-  lines.push('npm run create:variables');
+  lines.push('npm run create-variables');
   lines.push('```');
   lines.push('');
 
   lines.push('### 4. Configure Alert Channels');
   lines.push('');
-  lines.push('**Edit:** `checkly-migrated/default_resources/alertChannels.ts`');
+  lines.push(`**Edit:** \`${CHECKLY_DIR}/default_resources/alertChannels.ts\``);
   lines.push('');
   lines.push('Configure your alert channels (Email, Slack, PagerDuty, etc.) before deployment.');
   lines.push('');
 
   lines.push('### 5. Test the Migration');
+  lines.push('');
+  lines.push(`Run from \`${CHECKLY_DIR}/\`:`);
   lines.push('');
   lines.push('```bash');
   lines.push('# Test public location checks');
@@ -474,6 +477,8 @@ function generateMarkdownReport(report: MigrationReport): string {
   lines.push('');
 
   lines.push('### 6. Deploy to Checkly');
+  lines.push('');
+  lines.push(`Run from \`${CHECKLY_DIR}/\`:`);
   lines.push('');
   lines.push('```bash');
   lines.push('# Deploy public checks first');
@@ -514,7 +519,7 @@ function generateMarkdownReport(report: MigrationReport): string {
       lines.push('');
 
       if (allVarsWithUsage.length > 10) {
-        lines.push(`> See \`exports/variable-usage.json\` for complete usage details.`);
+        lines.push(`> See \`${CHECKLY_DIR}/exports/variable-usage.json\` for complete usage details.`);
         lines.push('');
       }
     }
@@ -549,6 +554,26 @@ function generateMarkdownReport(report: MigrationReport): string {
  * Main function
  */
 async function main(): Promise<void> {
+  CHECKLY_DIR = await getOutputRoot();
+  EXPORTS_DIR = await getExportsDir();
+  OUTPUT_JSON = path.join(CHECKLY_DIR, 'migration-report.json');
+  OUTPUT_MD = path.join(CHECKLY_DIR, 'migration-report.md');
+  FILES = {
+    exportSummary: path.join(EXPORTS_DIR, 'export-summary.json'),
+    privateLocations: path.join(EXPORTS_DIR, 'private-locations.json'),
+    apiChecks: path.join(EXPORTS_DIR, 'checkly-api-checks.json'),
+    multiStepTests: path.join(EXPORTS_DIR, 'multi-step-tests.json'),
+    browserTests: path.join(EXPORTS_DIR, 'browser-tests.json'),
+    envVariables: path.join(CHECKLY_DIR, 'variables', 'env-variables.json'),
+    secrets: path.join(CHECKLY_DIR, 'variables', 'secrets.json'),
+    variableUsage: path.join(EXPORTS_DIR, 'variable-usage.json'),
+    ddTestStatus: path.join(EXPORTS_DIR, 'dd-test-status.json'),
+    browserManifestPublic: path.join(CHECKLY_DIR, 'tests', 'browser', 'public', '_manifest.json'),
+    browserManifestPrivate: path.join(CHECKLY_DIR, 'tests', 'browser', 'private', '_manifest.json'),
+    multiManifestPublic: path.join(CHECKLY_DIR, 'tests', 'multi', 'public', '_manifest.json'),
+    multiManifestPrivate: path.join(CHECKLY_DIR, 'tests', 'multi', 'private', '_manifest.json'),
+  };
+
   console.log('='.repeat(60));
   console.log('Migration Report Generator');
   console.log('='.repeat(60));
@@ -726,20 +751,20 @@ async function main(): Promise<void> {
         ? `Create ${privateLocationsFile.locations.length} private location(s) in Checkly with the slugs shown in the report`
         : null,
       secrets && secrets.length > 0
-        ? `Fill in values for ${secrets.length} secret variable(s) in checkly-migrated/variables/secrets.json`
+        ? `Fill in values for ${secrets.length} secret variable(s) in ${CHECKLY_DIR}/variables/secrets.json`
         : null,
       ddTestStatus && ddTestStatus.summary.deactivated > 0
         ? `Review ${ddTestStatus.summary.deactivated} deactivated check(s) tagged "failingInDatadog" or "noDataInDatadog"`
         : null,
-      'Run "npm run create:variables" to import variables to Checkly',
-      'Configure alert channels in checkly-migrated/default_resources/alertChannels.ts',
-      'Run "npm run test:public" to validate public checks',
+      `Run "cd ${CHECKLY_DIR} && npm run create-variables" to import variables to Checkly`,
+      `Configure alert channels in ${CHECKLY_DIR}/default_resources/alertChannels.ts`,
+      `Run "cd ${CHECKLY_DIR} && npm run test:public" to validate public checks`,
       privateLocationsFile && privateLocationsFile.locations.length > 0
-        ? 'Run "npm run test:private" to validate private checks (after creating private locations)'
+        ? `Run "cd ${CHECKLY_DIR} && npm run test:private" to validate private checks (after creating private locations)`
         : null,
-      'Run "npm run deploy:public" to deploy public checks',
+      `Run "cd ${CHECKLY_DIR} && npm run deploy:public" to deploy public checks`,
       privateLocationsFile && privateLocationsFile.locations.length > 0
-        ? 'Run "npm run deploy:private" to deploy private checks'
+        ? `Run "cd ${CHECKLY_DIR} && npm run deploy:private" to deploy private checks`
         : null,
     ].filter((step): step is string => step !== null),
   };

@@ -17,17 +17,11 @@
     "generate:browser-checks": "ts-node src/08-generate-browser-constructs.ts",
     "migrate:browser": "npm run generate:browser-specs && npm run generate:browser-checks",
     "convert:variables": "ts-node src/09-convert-global-variables.ts",
-    "create:variables": "ts-node checkly-migrated/variables/create-variables.ts",
-    "delete:variables": "ts-node checkly-migrated/variables/delete-variables.ts",
     "add:defaults": "ts-node src/10-add-default-resources.ts",
     "check:status": "ts-node src/10a-check-datadog-test-status.ts",
     "generate:groups": "ts-node src/11-generate-groups.ts",
     "generate:report": "ts-node src/12-generate-migration-report.ts",
-    "migrate:all": "npm run export && npm run filter-multi && npm run migrate:api && npm run migrate:multi && npm run migrate:browser && npm run convert:variables && npm run generate:groups && npm run add:defaults && npm run check:status && npm run generate:report",
-    "test:private": "npx checkly test --config=./checkly.private.config.ts --record",
-    "test:public": "npx checkly test --config=./checkly.public.config.ts --record",
-    "deploy:private": "npx checkly deploy --config=./checkly.private.config.ts --force",
-    "deploy:public": "npx checkly deploy --config=./checkly.public.config.ts --force"
+    "migrate:all": "npm run export && npm run filter-multi && npm run migrate:api && npm run migrate:multi && npm run migrate:browser && npm run convert:variables && npm run generate:groups && npm run add:defaults && npm run check:status && npm run generate:report"
   },
   "keywords": [
     "datadog",

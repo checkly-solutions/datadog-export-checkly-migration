@@ -12,11 +12,12 @@
  * Run this as the final step before deploying.
  */
 
-import { readFile, writeFile, readdir } from 'fs/promises';
+import { readFile, writeFile, readdir, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { getOutputRoot, getCustomerName } from './shared/output-config.ts';
 
-const CHECKS_BASE = './checkly-migrated/__checks__';
+let CHECKS_BASE = '';
 const CHECK_TYPES = ['api', 'multi', 'browser'];
 const LOCATION_TYPES = ['public', 'private'];
 
@@ -45,10 +46,10 @@ function getRelativePathToGroups(checkType: string, locationType: string): strin
  * Calculate relative path from check file to default_resources
  */
 function getRelativePathToDefaultResources(checkType: string, locationType: string): string {
-  // From checkly-migrated/__checks__/{type}/{location}/*.check.ts
-  // To default_resources/
-  // That's: ../../../../default_resources
-  return '../../../../default_resources';
+  // From <outputRoot>/__checks__/{type}/{location}/*.check.ts
+  // To <outputRoot>/default_resources/
+  // That's: ../../../default_resources
+  return '../../../default_resources';
 }
 
 /**
@@ -203,9 +204,55 @@ async function processDirectory(checkType: string, locationType: string): Promis
  * Main function
  */
 async function main(): Promise<void> {
+  const outputRoot = await getOutputRoot();
+  CHECKS_BASE = `${outputRoot}/__checks__`;
+
   console.log('='.repeat(60));
   console.log('Add Default Resources to Checkly Checks');
   console.log('='.repeat(60));
+
+  // Generate default_resources inside customer directory
+  const defaultResourcesDir = `${outputRoot}/default_resources`;
+  if (!existsSync(defaultResourcesDir)) {
+    await mkdir(defaultResourcesDir, { recursive: true });
+  }
+  const alertChannelsPath = path.join(defaultResourcesDir, 'alertChannels.ts');
+  if (!existsSync(alertChannelsPath)) {
+    const alertChannelsContent = `import { EmailAlertChannel } from "checkly/constructs";
+
+/**
+ * Default Alert Channels
+ *
+ * Add your alert channels here and include them in the alertChannels array below.
+ * These will be applied to all checks when running the add:defaults step.
+ *
+ * Supported channel types:
+ * - EmailAlertChannel
+ * - SlackAlertChannel
+ * - WebhookAlertChannel
+ * - OpsgenieAlertChannel
+ * - PagerdutyAlertChannel
+ * - MSTeamsAlertChannel
+ *
+//  * Example:
+//  *   import { SlackAlertChannel } from "checkly/constructs";
+//  *   export const slackChannel = new SlackAlertChannel("slack-channel-1", {
+//  *     url: "https://hooks.slack.com/services/xxx/yyy/zzz",
+//  *   });
+//  */
+
+export const emailChannel = new EmailAlertChannel("email-channel-1", {
+  address: "alerts@example.com",
+});
+
+// Add additional alert channels above and include them in this array
+export const alertChannels = [emailChannel];
+`;
+    await writeFile(alertChannelsPath, alertChannelsContent, 'utf-8');
+    console.log(`Generated: ${alertChannelsPath}`);
+  } else {
+    console.log(`Exists: ${alertChannelsPath} (not overwritten)`);
+  }
 
   if (!existsSync(CHECKS_BASE)) {
     console.log(`\nSkipping: Checks directory not found: ${CHECKS_BASE}`);
@@ -246,18 +293,117 @@ async function main(): Promise<void> {
   console.log('  - group: public_locations_group or private_locations_group');
   console.log('  - tags: added "public" or "private" tag to each check');
 
+  // Generate checkly config files and package.json inside customer directory
+  const customerName = await getCustomerName();
+  await generateProjectFiles(outputRoot, customerName);
+
   console.log('\nTo customize alert channels:');
-  console.log('  1. Edit default_resources/alertChannels.ts');
+  console.log(`  1. Edit ${outputRoot}/default_resources/alertChannels.ts`);
   console.log('  2. Add new alert channel constructs');
   console.log('  3. Add them to the alertChannels array export');
 
   console.log('\nNext steps:');
-  console.log('  1. Review default_resources/alertChannels.ts');
-  console.log('  2. Review checkly-migrated/__checks__/groups/{public,private}/group.check.ts');
-  console.log('  3. Run "npx checkly test" to validate');
-  console.log('  4. Run "npx checkly deploy" to deploy');
+  console.log(`  1. Review ${outputRoot}/default_resources/alertChannels.ts`);
+  console.log(`  2. Review ${outputRoot}/__checks__/groups/{public,private}/group.check.ts`);
+  console.log(`  3. cd ${outputRoot} && npx checkly test`);
+  console.log(`  4. cd ${outputRoot} && npx checkly deploy`);
 
   console.log('\nDone!');
+}
+
+/**
+ * Generate checkly config files and package.json inside the customer directory
+ */
+async function generateProjectFiles(outputRoot: string, customerName: string): Promise<void> {
+  console.log('\nGenerating project files...');
+
+  // checkly.config.ts
+  const checklyConfig = `import { defineConfig } from "checkly";
+
+const config = defineConfig({
+  projectName: \`${customerName} migrated checks\`,
+  logicalId: \`${customerName}-migrated-checks\`,
+  repoUrl: "",
+  checks: {
+    activated: true,
+    muted: false,
+    runtimeId: "2025.04",
+    checkMatch: "__checks__/**/**/*.check.ts",
+    ignoreDirectoriesMatch: [],
+  },
+  cli: {
+    runLocation: "us-west-1",
+  },
+});
+
+export default config;
+`;
+  await writeFile(path.join(outputRoot, 'checkly.config.ts'), checklyConfig, 'utf-8');
+  console.log(`  Generated: ${outputRoot}/checkly.config.ts`);
+
+  // checkly.private.config.ts
+  const privateConfig = `import { defineConfig } from "checkly";
+
+const config = defineConfig({
+  projectName: \`${customerName} migrated checks - private\`,
+  logicalId: \`${customerName}-migrated-checks-private\`,
+  repoUrl: "",
+  checks: {
+    activated: true,
+    muted: false,
+    runtimeId: "2025.04",
+    checkMatch: "__checks__/**/private/*.check.ts",
+    ignoreDirectoriesMatch: [],
+  },
+  cli: {
+    privateRunLocation: "some-private-location-slug"
+  },
+});
+
+export default config;
+`;
+  await writeFile(path.join(outputRoot, 'checkly.private.config.ts'), privateConfig, 'utf-8');
+  console.log(`  Generated: ${outputRoot}/checkly.private.config.ts`);
+
+  // checkly.public.config.ts
+  const publicConfig = `import { defineConfig } from "checkly";
+
+const config = defineConfig({
+  projectName: \`${customerName} migrated checks - public\`,
+  logicalId: \`${customerName}-migrated-checks-public\`,
+  repoUrl: "",
+  checks: {
+    activated: true,
+    muted: false,
+    runtimeId: "2025.04",
+    checkMatch: "__checks__/**/public/*.check.ts",
+    ignoreDirectoriesMatch: [],
+  },
+  cli: {
+    runLocation: "us-west-1",
+  },
+});
+
+export default config;
+`;
+  await writeFile(path.join(outputRoot, 'checkly.public.config.ts'), publicConfig, 'utf-8');
+  console.log(`  Generated: ${outputRoot}/checkly.public.config.ts`);
+
+  // package.json
+  const packageJson = {
+    name: `checkly-${customerName}`,
+    private: true,
+    scripts: {
+      "test:private": "npx checkly test --config=./checkly.private.config.ts --record",
+      "test:public": "npx checkly test --config=./checkly.public.config.ts --record",
+      "deploy:private": "npx checkly deploy --config=./checkly.private.config.ts --force",
+      "deploy:public": "npx checkly deploy --config=./checkly.public.config.ts --force",
+      "create-variables": "ts-node variables/create-variables.ts",
+      "delete-variables": "ts-node variables/delete-variables.ts",
+    },
+  };
+  await writeFile(path.join(outputRoot, 'package.json'), JSON.stringify(packageJson, null, 2) + '\n', 'utf-8');
+  console.log(`  Generated: ${outputRoot}/package.json`);
 }
 
 main().catch(err => {

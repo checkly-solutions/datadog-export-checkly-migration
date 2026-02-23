@@ -23,6 +23,7 @@ import 'dotenv/config';
 import { readFile, writeFile, readdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
 // Configuration
 const DD_API_KEY = process.env.DD_API_KEY;
@@ -31,8 +32,8 @@ const DD_SITE = process.env.DD_SITE || 'datadoghq.com';
 const DD_CHECK_STATUS = process.env.DD_CHECK_STATUS;
 const BASE_URL = `https://api.${DD_SITE}/api/v1`;
 
-const EXPORTS_DIR = './exports';
-const CHECKS_BASE = './checkly-migrated/__checks__';
+let EXPORTS_DIR = '';
+let CHECKS_BASE = '';
 const CHECK_TYPES = ['api', 'multi', 'browser'];
 const LOCATION_TYPES = ['public', 'private'];
 
@@ -414,6 +415,10 @@ async function deactivateTests(
  * Main function
  */
 async function main(): Promise<void> {
+  const outputRoot = await getOutputRoot();
+  EXPORTS_DIR = await getExportsDir();
+  CHECKS_BASE = `${outputRoot}/__checks__`;
+
   console.log('='.repeat(60));
   console.log('Check Datadog Test Status');
   console.log('='.repeat(60));
