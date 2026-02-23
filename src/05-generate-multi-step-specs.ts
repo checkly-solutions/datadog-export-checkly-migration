@@ -256,8 +256,8 @@ function generateRequestCode(request: DatadogRequest, stepIndex: number): { code
   const responseVar = `response${stepIndex}`;
 
   // Convert Datadog {{ VAR }} to ${process.env.VAR} in URL
-  const convertedUrl = convertVariables(url || '');
-  let code = `const ${responseVar} = await request.${methodLower}(\`${escapeTemplateLiteral(convertedUrl)}\``;
+  const convertedUrl = convertVariables(escapeTemplateLiteral(url || ''));
+  let code = `const ${responseVar} = await request.${methodLower}(\`${convertedUrl}\``;
 
   const options: string[] = [];
 
@@ -273,12 +273,13 @@ function generateRequestCode(request: DatadogRequest, stepIndex: number): { code
 
   // Add body if present (for POST, PUT, PATCH) — convert variables in body
   if (body && ['post', 'put', 'patch'].includes(methodLower)) {
-    const convertedBody = typeof body === 'string' ? convertVariables(body) : body;
+    const escapedBody = typeof body === 'string' ? escapeTemplateLiteral(body) : body;
+    const convertedBody = typeof escapedBody === 'string' ? convertVariables(escapedBody) : escapedBody;
     // Check if body is XML/SOAP
     if (typeof convertedBody === 'string' && (convertedBody.includes('<?xml') || convertedBody.includes('<soap:'))) {
-      options.push(`data: \`${escapeTemplateLiteral(convertedBody)}\``);
+      options.push(`data: \`${convertedBody}\``);
     } else if (typeof convertedBody === 'string') {
-      options.push(`data: \`${escapeTemplateLiteral(convertedBody)}\``);
+      options.push(`data: \`${convertedBody}\``);
     } else {
       options.push(`data: ${JSON.stringify(convertedBody, null, 6).replace(/\n/g, '\n      ')}`);
     }

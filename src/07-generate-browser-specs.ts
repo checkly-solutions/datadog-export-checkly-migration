@@ -227,18 +227,18 @@ function generateLocatorCode(locator: Locator | null): string {
  * Generate code for a goToUrl step
  */
 function generateGoToUrl(step: BrowserStep): string {
-  const url = convertVariables(step.params?.value || '');
-  return `  await page.goto(\`${escapeTemplateLiteral(url)}\`);`;
+  const url = convertVariables(escapeTemplateLiteral(step.params?.value || ''));
+  return `  await page.goto(\`${url}\`);`;
 }
 
 /**
  * Generate code for a typeText step
  */
 function generateTypeText(step: BrowserStep): string {
-  const value = convertVariables(step.params?.value || '');
+  const value = convertVariables(escapeTemplateLiteral(step.params?.value || ''));
   const locator = extractLocator(step.params?.element);
   const locatorCode = generateLocatorCode(locator);
-  return `  await ${locatorCode}.fill(\`${escapeTemplateLiteral(value)}\`);`;
+  return `  await ${locatorCode}.fill(\`${value}\`);`;
 }
 
 /**
@@ -271,10 +271,10 @@ function generatePressKey(step: BrowserStep): string {
  * Generate code for a selectOption step
  */
 function generateSelectOption(step: BrowserStep): string {
-  const value = convertVariables(step.params?.value || '');
+  const value = convertVariables(escapeTemplateLiteral(step.params?.value || ''));
   const locator = extractLocator(step.params?.element);
   const locatorCode = generateLocatorCode(locator);
-  return `  await ${locatorCode}.selectOption(\`${escapeTemplateLiteral(value)}\`);`;
+  return `  await ${locatorCode}.selectOption(\`${value}\`);`;
 }
 
 /**
@@ -372,8 +372,9 @@ function generateRunApiTest(step: BrowserStep): string {
   const method = (request.method || 'GET').toLowerCase();
   const url = request.url || '';
 
+  const convertedUrl = convertVariables(escapeTemplateLiteral(url));
   return `  // Embedded API test
-  const apiResponse = await page.request.${method}(\`${escapeTemplateLiteral(url)}\`);
+  const apiResponse = await page.request.${method}(\`${convertedUrl}\`);
   await expect(apiResponse).toBeOK();`;
 }
 
@@ -457,9 +458,9 @@ test.describe("${testName}", () => {
 
   // Prepend navigation to start URL if needed
   if (needsStartUrlGoto) {
-    const convertedUrl = convertVariables(startUrl);
+    const convertedUrl = convertVariables(escapeTemplateLiteral(startUrl));
     spec += `  // Navigate to start URL\n`;
-    spec += `  await page.goto(\`${escapeTemplateLiteral(convertedUrl)}\`);\n`;
+    spec += `  await page.goto(\`${convertedUrl}\`);\n`;
     if (stepsArray.length > 0) {
       spec += '\n';
     }
