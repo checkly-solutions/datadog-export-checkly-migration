@@ -48,7 +48,7 @@ CHECKLY_ACCOUNT_NAME=acme   # Account name for output directory
 
 When `DD_CHECK_STATUS` is enabled, the migration pipeline queries Datadog for current monitor statuses and deactivates checks that are already failing. See [Failing Test Deactivation](#failing-test-deactivation) below.
 
-`CHECKLY_ACCOUNT_NAME` sets the output directory name. Output goes to `checkly-migrated/<account-name>/`. If not set, you'll be prompted at runtime.
+`CHECKLY_ACCOUNT_NAME` sets the output directory name. Output goes to `checkly-migrated/<account-name>/`. If not set, you'll be prompted once and the value is cached in `.account-name` for subsequent pipeline steps.
 
 ### Datadog Regions
 
@@ -294,7 +294,7 @@ This allows you to deploy and test public checks immediately while setting up pr
 
 ### Re-running for a Different Account
 
-Change the `CHECKLY_ACCOUNT_NAME` value in `.env` and run `npm run migrate:all` again. Each account gets its own directory under `checkly-migrated/`.
+Change the `CHECKLY_ACCOUNT_NAME` value in `.env` (or delete the `.account-name` cache file) and run `npm run migrate:all` again. Each account gets its own directory under `checkly-migrated/`.
 
 ## Detailed Guides
 

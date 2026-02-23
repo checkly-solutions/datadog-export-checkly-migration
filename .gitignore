@@ -9,6 +9,9 @@
 # Datadog export output
 checkly-migrated/*
 
+# Account name cache (written by pipeline on first prompt)
+.account-name
+
 
 # Logs
 logs

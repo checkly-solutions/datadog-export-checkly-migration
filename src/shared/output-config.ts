@@ -1,8 +1,10 @@
 /**
  * Shared output configuration for the migration pipeline.
  *
- * Reads the account name from the CHECKLY_ACCOUNT_NAME env variable.
- * If not set, prompts via readline.
+ * Resolves the account name in this order:
+ *   1. CHECKLY_ACCOUNT_NAME env variable (from .env or shell)
+ *   2. .account-name cache file (written after first prompt)
+ *   3. Interactive prompt (writes cache for subsequent pipeline steps)
  *
  * Returns the output root path: ./checkly-migrated/<account-name>
  *
@@ -10,8 +12,11 @@
  * output root, making it a self-contained project directory.
  */
 
+import { readFile, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
 import * as readline from 'readline';
 
+const CACHE_FILE = './.account-name';
 let cachedOutputRoot: string | null = null;
 
 /**
@@ -45,7 +50,7 @@ function sanitizeAccountName(name: string): string {
 /**
  * Get the output root directory for generated files.
  *
- * Reads CHECKLY_ACCOUNT_NAME from env. If not set, prompts via readline.
+ * Resolution order: env var → cache file → prompt (writes cache).
  *
  * Returns a path like ./checkly-migrated/acme
  */
@@ -56,6 +61,15 @@ export async function getOutputRoot(): Promise<string> {
 
   let raw = process.env.CHECKLY_ACCOUNT_NAME?.trim() || '';
 
+  // Check cache file if env var not set
+  if (!raw && existsSync(CACHE_FILE)) {
+    const cached = (await readFile(CACHE_FILE, 'utf-8')).trim();
+    if (cached) {
+      raw = cached;
+    }
+  }
+
+  // Prompt if still not set
   if (!raw) {
     raw = await prompt('Enter account name (e.g. acme): ');
   }
@@ -67,6 +81,9 @@ export async function getOutputRoot(): Promise<string> {
 
   const accountName = sanitizeAccountName(raw);
   console.log(`Using account name: ${accountName}`);
+
+  // Write cache so subsequent pipeline steps don't re-prompt
+  await writeFile(CACHE_FILE, accountName, 'utf-8');
 
   cachedOutputRoot = `./checkly-migrated/${accountName}`;
   return cachedOutputRoot;
