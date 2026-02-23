@@ -15,6 +15,14 @@ import { sanitizeFilename, hasPrivateLocations, escapeTemplateLiteral, escapeStr
 import { trackVariablesFromMultiple, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
+/**
+ * Convert Datadog variable syntax {{ VAR }} to process.env.VAR for Playwright specs
+ */
+function convertVariables(str: string): string {
+  if (!str) return str;
+  return str.replace(/\{\{\s*(\w+)\s*\}\}/g, '${process.env.$1}');
+}
+
 interface DatadogAssertion {
   type: string;
   operator: string;
@@ -247,25 +255,32 @@ function generateRequestCode(request: DatadogRequest, stepIndex: number): { code
   const methodLower = (method || 'GET').toLowerCase();
   const responseVar = `response${stepIndex}`;
 
-  let code = `const ${responseVar} = await request.${methodLower}(\`${escapeTemplateLiteral(url || '')}\``;
+  // Convert Datadog {{ VAR }} to ${process.env.VAR} in URL
+  const convertedUrl = convertVariables(url || '');
+  let code = `const ${responseVar} = await request.${methodLower}(\`${escapeTemplateLiteral(convertedUrl)}\``;
 
   const options: string[] = [];
 
-  // Add headers if present
+  // Add headers if present — convert variables in header values
   if (headers && Object.keys(headers).length > 0) {
-    const headersStr = JSON.stringify(headers, null, 6).replace(/\n/g, '\n      ');
+    const convertedHeaders: Record<string, string> = {};
+    for (const [key, value] of Object.entries(headers)) {
+      convertedHeaders[key] = convertVariables(value);
+    }
+    const headersStr = JSON.stringify(convertedHeaders, null, 6).replace(/\n/g, '\n      ');
     options.push(`headers: ${headersStr}`);
   }
 
-  // Add body if present (for POST, PUT, PATCH)
+  // Add body if present (for POST, PUT, PATCH) — convert variables in body
   if (body && ['post', 'put', 'patch'].includes(methodLower)) {
+    const convertedBody = typeof body === 'string' ? convertVariables(body) : body;
     // Check if body is XML/SOAP
-    if (typeof body === 'string' && (body.includes('<?xml') || body.includes('<soap:'))) {
-      options.push(`data: \`${escapeTemplateLiteral(body)}\``);
-    } else if (typeof body === 'string') {
-      options.push(`data: \`${escapeTemplateLiteral(body)}\``);
+    if (typeof convertedBody === 'string' && (convertedBody.includes('<?xml') || convertedBody.includes('<soap:'))) {
+      options.push(`data: \`${escapeTemplateLiteral(convertedBody)}\``);
+    } else if (typeof convertedBody === 'string') {
+      options.push(`data: \`${escapeTemplateLiteral(convertedBody)}\``);
     } else {
-      options.push(`data: ${JSON.stringify(body, null, 6).replace(/\n/g, '\n      ')}`);
+      options.push(`data: ${JSON.stringify(convertedBody, null, 6).replace(/\n/g, '\n      ')}`);
     }
   }
 
