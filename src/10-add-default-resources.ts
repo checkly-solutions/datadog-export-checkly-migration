@@ -409,6 +409,188 @@ export default config;
   };
   await writeFile(path.join(outputRoot, 'package.json'), JSON.stringify(packageJson, null, 2) + '\n', 'utf-8');
   console.log(`  Generated: ${outputRoot}/package.json`);
+
+  // README.md
+  await generateReadme(outputRoot, accountName);
+  console.log(`  Generated: ${outputRoot}/README.md`);
+}
+
+/**
+ * Generate a customer-facing README.md inside the account directory
+ */
+async function generateReadme(outputRoot: string, accountName: string): Promise<void> {
+  const readme = `# ${accountName} — Checkly Monitoring Project
+
+This directory contains a **Checkly-as-code** project migrated from Datadog Synthetic monitors. It is a self-contained project that you can deploy directly to your Checkly account.
+
+## Prerequisites
+
+- **Node.js** v18 or later
+- **Checkly CLI** — installed globally (\`npm install -g checkly\`) or used via \`npx\`
+- **Checkly account** — [sign up](https://app.checklyhq.com/) if you don't have one
+- **Checkly API Key** — [create one](https://app.checklyhq.com/settings/account/api-keys)
+- **Checkly Account ID** — found at [Settings > General](https://app.checklyhq.com/settings/account/general)
+
+## Directory Structure
+
+\`\`\`
+├── __checks__/
+│   ├── api/{public,private}/       # API check constructs
+│   ├── browser/{public,private}/   # Browser check constructs
+│   ├── multi/{public,private}/     # Multi-step check constructs
+│   └── groups/{public,private}/    # Check group definitions
+├── tests/
+│   ├── browser/{public,private}/   # Playwright specs for browser checks
+│   └── multi/{public,private}/     # Playwright specs for multi-step checks
+├── variables/
+│   ├── env-variables.json          # Non-secret variables (with values)
+│   ├── secrets.json                # Secret variables (fill in manually)
+│   ├── create-variables.ts         # Script to push variables to Checkly
+│   └── delete-variables.ts         # Script to remove variables from Checkly
+├── default_resources/
+│   └── alertChannels.ts            # Alert channel configuration
+├── checkly.config.ts               # All checks config
+├── checkly.private.config.ts       # Private checks only config
+├── checkly.public.config.ts        # Public checks only config
+├── package.json                    # Project scripts
+├── migration-report.json           # Machine-readable migration report
+└── migration-report.md             # Human-readable migration report
+\`\`\`
+
+## Deployment Guide
+
+### Step 1. Review the Migration Report
+
+Open \`migration-report.md\` to understand what was migrated:
+
+- What converted successfully vs. what was skipped (and why)
+- Checks deactivated due to failing or missing data in Datadog
+- Private locations that need to be created
+- Secret variables that need values filled in
+- Environment variables referenced by checks
+
+### Step 2. Create Private Locations (if applicable)
+
+If your Datadog monitors used private locations, create them in Checkly **before** testing or deploying:
+
+1. Go to [Checkly > Settings > Private Locations](https://app.checklyhq.com/settings/private-locations)
+2. Click **New Private Location**
+3. Use the **exact slug** from the migration report
+4. Deploy the [Checkly Agent](https://www.checklyhq.com/docs/private-locations/) in your infrastructure
+
+You can skip this and still deploy/test public checks independently.
+
+### Step 3. Fill in Secret Values
+
+Secrets cannot be exported from Datadog. The migration created placeholder entries — fill in the actual values:
+
+\`\`\`bash
+# Edit this file and fill in each secret value
+vi variables/secrets.json
+\`\`\`
+
+Get the actual values from your team, secrets manager, or vault.
+
+### Step 4. Import Environment Variables
+
+Push all environment variables and secrets to your Checkly account:
+
+\`\`\`bash
+npm run create-variables
+\`\`\`
+
+This requires \`CHECKLY_API_KEY\` and \`CHECKLY_ACCOUNT_ID\` to be set as environment variables. To remove imported variables later, run \`npm run delete-variables\`.
+
+### Step 5. Configure Alert Channels (optional)
+
+Edit \`default_resources/alertChannels.ts\` to set up notifications. By default it creates a placeholder email channel. Supported types: Email, Slack, Webhook, Opsgenie, PagerDuty, MS Teams.
+
+### Step 6. Install Checkly CLI and Authenticate
+
+\`\`\`bash
+npm install -g checkly
+npx checkly login
+\`\`\`
+
+Or set \`CHECKLY_API_KEY\` and \`CHECKLY_ACCOUNT_ID\` as environment variables.
+
+### Step 7. Test (dry run)
+
+Run checks without deploying to verify they work:
+
+\`\`\`bash
+# Test public checks first (no private location setup needed)
+npm run test:public
+
+# Test private checks (requires private locations + agents running)
+npm run test:private
+\`\`\`
+
+Common issues to review:
+- **Browser checks**: Locators may need updating — review Playwright specs in \`tests/browser/\`
+- **Multi-step checks**: Variable extraction between steps may need adjustment — review \`tests/multi/\`
+- **Environment variables**: Missing or incorrect values — check \`variables/secrets.json\`
+
+### Step 8. Deploy to Checkly
+
+\`\`\`bash
+# Deploy public checks
+npm run deploy:public
+
+# Deploy private checks
+npm run deploy:private
+\`\`\`
+
+### Step 9. Enable Check Groups
+
+All checks deploy inside groups with \`activated: false\`. Nothing runs until you explicitly enable them:
+
+1. Go to [Checkly > Groups](https://app.checklyhq.com/checks)
+2. Find **"Datadog Migrated Public Checks"** and **"Datadog Migrated Private Checks"**
+3. Toggle each group to **activated** when ready
+
+### Step 10. Verify and Clean Up
+
+- Monitor checks for a few days to confirm stability
+- Review checks tagged \`failingInDatadog\` or \`noDataInDatadog\` — fix, keep deactivated, or remove
+- Once confident, decommission the corresponding Datadog Synthetic monitors
+- Rotate any API keys used during the migration
+
+## Version Control
+
+To put this project under version control:
+
+\`\`\`bash
+git init
+echo ".env" >> .gitignore
+echo "node_modules/" >> .gitignore
+git add .
+git commit -m "Initial Checkly project from Datadog migration"
+git remote add origin <your-repo-url>
+git push -u origin main
+\`\`\`
+
+> **Important:** Never commit \`.env\` files or secret values to version control.
+
+## Available npm Scripts
+
+| Script | Description |
+|--------|-------------|
+| \`npm run test:public\` | Run public checks via Checkly CLI (dry run) |
+| \`npm run test:private\` | Run private checks via Checkly CLI (dry run) |
+| \`npm run deploy:public\` | Deploy public checks to Checkly |
+| \`npm run deploy:private\` | Deploy private checks to Checkly |
+| \`npm run create-variables\` | Import environment variables to Checkly |
+| \`npm run delete-variables\` | Remove imported variables from Checkly |
+
+## Resources
+
+- [Checkly Documentation](https://www.checklyhq.com/docs/)
+- [Checkly CLI Reference](https://www.checklyhq.com/docs/cli/)
+- [Checkly Constructs Reference](https://www.checklyhq.com/docs/cli/constructs-reference/)
+- [Playwright Documentation](https://playwright.dev/docs/intro)
+`;
+  await writeFile(path.join(outputRoot, 'README.md'), readme, 'utf-8');
 }
 
 main().catch(err => {

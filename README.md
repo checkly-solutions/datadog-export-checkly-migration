@@ -237,6 +237,24 @@ checkly-migrated/<account-name>/
 └── migration-report.md             # Human-readable report
 ```
 
+## Handing Off to Customers
+
+The generated account directory (`checkly-migrated/<account-name>/`) is **self-contained** — it includes everything needed to test and deploy the migrated checks, along with its own `README.md` with step-by-step deployment instructions written for the customer.
+
+To hand off to a customer:
+
+1. **Copy the account directory** out of this repo:
+   ```bash
+   cp -r checkly-migrated/<account-name> /path/to/delivery/
+   ```
+2. **Initialize version control** (optional):
+   ```bash
+   cd /path/to/delivery/<account-name>
+   git init && echo ".env" >> .gitignore && echo "node_modules/" >> .gitignore
+   git add . && git commit -m "Initial Checkly project from Datadog migration"
+   ```
+3. **Share with the customer** — they can follow the included `README.md` to deploy without needing access to this migration tool repo.
+
 ## Pipeline Scripts
 
 These scripts run from the **root** project directory (not the account directory):
