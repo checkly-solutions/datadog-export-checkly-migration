@@ -246,19 +246,10 @@ const FIND_IN_FRAME_HELPER_SOURCE = `import { Page, Locator } from "@playwright/
  * Datadog browser tests handle iframes transparently — this replicates that behavior.
  */
 export async function findInFrame(page: Page, locator: string): Promise<Locator> {
-  // Check iframes first
-  for (const frame of page.frames()) {
-    if (frame === page.mainFrame()) continue;
-    const el = frame.locator(locator);
-    if (await el.count() > 0) {
-      console.log(\`[findInFrame] Found "\${locator}" in iframe: \${frame.url()}\`);
-      return el;
-    }
-  }
-
-  // Fall back to main page
-  console.log(\`[findInFrame] "\${locator}" not in any iframe, using main page\`);
-  return page.locator(locator);
+  // Return a frameLocator-based locator — lazy, doesn't block on navigation.
+  // The caller's action (.click(), expect().toBeVisible(), etc.) handles the waiting.
+  console.log(\`[findInFrame] Targeting "\${locator}" inside iframe\`);
+  return page.frameLocator('iframe').locator(locator);
 }
 `;
 

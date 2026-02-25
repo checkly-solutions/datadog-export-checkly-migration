@@ -213,10 +213,10 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
     GREATER_THAN_OR_EQUAL: 'greaterThan', // Checkly doesn't have greaterThanOrEqual
     CONTAINS: 'contains',
     NOT_CONTAINS: 'notContains',
-    MATCHES: 'matches',
-    NOT_MATCHES: 'notMatches',
+    MATCHES: 'contains',      // Checkly doesn't have regex matches — downgrade to contains
+    NOT_MATCHES: 'notContains', // Checkly doesn't have regex notMatches — downgrade to notContains
     IS_EMPTY: 'isEmpty',
-    IS_NOT_EMPTY: 'isNotEmpty',
+    IS_NOT_EMPTY: 'notEquals',  // Checkly has no isNotEmpty — use notEquals("")
     IS_NULL: 'isNull',
   };
 
@@ -262,7 +262,30 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
   }
 
   const sourceMethod = sourceMethodMap[source] || 'statusCode';
-  const comparisonMethod = comparisonMethodMap[comparison] || 'equals';
+  let comparisonMethod = comparisonMethodMap[comparison] || 'equals';
+  let effectiveTarget: typeof target = target;
+
+  // MATCHES/NOT_MATCHES: Checkly has no regex support — strip regex syntax from target
+  // and downgrade to contains/notContains. Pure wildcard patterns like [\s\S]+ become isNotEmpty.
+  if ((comparison === 'MATCHES' || comparison === 'NOT_MATCHES') && typeof target === 'string') {
+    if (/^\[\\s\\S\]\+$|^\.\+$|^\.\*$/.test(target)) {
+      // Regex that just means "not empty" — use notEquals("")
+      comparisonMethod = 'notEquals';
+      effectiveTarget = '' as any;
+    } else {
+      // Strip common regex syntax, keep the literal text
+      effectiveTarget = target
+        .replace(/\\\\/g, '\\')       // unescape backslashes
+        .replace(/\\s\*/g, ' ')        // \s* → single space
+        .replace(/\\s\+/g, ' ')        // \s+ → single space
+        .replace(/\.\*/g, '')          // .* → nothing
+        .replace(/\.\+/g, '')          // .+ → nothing
+        .replace(/\[\^[^\]]*\]/g, '')  // [^...] → nothing
+        .replace(/[\[\](){}^$|?+]/g, '') // strip remaining regex metacharacters
+        .replace(/\s{2,}/g, ' ')       // collapse multiple spaces
+        .trim();
+    }
+  }
 
   // Build the assertion chain
   let code = 'AssertionBuilder';
@@ -279,25 +302,25 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
   }
 
   // Add comparison method with target
-  if (comparisonMethod === 'isEmpty' || comparisonMethod === 'isNotEmpty' || comparisonMethod === 'isNull') {
+  if (comparisonMethod === 'isEmpty' || comparisonMethod === 'isNull') {
     code += `.${comparisonMethod}()`;
   } else {
     // Handle different target types
     let targetValue: string;
-    if (target === undefined || target === null) {
+    if (effectiveTarget === undefined || effectiveTarget === null) {
       targetValue = '""';
-    } else if (typeof target === 'string') {
+    } else if (typeof effectiveTarget === 'string') {
       // For numeric comparison methods, convert string to number if valid
-      if (numericComparisonMethods.includes(comparisonMethod) && !isNaN(Number(target))) {
-        targetValue = String(Number(target));
+      if (numericComparisonMethods.includes(comparisonMethod) && !isNaN(Number(effectiveTarget))) {
+        targetValue = String(Number(effectiveTarget));
       } else {
-        targetValue = `"${target.replace(/"/g, '\\"')}"`;
+        targetValue = `"${effectiveTarget.replace(/"/g, '\\"')}"`;
       }
-    } else if (typeof target === 'number' || typeof target === 'boolean') {
-      targetValue = String(target);
-    } else if (typeof target === 'object' && target !== null && 'targetValue' in target) {
+    } else if (typeof effectiveTarget === 'number' || typeof effectiveTarget === 'boolean') {
+      targetValue = String(effectiveTarget);
+    } else if (typeof effectiveTarget === 'object' && effectiveTarget !== null && 'targetValue' in effectiveTarget) {
       // Object with targetValue (e.g. unhandled xPath/jsonPath assertion) — extract the value
-      const tv = (target as Record<string, unknown>).targetValue;
+      const tv = (effectiveTarget as Record<string, unknown>).targetValue;
       if (typeof tv === 'string') {
         targetValue = `"${tv.replace(/"/g, '\\"')}"`;
       } else {
@@ -305,7 +328,7 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
       }
     } else {
       // For other objects/arrays, stringify them
-      targetValue = JSON.stringify(target);
+      targetValue = JSON.stringify(effectiveTarget);
     }
     code += `.${comparisonMethod}(${targetValue})`;
   }
