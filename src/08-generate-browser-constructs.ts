@@ -38,6 +38,7 @@ interface ManifestFile {
   logicalId: string;
   name: string;
   filename: string;
+  hasIframes?: boolean;
 }
 
 interface Manifest {
@@ -80,7 +81,7 @@ function generateRetryStrategy(ddRetry?: { count?: number; interval?: number }):
 /**
  * Generate a BrowserCheck construct for a test
  */
-function generateBrowserCheckCode(test: BrowserTest, specFilename: string, locationType: string): string {
+function generateBrowserCheckCode(test: BrowserTest, specFilename: string, locationType: string, hasIframes: boolean = false): string {
   const { public_id, name, tags, options, locations, privateLocations } = test;
 
   const logicalId = `browser-${generateLogicalId(name)}`;
@@ -88,6 +89,12 @@ function generateBrowserCheckCode(test: BrowserTest, specFilename: string, locat
   const retryStrategy = generateRetryStrategy(options?.retry);
   const activated = test.status === 'live'; // Preserves paused status from Datadog
   const specsPath = `${SPECS_RELATIVE_PATH}/${locationType}`;
+
+  // Add "iframe" tag if the spec uses iframe handling
+  const allTags = [...(tags || [])];
+  if (hasIframes && !allTags.includes('iframe')) {
+    allTags.push('iframe');
+  }
 
   const code = `/**
  * Migrated from Datadog Synthetic: ${public_id}
@@ -100,7 +107,7 @@ import {
 
 new BrowserCheck("${logicalId}", {
   name: "${name.replace(/"/g, '\\"')}",
-  tags: ${JSON.stringify(tags || [])},
+  tags: ${JSON.stringify(allTags)},
   code: {
     entrypoint: "${specsPath}/${specFilename}",
   },
@@ -140,6 +147,7 @@ ${imports.join('\n')}
 async function generateConstructsForLocationType(
   tests: BrowserTest[],
   specFileMap: Map<string, string>,
+  iframeMap: Map<string, boolean>,
   outputDir: string,
   locationType: string
 ): Promise<GenerationResult> {
@@ -157,7 +165,8 @@ async function generateConstructsForLocationType(
     }
 
     try {
-      const code = generateBrowserCheckCode(test, specFilename, locationType);
+      const hasIframes = iframeMap.get(test.public_id) || false;
+      const code = generateBrowserCheckCode(test, specFilename, locationType, hasIframes);
       const filename = `${sanitizeFilename(test.name)}.check.ts`;
       const filepath = path.join(outputDir, filename);
 
@@ -229,8 +238,12 @@ async function main(): Promise<void> {
     const publicManifest = JSON.parse(await readFile(MANIFEST_FILE_PUBLIC, 'utf-8')) as Manifest;
 
     const publicSpecMap = new Map<string, string>();
+    const publicIframeMap = new Map<string, boolean>();
     for (const file of publicManifest.files) {
       publicSpecMap.set(file.logicalId, file.filename);
+      if (file.hasIframes) {
+        publicIframeMap.set(file.logicalId, true);
+      }
     }
     console.log(`Found ${publicManifest.files.length} public spec files`);
 
@@ -239,7 +252,7 @@ async function main(): Promise<void> {
 
     console.log('\nGenerating public constructs...');
     const publicResult = await generateConstructsForLocationType(
-      publicTests, publicSpecMap, OUTPUT_DIR_PUBLIC, 'public'
+      publicTests, publicSpecMap, publicIframeMap, OUTPUT_DIR_PUBLIC, 'public'
     );
     publicSuccess = publicResult.successCount;
     publicSkipped = publicResult.skippedCount;
@@ -254,8 +267,12 @@ async function main(): Promise<void> {
     const privateManifest = JSON.parse(await readFile(MANIFEST_FILE_PRIVATE, 'utf-8')) as Manifest;
 
     const privateSpecMap = new Map<string, string>();
+    const privateIframeMap = new Map<string, boolean>();
     for (const file of privateManifest.files) {
       privateSpecMap.set(file.logicalId, file.filename);
+      if (file.hasIframes) {
+        privateIframeMap.set(file.logicalId, true);
+      }
     }
     console.log(`Found ${privateManifest.files.length} private spec files`);
 
@@ -264,7 +281,7 @@ async function main(): Promise<void> {
 
     console.log('\nGenerating private constructs...');
     const privateResult = await generateConstructsForLocationType(
-      privateTests, privateSpecMap, OUTPUT_DIR_PRIVATE, 'private'
+      privateTests, privateSpecMap, privateIframeMap, OUTPUT_DIR_PRIVATE, 'private'
     );
     privateSuccess = privateResult.successCount;
     privateSkipped = privateResult.skippedCount;
