@@ -9,9 +9,12 @@
  *   DD_APP_KEY  - Datadog Application key
  *
  * Optional Environment Variables:
- *   DD_SITE     - Datadog site/region (default: datadoghq.com)
- *                 Options: datadoghq.com, us3.datadoghq.com, us5.datadoghq.com,
- *                          datadoghq.eu, ap1.datadoghq.com, ddog-gov.com
+ *   DD_SITE             - Datadog site/region (default: datadoghq.com)
+ *                         Options: datadoghq.com, us3.datadoghq.com, us5.datadoghq.com,
+ *                                  datadoghq.eu, ap1.datadoghq.com, ddog-gov.com
+ *   DD_TAGS_TO_MIGRATE  - Comma-separated list of Datadog tags to filter by (e.g. "env:prod,NCP")
+ *                         When set, only tests matching ANY of the specified tags are exported.
+ *                         Tag matching is case-insensitive. When unset, all tests are exported.
  */
 
 import 'dotenv/config';
@@ -25,6 +28,7 @@ import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 const DD_API_KEY = process.env.DD_API_KEY;
 const DD_APP_KEY = process.env.DD_APP_KEY;
 const DD_SITE = process.env.DD_SITE || 'datadoghq.com';
+const DD_TAGS_TO_MIGRATE = process.env.DD_TAGS_TO_MIGRATE?.trim() || '';
 const BASE_URL = `https://api.${DD_SITE}/api/v1`;
 let OUTPUT_DIR = '';
 
@@ -225,6 +229,38 @@ async function fetchSyntheticsList(): Promise<DatadogTest[]> {
   return data.tests || [];
 }
 
+// Filter tests by tags (OR logic — a test needs at least one matching tag)
+function filterTestsByTags(tests: DatadogTest[], tagsEnv: string): { filtered: DatadogTest[]; tags: string[] } {
+  if (!tagsEnv) return { filtered: tests, tags: [] };
+
+  const tags = tagsEnv.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+  if (tags.length === 0) return { filtered: tests, tags: [] };
+
+  const filtered = tests.filter(test => {
+    const testTags = (test.tags || []).map(t => t.toLowerCase());
+    return tags.some(tag => testTags.includes(tag));
+  });
+
+  return { filtered, tags };
+}
+
+// Extract all global variable names referenced by a set of tests
+function extractReferencedVariableNames(tests: DatadogTest[]): Set<string> {
+  const varNames = new Set<string>();
+  const pattern = /\{\{\s*(\w+)\s*\}\}/g;
+
+  for (const test of tests) {
+    // Scan the entire test JSON for {{ VAR_NAME }} references
+    const jsonStr = JSON.stringify(test);
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(jsonStr)) !== null) {
+      varNames.add(match[1]);
+    }
+  }
+
+  return varNames;
+}
+
 // Fetch detailed configuration for an API test
 async function fetchApiTestDetails(publicId: string): Promise<DatadogTest> {
   return apiRequest<DatadogTest>(`/synthetics/tests/api/${publicId}`);
@@ -402,8 +438,15 @@ async function main(): Promise<void> {
 
   try {
     // Fetch all synthetics (basic list)
-    const allTests = await fetchSyntheticsList();
-    console.log(`Found ${allTests.length} total synthetics`);
+    const allTestsRaw = await fetchSyntheticsList();
+    console.log(`Found ${allTestsRaw.length} total synthetics`);
+
+    // Apply tag filter if DD_TAGS_TO_MIGRATE is set
+    const { filtered: allTests, tags: activeTags } = filterTestsByTags(allTestsRaw, DD_TAGS_TO_MIGRATE);
+    if (activeTags.length > 0) {
+      console.log(`\nTag filter active: [${activeTags.join(', ')}]`);
+      console.log(`  Matched ${allTests.length} of ${allTestsRaw.length} tests`);
+    }
 
     // Separate by type
     const apiTests = allTests.filter(t => t.type === 'api');
@@ -416,16 +459,24 @@ async function main(): Promise<void> {
     const apiTestsDetailed = await fetchDetailedConfigs(allTests, 'api');
     const browserTestsDetailed = await fetchDetailedConfigs(allTests, 'browser');
 
-    // Fetch global variables
-    const globalVariables = await fetchGlobalVariables();
-    console.log(`Found ${globalVariables.length} global variables`);
+    // Combine all detailed tests for location and variable analysis
+    const allDetailedTests = [...apiTestsDetailed, ...browserTestsDetailed];
+
+    // Fetch global variables and filter to only those referenced by filtered tests
+    const allGlobalVariables = await fetchGlobalVariables();
+    let globalVariables: DatadogVariable[];
+    if (activeTags.length > 0) {
+      const referencedVars = extractReferencedVariableNames(allDetailedTests);
+      globalVariables = allGlobalVariables.filter(v => referencedVars.has(v.name));
+      console.log(`Found ${allGlobalVariables.length} global variables, ${globalVariables.length} referenced by filtered tests`);
+    } else {
+      globalVariables = allGlobalVariables;
+      console.log(`Found ${globalVariables.length} global variables`);
+    }
 
     // Fetch private locations from API
     const apiPrivateLocations = await fetchPrivateLocations();
     console.log(`Found ${apiPrivateLocations.length} private locations from API`);
-
-    // Extract all locations from tests (both API and browser)
-    const allDetailedTests = [...apiTestsDetailed, ...browserTestsDetailed];
     const extractedLocations = extractLocationsFromTests(allDetailedTests);
 
     console.log('\nLocation analysis:');
@@ -492,14 +543,30 @@ async function main(): Promise<void> {
       loc.usageCount = privateLocationUsage.get(loc.datadogId) || 0;
     }
 
+    // When tag filtering is active, only keep private locations actually used by filtered tests
+    if (activeTags.length > 0) {
+      const beforeCount = mergedPrivateLocations.length;
+      const usedOnly = mergedPrivateLocations.filter(loc => loc.usageCount > 0);
+      mergedPrivateLocations.length = 0;
+      mergedPrivateLocations.push(...usedOnly);
+      if (beforeCount !== mergedPrivateLocations.length) {
+        console.log(`  Filtered private locations: ${mergedPrivateLocations.length} of ${beforeCount} used by tagged tests`);
+      }
+    }
+
     // Sort by usage count (highest first) for easier prioritization
     mergedPrivateLocations.sort((a, b) => b.usageCount - a.usageCount);
 
     // Write output files
     console.log('\nWriting export files...');
+    const tagMetadata = activeTags.length > 0
+      ? { filteredByTags: activeTags, totalBeforeFilter: allTestsRaw.length }
+      : {};
+
     await writeJsonFile('api-tests.json', {
       exportedAt: new Date().toISOString(),
       site: DD_SITE,
+      ...tagMetadata,
       count: transformedApiTests.length,
       tests: transformedApiTests,
     });
@@ -507,6 +574,7 @@ async function main(): Promise<void> {
     await writeJsonFile('browser-tests.json', {
       exportedAt: new Date().toISOString(),
       site: DD_SITE,
+      ...tagMetadata,
       count: transformedBrowserTests.length,
       tests: transformedBrowserTests,
     });
@@ -514,6 +582,7 @@ async function main(): Promise<void> {
     await writeJsonFile('global-variables.json', {
       exportedAt: new Date().toISOString(),
       site: DD_SITE,
+      ...tagMetadata,
       count: globalVariables.length,
       variables: globalVariables,
     });
@@ -521,6 +590,7 @@ async function main(): Promise<void> {
     await writeJsonFile('private-locations.json', {
       exportedAt: new Date().toISOString(),
       site: DD_SITE,
+      ...tagMetadata,
       count: mergedPrivateLocations.length,
       locations: mergedPrivateLocations,
       note: 'Private locations with Checkly slugs. Create these private locations in Checkly using the checklySlug as the slug.',
@@ -529,6 +599,7 @@ async function main(): Promise<void> {
     await writeJsonFile('public-locations.json', {
       exportedAt: new Date().toISOString(),
       site: DD_SITE,
+      ...tagMetadata,
       count: extractedLocations.publicLocations.length,
       locations: extractedLocations.publicLocations,
       unmapped: extractedLocations.unmappedLocations,
@@ -540,6 +611,7 @@ async function main(): Promise<void> {
     await writeJsonFile('export-summary.json', {
       exportedAt: new Date().toISOString(),
       site: DD_SITE,
+      ...tagMetadata,
       summary: {
         apiTests: apiTestsDetailed.length,
         browserTests: browserTestsDetailed.length,

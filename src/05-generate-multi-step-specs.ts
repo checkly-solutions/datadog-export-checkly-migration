@@ -11,7 +11,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import { sanitizeFilename, hasPrivateLocations, escapeTemplateLiteral, escapeString } from './shared/utils.ts';
+import { sanitizeFilename, hasPrivateLocations, escapeTemplateLiteral, escapeString, normalizeDatadogBody } from './shared/utils.ts';
 import { trackVariablesFromMultiple, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
@@ -39,7 +39,7 @@ interface DatadogRequest {
   method?: string;
   url?: string;
   headers?: Record<string, string>;
-  body?: string;
+  body?: unknown;
 }
 
 interface DatadogStep {
@@ -95,9 +95,10 @@ function extractVariableContent(test: DatadogTest): string[] {
     if (step.request?.url) {
       content.push(step.request.url);
     }
-    // Request body
-    if (step.request?.body) {
-      content.push(step.request.body);
+    // Request body (normalize from string or object format)
+    const body = normalizeDatadogBody(step.request?.body);
+    if (body) {
+      content.push(body);
     }
     // Request headers
     if (step.request?.headers) {
@@ -251,7 +252,8 @@ function generateComparisonCode(expectExpr: string, operator: string, target?: s
  * Generate the request call code for a step
  */
 function generateRequestCode(request: DatadogRequest, stepIndex: number): { code: string; responseVar: string } {
-  const { method, url, headers, body } = request;
+  const { method, url, headers } = request;
+  const body = normalizeDatadogBody(request.body);
   const methodLower = (method || 'GET').toLowerCase();
   const responseVar = `response${stepIndex}`;
 
@@ -273,16 +275,8 @@ function generateRequestCode(request: DatadogRequest, stepIndex: number): { code
 
   // Add body if present (for POST, PUT, PATCH) — convert variables in body
   if (body && ['post', 'put', 'patch'].includes(methodLower)) {
-    const escapedBody = typeof body === 'string' ? escapeTemplateLiteral(body) : body;
-    const convertedBody = typeof escapedBody === 'string' ? convertVariables(escapedBody) : escapedBody;
-    // Check if body is XML/SOAP
-    if (typeof convertedBody === 'string' && (convertedBody.includes('<?xml') || convertedBody.includes('<soap:'))) {
-      options.push(`data: \`${convertedBody}\``);
-    } else if (typeof convertedBody === 'string') {
-      options.push(`data: \`${convertedBody}\``);
-    } else {
-      options.push(`data: ${JSON.stringify(convertedBody, null, 6).replace(/\n/g, '\n      ')}`);
-    }
+    const convertedBody = convertVariables(escapeTemplateLiteral(body));
+    options.push(`data: \`${convertedBody}\``);
   }
 
   if (options.length > 0) {

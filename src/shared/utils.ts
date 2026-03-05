@@ -141,3 +141,23 @@ export interface PrivateLocationMapping {
   name?: string;
   usageCount: number;
 }
+
+/**
+ * Normalize the Datadog request body field.
+ *
+ * Datadog can return the body in two formats:
+ *   - String: "grant_type=client_credentials&..."
+ *   - Object: { "type": "application/x-www-form-urlencoded", "content": "grant_type=..." }
+ *
+ * This function always returns the body content as a string (or undefined).
+ */
+export function normalizeDatadogBody(body: unknown): string | undefined {
+  if (!body) return undefined;
+  if (typeof body === 'string') return body;
+  if (typeof body === 'object' && body !== null && 'content' in body) {
+    const content = (body as Record<string, unknown>).content;
+    return typeof content === 'string' ? content : JSON.stringify(content);
+  }
+  // Fallback: stringify unexpected formats so they aren't silently lost
+  return JSON.stringify(body);
+}
