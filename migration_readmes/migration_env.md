@@ -61,7 +61,10 @@ Both files use a clean format ready for the Checkly API:
 
 ## Handling Secrets
 
-Datadog **does not export secret values**. The `secrets.json` file contains empty values:
+Datadog **does not export secret values**. The `secrets.json` file contains empty values.
+
+**Automatic deactivation:** Step 10b (`npm run check:secrets`) detects checks that reference secrets with empty values and deactivates them — setting `activated: false` and tagging with `missingSecretsFromDatadog`. This prevents deploying checks that would immediately fail due to missing env vars. After filling in secret values, remove the tag and set `activated: true` to re-enable.
+
 
 ```json
 [
@@ -137,3 +140,4 @@ See [Checkly API Docs](https://developers.checklyhq.com/reference/postv1variable
 | Script | Description |
 |--------|-------------|
 | `npm run convert:variables` | Convert Datadog global variables to Checkly format |
+| `npm run check:secrets` | Deactivate checks referencing secrets with empty values |

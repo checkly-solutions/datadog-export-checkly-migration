@@ -1,12 +1,15 @@
 /**
  * Converts Datadog global variables to Checkly environment variables format.
  *
- * Reads: exports/global-variables.json
- * Outputs:
- *   - checkly-migrated/variables/env-variables.json (clean, non-secure vars)
- *   - checkly-migrated/variables/secrets.json (clean, secure vars - needs manual values)
- *   - checkly-migrated/variables/create-variables.ts (API create script)
- *   - checkly-migrated/variables/delete-variables.ts (API delete script)
+ * Reads: exports/global-variables.json (raw Datadog data from step 01)
+ * Outputs to <outputRoot>/variables/ (Checkly-ready, self-contained unit):
+ *   - env-variables.json (clean, non-secure vars)
+ *   - secrets.json (clean, secure vars - needs manual values)
+ *   - create-variables.ts (API create script)
+ *   - delete-variables.ts (API delete script)
+ *
+ * Note: The exports/ dir contains raw Datadog data; the variables/ dir contains
+ * Checkly-ready output including both data files and generated scripts.
  *
  * Datadog attributes used:
  *   - name → key

@@ -32,6 +32,7 @@ let FILES: {
   secrets: string;
   variableUsage: string;
   ddTestStatus: string;
+  missingSecretsReport: string;
   browserManifestPublic: string;
   browserManifestPrivate: string;
   multiManifestPublic: string;
@@ -139,6 +140,20 @@ interface Manifest {
   skipped?: Array<{ logicalId: string; name: string; reason?: string }>;
 }
 
+interface MissingSecretsReportFile {
+  generatedAt: string;
+  totalSecrets: number;
+  secretsWithEmptyValues: number;
+  checksAffected: number;
+  filesModified: number;
+  filesSkipped: number;
+  errors: number;
+  affectedChecks: Array<{
+    checkName: string;
+    missingSecrets: string[];
+  }>;
+}
+
 interface DdStatusCounts {
   total: number;
   passing: number;
@@ -221,6 +236,15 @@ interface MigrationReport {
       name: string;
       reason: string;
       locationType: string;
+    }>;
+  };
+  missingSecrets?: {
+    checkedAt: string;
+    checksAffected: number;
+    filesModified: number;
+    affectedChecks: Array<{
+      checkName: string;
+      missingSecrets: string[];
     }>;
   };
   nextSteps: string[];
@@ -369,6 +393,28 @@ function generateMarkdownReport(report: MigrationReport): string {
       lines.push('> **Action:** Review deactivated checks. Fix failing tests or re-activate paused tests as needed.');
       lines.push('');
     }
+  }
+
+  // Checks Deactivated Due to Missing Secrets
+  if (report.missingSecrets && report.missingSecrets.checksAffected > 0) {
+    const ms = report.missingSecrets;
+    lines.push('## Checks Deactivated Due to Missing Secrets');
+    lines.push('');
+    lines.push(`**${ms.checksAffected} check(s)** were deactivated because they reference secret variables with empty values.`);
+    lines.push(`These checks are tagged with \`missingSecretsFromDatadog\` and set to \`activated: false\`.`);
+    lines.push('');
+    lines.push('| Check | Missing Secrets |');
+    lines.push('|-------|-----------------|');
+    const display = ms.affectedChecks.slice(0, 25);
+    for (const ac of display) {
+      lines.push(`| ${ac.checkName} | \`${ac.missingSecrets.join('`, `')}\` |`);
+    }
+    if (ms.affectedChecks.length > 25) {
+      lines.push(`| ... | ${ms.affectedChecks.length - 25} more (see missing-secrets-report.json) |`);
+    }
+    lines.push('');
+    lines.push('> **Action:** Fill in secret values in `variables/secrets.json`, then remove the `missingSecretsFromDatadog` tag and set `activated: true` to re-enable these checks.');
+    lines.push('');
   }
 
   // Action Required
@@ -568,6 +614,7 @@ async function main(): Promise<void> {
     secrets: path.join(CHECKLY_DIR, 'variables', 'secrets.json'),
     variableUsage: path.join(EXPORTS_DIR, 'variable-usage.json'),
     ddTestStatus: path.join(EXPORTS_DIR, 'dd-test-status.json'),
+    missingSecretsReport: path.join(EXPORTS_DIR, 'missing-secrets-report.json'),
     browserManifestPublic: path.join(CHECKLY_DIR, 'tests', 'browser', 'public', '_manifest.json'),
     browserManifestPrivate: path.join(CHECKLY_DIR, 'tests', 'browser', 'private', '_manifest.json'),
     multiManifestPublic: path.join(CHECKLY_DIR, 'tests', 'multi', 'public', '_manifest.json'),
@@ -594,6 +641,7 @@ async function main(): Promise<void> {
   const multiManifestPublic = await readJsonFile<Manifest>(FILES.multiManifestPublic);
   const multiManifestPrivate = await readJsonFile<Manifest>(FILES.multiManifestPrivate);
   const ddTestStatus = await readJsonFile<DdTestStatusFile>(FILES.ddTestStatus);
+  const missingSecretsReport = await readJsonFile<MissingSecretsReportFile>(FILES.missingSecretsReport);
 
   if (!exportSummary) {
     console.error('\nError: export-summary.json not found. Run the export first.');
@@ -609,6 +657,7 @@ async function main(): Promise<void> {
   console.log(`  - secrets.json: ${secrets ? 'found' : 'not found'}`);
   console.log(`  - variable-usage.json: ${variableUsage ? 'found' : 'not found'}`);
   console.log(`  - dd-test-status.json: ${ddTestStatus ? 'found' : 'not found'}`);
+  console.log(`  - missing-secrets-report.json: ${missingSecretsReport ? 'found' : 'not found'}`);
 
   // Calculate counts
   const apiPublicCount = apiChecks?.checks.filter(c =>
@@ -746,6 +795,12 @@ async function main(): Promise<void> {
           locationType: t.locationType,
         })),
     } : undefined,
+    missingSecrets: missingSecretsReport && missingSecretsReport.checksAffected > 0 ? {
+      checkedAt: missingSecretsReport.generatedAt,
+      checksAffected: missingSecretsReport.checksAffected,
+      filesModified: missingSecretsReport.filesModified,
+      affectedChecks: missingSecretsReport.affectedChecks,
+    } : undefined,
     nextSteps: [
       privateLocationsFile && privateLocationsFile.locations.length > 0
         ? `Create ${privateLocationsFile.locations.length} private location(s) in Checkly with the slugs shown in the report`
@@ -755,6 +810,9 @@ async function main(): Promise<void> {
         : null,
       ddTestStatus && ddTestStatus.summary.deactivated > 0
         ? `Review ${ddTestStatus.summary.deactivated} deactivated check(s) tagged "failingInDatadog" or "noDataInDatadog"`
+        : null,
+      missingSecretsReport && missingSecretsReport.checksAffected > 0
+        ? `Fill in secret values in ${CHECKLY_DIR}/variables/secrets.json and remove "missingSecretsFromDatadog" tag from ${missingSecretsReport.checksAffected} deactivated check(s)`
         : null,
       `Run "cd ${CHECKLY_DIR} && npm run create-variables" to import variables to Checkly`,
       `Configure alert channels in ${CHECKLY_DIR}/default_resources/alertChannels.ts`,
@@ -800,6 +858,10 @@ async function main(): Promise<void> {
     console.log(`  Datadog tests failing: ${report.datadogStatus.summary.failing}`);
     console.log(`  Datadog tests no data: ${report.datadogStatus.summary.noData}`);
     console.log(`  Total checks deactivated: ${report.datadogStatus.deactivatedTests.length}`);
+  }
+
+  if (report.missingSecrets) {
+    console.log(`  Checks deactivated (missing secrets): ${report.missingSecrets.checksAffected}`);
   }
 
   console.log('\nView the full report:');
