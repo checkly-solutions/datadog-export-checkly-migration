@@ -419,7 +419,11 @@ function generateApiCheckCode(check: ChecklyCheck): string {
   }
 
   if (request.basicAuth) {
-    requestLines.push(`basicAuth: {
+    const isWebAuth = tags.includes('datadogBasicAuthWeb');
+    const basicAuthComment = isWebAuth
+      ? `\n      // WARNING: Datadog used web/form-based auth (type: "web") for this check.\n      // Checkly API checks send HTTP Basic Auth headers, which may not work for\n      // endpoints requiring a browser login flow. Consider converting to a browser\n      // check or multi-step API check if this fails.\n      `
+      : '';
+    requestLines.push(`${basicAuthComment}basicAuth: {
       username: "${request.basicAuth.username}",
       password: "${request.basicAuth.password}",
     }`);

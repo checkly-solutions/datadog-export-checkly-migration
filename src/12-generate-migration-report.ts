@@ -814,6 +814,7 @@ async function main(): Promise<void> {
       missingSecretsReport && missingSecretsReport.checksAffected > 0
         ? `Fill in secret values in ${CHECKLY_DIR}/variables/secrets.json and remove "missingSecretsFromDatadog" tag from ${missingSecretsReport.checksAffected} deactivated check(s)`
         : null,
+      `Review checks tagged "datadogBasicAuthWeb" — these used web/form-based auth in Datadog and may need converting to browser or multi-step checks`,
       `Run "cd ${CHECKLY_DIR} && npm run create-variables" to import variables to Checkly`,
       `Configure alert channels in ${CHECKLY_DIR}/default_resources/alertChannels.ts`,
       `Run "cd ${CHECKLY_DIR} && npm run test:public" to validate public checks`,

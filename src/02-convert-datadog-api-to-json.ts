@@ -54,6 +54,7 @@ interface DatadogTest {
       headers?: Record<string, string>;
       body?: unknown;
       basicAuth?: {
+        type?: string;
         username?: string;
         password?: string;
       };
@@ -304,6 +305,13 @@ function convertTest(ddTest: DatadogTest): ChecklyCheck {
       username: ddTest.config.request.basicAuth.username || '',
       password: ddTest.config.request.basicAuth.password || '',
     };
+
+    // Datadog basicAuth.type "web" indicates form/browser-based authentication,
+    // not HTTP Basic Auth headers. Checkly API checks only send Authorization: Basic
+    // headers, which won't work for web-login flows. Tag these for review.
+    if (ddTest.config.request.basicAuth.type === 'web') {
+      config.tags.push('datadogBasicAuthWeb');
+    }
   }
 
   if (ddTest.config?.request?.query) {
