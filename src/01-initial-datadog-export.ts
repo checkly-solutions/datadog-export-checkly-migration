@@ -409,6 +409,89 @@ async function fetchDetailedConfigs(tests: DatadogTest[], type: string): Promise
   return detailed;
 }
 
+/**
+ * Extract playSubTest references from a test's steps.
+ */
+function extractSubtestIds(test: DatadogTest): string[] {
+  const steps = (test as unknown as Record<string, unknown>).steps as Array<{ type: string; params?: { subtestPublicId?: string } }> | undefined;
+  if (!steps) return [];
+  return steps
+    .filter(s => s.type === 'playSubTest' && s.params?.subtestPublicId)
+    .map(s => s.params!.subtestPublicId!);
+}
+
+/**
+ * Queue-based browser test fetcher that auto-resolves subtest dependencies.
+ *
+ * Starts with the tag-matched browser tests, fetches their details, then
+ * discovers and fetches any referenced subtests. Each subtest is only
+ * fetched once, even if referenced by many parents. Handles nested subtests.
+ *
+ * Returns { tests, subtests } — subtests are marked with isSubtest and referencedBy.
+ */
+async function fetchBrowserTestsWithSubtests(
+  tests: DatadogTest[]
+): Promise<{ tests: DatadogTest[]; subtests: DatadogTest[] }> {
+  const browserTests = tests.filter(t => t.type === 'browser');
+  console.log(`\nFetching detailed configs for ${browserTests.length} browser tests (with subtest resolution)...`);
+
+  const fetched = new Map<string, DatadogTest>(); // id -> detailed test
+  const subtestMeta = new Map<string, Set<string>>(); // subtestId -> set of parent ids
+  const queue: string[] = browserTests.map(t => t.public_id);
+  const queued = new Set<string>(queue);
+
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    try {
+      const details = await fetchBrowserTestDetails(id);
+      fetched.set(id, details);
+
+      // Discover subtests referenced by this test
+      const subtestIds = extractSubtestIds(details);
+      for (const subId of subtestIds) {
+        // Track parent relationship
+        if (!subtestMeta.has(subId)) subtestMeta.set(subId, new Set());
+        subtestMeta.get(subId)!.add(id);
+
+        // Enqueue if not already fetched or queued
+        if (!queued.has(subId)) {
+          console.log(`  Discovered subtest: ${subId} (referenced by ${details.name || id})`);
+          queue.push(subId);
+          queued.add(subId);
+        }
+      }
+    } catch (error) {
+      console.error(`  Error fetching ${id}: ${(error as Error).message}`);
+      const basic = browserTests.find(t => t.public_id === id);
+      if (basic) {
+        fetched.set(id, { ...basic, _fetchError: (error as Error).message } as DatadogTest & { _fetchError: string });
+      }
+    }
+  }
+
+  // Separate primary tests from subtests
+  const primaryIds = new Set(browserTests.map(t => t.public_id));
+  const primaryTests: DatadogTest[] = [];
+  const subtests: DatadogTest[] = [];
+
+  for (const [id, test] of Array.from(fetched.entries())) {
+    if (primaryIds.has(id)) {
+      primaryTests.push(test);
+    } else {
+      // Annotate subtest with metadata
+      (test as unknown as Record<string, unknown>).isSubtest = true;
+      (test as unknown as Record<string, unknown>).referencedBy = Array.from(subtestMeta.get(id) || []);
+      subtests.push(test);
+    }
+  }
+
+  if (subtests.length > 0) {
+    console.log(`  Resolved ${subtests.length} subtest(s) referenced by exported tests`);
+  }
+
+  return { tests: primaryTests, subtests };
+}
+
 // Write data to JSON file
 async function writeJsonFile(filename: string, data: unknown): Promise<void> {
   const filepath = path.join(OUTPUT_DIR, filename);
@@ -457,10 +540,11 @@ async function main(): Promise<void> {
 
     // Fetch detailed configurations
     const apiTestsDetailed = await fetchDetailedConfigs(allTests, 'api');
-    const browserTestsDetailed = await fetchDetailedConfigs(allTests, 'browser');
+    const { tests: browserTestsDetailed, subtests: browserSubtests } =
+      await fetchBrowserTestsWithSubtests(allTests);
 
     // Combine all detailed tests for location and variable analysis
-    const allDetailedTests = [...apiTestsDetailed, ...browserTestsDetailed];
+    const allDetailedTests = [...apiTestsDetailed, ...browserTestsDetailed, ...browserSubtests];
 
     // Fetch global variables and filter to only those referenced by filtered tests
     const allGlobalVariables = await fetchGlobalVariables();
@@ -537,6 +621,9 @@ async function main(): Promise<void> {
     const transformedBrowserTests = browserTestsDetailed.map(test =>
       transformTestLocations(test, privateLocationSlugMap, privateLocationUsage)
     );
+    const transformedBrowserSubtests = browserSubtests.map(test =>
+      transformTestLocations(test, privateLocationSlugMap, privateLocationUsage)
+    );
 
     // Update usage counts in mergedPrivateLocations
     for (const loc of mergedPrivateLocations) {
@@ -577,6 +664,10 @@ async function main(): Promise<void> {
       ...tagMetadata,
       count: transformedBrowserTests.length,
       tests: transformedBrowserTests,
+      ...(transformedBrowserSubtests.length > 0 ? {
+        subtestCount: transformedBrowserSubtests.length,
+        subtests: transformedBrowserSubtests,
+      } : {}),
     });
 
     await writeJsonFile('global-variables.json', {
@@ -615,6 +706,7 @@ async function main(): Promise<void> {
       summary: {
         apiTests: apiTestsDetailed.length,
         browserTests: browserTestsDetailed.length,
+        browserSubtests: browserSubtests.length,
         globalVariables: globalVariables.length,
         privateLocations: mergedPrivateLocations.length,
         publicLocations: extractedLocations.publicLocations.length,

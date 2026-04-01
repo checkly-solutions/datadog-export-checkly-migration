@@ -143,6 +143,7 @@ new BrowserCheck("abc-123-xyz", {
 | `assertPageContains` | `expect(page.locator("body")).toContainText()` |
 | `assertCurrentUrl` | `expect(page).toHaveURL()` |
 | `runApiTest` | `page.request.get/post()` |
+| `playSubTest` | Shared helper function import + call |
 
 ## Element Locator Extraction
 
@@ -162,6 +163,38 @@ Datadog variables are converted to Checkly environment variables:
 | Datadog | Checkly |
 |---------|---------|
 | `{{ VAR_NAME }}` | `${process.env.VAR_NAME}` |
+
+## Subtest Handling (`playSubTest`)
+
+Datadog browser tests can reference other tests as reusable "subtests" via `playSubTest` steps. These are shared utility tests (e.g., email verification, login flows) that multiple parent tests call inline.
+
+### How the exporter resolves subtests
+
+During export, the tool automatically discovers and fetches subtests referenced by any exported browser test — even if the subtest doesn't match the tag filter. This uses a queue-based approach: each fetched test is scanned for `playSubTest` references, and any new subtest IDs are enqueued for fetching. Each subtest is only fetched once regardless of how many parents reference it. Nested subtests (subtests that call other subtests) are resolved automatically.
+
+Subtests appear in `browser-tests.json` under a separate `subtests` array, annotated with:
+- `isSubtest: true`
+- `referencedBy: [<parent_public_ids>]`
+
+### How the spec generator converts subtests
+
+Subtests are generated as **shared helper functions** rather than standalone specs:
+
+```
+tests/browser/helpers/
+  get-email-verification-code.ts   ← generated from subtest
+```
+
+Parent specs import and call them:
+
+```typescript
+import { getEmailVerificationCodeFromMailosaur } from "../helpers/get-email-verification-code";
+
+// Step 5: Get email verification code from Mailosaur
+await getEmailVerificationCodeFromMailosaur(page);
+```
+
+This preserves the reusable nature of the original Datadog subtest — if multiple parent tests reference the same subtest, they all import the same helper.
 
 ## Manual Review Required
 
