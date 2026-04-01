@@ -50,10 +50,29 @@ interface BrowserStep {
     subtestPublicId?: string;
     playingTabId?: number;
     request?: {
+      options?: {
+        extract_values?: Array<{
+          name: string;
+          type: string;
+          parser: {
+            type: string;
+            value: string;
+          };
+          secure?: boolean;
+          example?: string;
+        }>;
+      };
       config?: {
         request?: {
           method?: string;
           url?: string;
+          body?: string;
+          headers?: Record<string, string>;
+          basicAuth?: {
+            type?: string;
+            username?: string;
+            password?: string;
+          };
         };
       };
     };
@@ -116,19 +135,6 @@ interface GenerationResult {
 /** Stored per iframe-step so we can log the source URL */
 interface IframeContext {
   iframeSrc: string;
-}
-
-/**
- * Convert a test name like "Get email verification code from Mailosaur"
- * to a camelCase function name like "getEmailVerificationCodeFromMailosaur".
- */
-function nameToCamelCase(name: string): string {
-  return name
-    .replace(/[^a-zA-Z0-9\s]/g, '')
-    .trim()
-    .split(/\s+/)
-    .map((w, i) => i === 0 ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join('');
 }
 
 // ---------------------------------------------------------------------------
@@ -298,13 +304,9 @@ function extractVariableContent(test: BrowserTest): string[] {
 // Set in generateSpecFile(), read by convertVariables().
 let currentLocalVarNames = new Set<string>();
 
-// Module-level map of subtest public_id → metadata for helper generation.
+// Module-level map of subtest public_id → full test data for inlining.
 // Populated in main(), read by generatePlaySubTest().
-const subtestMap = new Map<string, { name: string; functionName: string; filename: string }>();
-
-// Set of subtest imports needed by the current spec being generated.
-// Set/cleared in generateSpecFile().
-let currentSubtestImports = new Set<string>();
+const subtestMap = new Map<string, BrowserTest>();
 
 function convertVariables(str: string): string {
   if (!str) return str;
@@ -527,12 +529,24 @@ function generatePlaySubTest(step: BrowserStep): string {
   if (!subtestId) {
     return `  // TODO: playSubTest step missing subtestPublicId`;
   }
-  const meta = subtestMap.get(subtestId);
-  if (!meta) {
+  const subtest = subtestMap.get(subtestId);
+  if (!subtest) {
     return `  // TODO: Subtest "${subtestId}" not found in export — ensure it is exported or add the appropriate tag`;
   }
-  currentSubtestImports.add(subtestId);
-  return `  await ${meta.functionName}(page);`;
+
+  // Inline the subtest steps directly
+  const substeps = subtest.steps || [];
+  if (substeps.length === 0) {
+    return `  // Subtest "${subtest.name}" (${subtestId}) has no steps`;
+  }
+
+  const usedVarNames = new Set<string>();
+  let code = `  // --- Inlined subtest: ${subtest.name} (${subtestId}) ---`;
+  for (let i = 0; i < substeps.length; i++) {
+    code += '\n\n' + generateStepCode(substeps[i], i, false, usedVarNames);
+  }
+  code += `\n  // --- End subtest: ${subtest.name} ---`;
+  return code;
 }
 
 function generateSelectOption(step: BrowserStep): string {
@@ -542,8 +556,8 @@ function generateSelectOption(step: BrowserStep): string {
 }
 
 function generateWait(step: BrowserStep): string {
-  const ms = parseInt(step.params?.value || '1000', 10) || 1000;
-  return `  await page.waitForTimeout(${ms});`;
+  const seconds = parseInt(step.params?.value || '1', 10) || 1;
+  return `  await page.waitForTimeout(${seconds * 1000});`;
 }
 
 function generateRefresh(_step: BrowserStep): string {
@@ -603,14 +617,87 @@ function generateAssertCurrentUrl(step: BrowserStep): string {
   }
 }
 
+let apiResponseCounter = 0;
+
 function generateRunApiTest(step: BrowserStep): string {
+  apiResponseCounter++;
   const request = step.params?.request?.config?.request || {};
+  const options = step.params?.request?.options || {};
   const method = (request.method || 'GET').toLowerCase();
   const url = request.url || '';
   const convertedUrl = convertVariables(escapeTemplateLiteral(url));
-  return `  // Embedded API test
-  const apiResponse = await page.request.${method}(\`${convertedUrl}\`);
-  await expect(apiResponse).toBeOK();`;
+  const varName = apiResponseCounter === 1 ? 'apiResponse' : `apiResponse${apiResponseCounter}`;
+
+  // Build request options (headers, body, auth)
+  const fetchOptions: string[] = [];
+
+  // Headers
+  const headers: Record<string, string> = { ...(request.headers || {}) };
+  if (request.basicAuth?.username) {
+    const user = convertVariables(escapeTemplateLiteral(request.basicAuth.username));
+    const pass = request.basicAuth.password
+      ? convertVariables(escapeTemplateLiteral(request.basicAuth.password))
+      : '';
+    headers['Authorization'] = `\${Buffer.from(\`${user}:${pass}\`).toString('base64')}`;
+  }
+  if (Object.keys(headers).length > 0) {
+    const headerEntries = Object.entries(headers).map(([k, v]) => {
+      if (k === 'Authorization') return `      'Authorization': \`Basic ${v}\``;
+      return `      '${k}': \`${convertVariables(escapeTemplateLiteral(v))}\``;
+    });
+    fetchOptions.push(`    headers: {\n${headerEntries.join(',\n')}\n    }`);
+  }
+
+  // Body
+  if (request.body) {
+    const convertedBody = convertVariables(escapeTemplateLiteral(request.body));
+    fetchOptions.push(`    data: \`${convertedBody}\``);
+  }
+
+  let code = `  // Embedded API test\n`;
+  if (fetchOptions.length > 0) {
+    code += `  const ${varName} = await page.request.${method}(\`${convertedUrl}\`, {\n${fetchOptions.join(',\n')}\n  });\n`;
+  } else {
+    code += `  const ${varName} = await page.request.${method}(\`${convertedUrl}\`);\n`;
+  }
+  code += `  await expect(${varName}).toBeOK();`;
+
+  // Extract values from response
+  const extractValues = options.extract_values || [];
+  if (extractValues.length > 0) {
+    const hasJsonPath = extractValues.some(e => e.parser.type === 'json_path');
+    const hasRegex = extractValues.some(e => e.parser.type === 'regex');
+
+    if (hasJsonPath) {
+      code += `\n  const ${varName}Json = await ${varName}.json();`;
+    }
+    if (hasRegex) {
+      code += `\n  const ${varName}Text = await ${varName}.text();`;
+    }
+
+    for (const ev of extractValues) {
+      // Register as local variable so subsequent steps reference directly
+      currentLocalVarNames.add(ev.name);
+
+      if (ev.parser.type === 'json_path') {
+        // Convert JSONPath like $.items[0].id to JS property access
+        const jsPath = ev.parser.value.replace(/^\$\.?/, '').replace(/\[(\d+)\]/g, '[$1]');
+        code += `\n  const ${ev.name} = ${varName}Json.${jsPath};`;
+      } else if (ev.parser.type === 'regex') {
+        // Wrap Datadog regex string as a JS RegExp
+        let pattern = ev.parser.value;
+        // Strip surrounding slashes and flags if present (e.g. /pattern/g)
+        const regexMatch = pattern.match(/^\/(.+)\/([gimsuy]*)$/);
+        if (regexMatch) {
+          code += `\n  const ${ev.name} = ${varName}Text.match(new RegExp(${JSON.stringify(regexMatch[1])}, '${regexMatch[2]}'))?.[0] ?? '';`;
+        } else {
+          code += `\n  const ${ev.name} = ${varName}Text.match(new RegExp(${JSON.stringify(pattern)}))?.[1] ?? '';`;
+        }
+      }
+    }
+  }
+
+  return code;
 }
 
 /** Dispatch to the right generator (non-iframe path). */
@@ -732,9 +819,9 @@ function generateSpecFile(test: BrowserTest): { spec: string; hasIframes: boolea
   const localVariables = (config?.variables || []).filter(v => v.type === 'text' && v.pattern);
   const stepsArray = steps || [];
 
-  // Set module-level local var names so convertVariables() references them directly
+  // Reset module-level state for this spec
   currentLocalVarNames = new Set(localVariables.map(v => v.name));
-  currentSubtestImports = new Set();
+  apiResponseCounter = 0;
 
   // Analyze steps for iframe usage
   const iframeMap = analyzeStepsForIframes(startUrl, stepsArray);
@@ -789,16 +876,10 @@ function generateSpecFile(test: BrowserTest): { spec: string; hasIframes: boolea
     if (i < stepsArray.length - 1) body += '\n\n';
   }
 
-  // --- Now build the full spec with imports (subtest imports are known) ---
+  // --- Now build the full spec with imports ---
   let spec = `import { test, expect } from "@playwright/test";\n`;
   if (hasIframes) {
     spec += `import { findInFrame } from "../helpers";\n`;
-  }
-  for (const subtestId of currentSubtestImports) {
-    const meta = subtestMap.get(subtestId);
-    if (meta) {
-      spec += `import { ${meta.functionName} } from "../helpers/${meta.filename.replace('.ts', '')}";\n`;
-    }
   }
 
   spec += `
@@ -824,44 +905,6 @@ test.describe("${testName}", () => {
 }
 
 // ---------------------------------------------------------------------------
-// Subtest → helper file generation
-// ---------------------------------------------------------------------------
-
-/**
- * Generate a shared helper file from a subtest.
- * The helper exports an async function that takes a Page and runs the subtest steps.
- */
-function generateHelperFile(test: BrowserTest): string {
-  const fnName = nameToCamelCase(test.name);
-  const stepsArray = test.steps || [];
-
-  // Set module-level state for this subtest's generation
-  const prevLocalVars = currentLocalVarNames;
-  const prevImports = currentSubtestImports;
-  currentLocalVarNames = new Set<string>();
-  currentSubtestImports = new Set<string>();
-
-  const usedVarNames = new Set<string>();
-  let body = '';
-  for (let i = 0; i < stepsArray.length; i++) {
-    body += generateStepCode(stepsArray[i], i, false, usedVarNames);
-    if (i < stepsArray.length - 1) body += '\n\n';
-  }
-
-  // Restore module-level state
-  currentLocalVarNames = prevLocalVars;
-  currentSubtestImports = prevImports;
-
-  let file = `import { Page } from "@playwright/test";\n\n`;
-  file += `/**\n * Shared helper generated from Datadog subtest: ${test.public_id}\n`;
-  file += ` * Original name: "${test.name}"\n */\n`;
-  file += `export async function ${fnName}(page: Page): Promise<void> {\n`;
-  file += body;
-  file += `\n}\n`;
-
-  return file;
-}
-
 // ---------------------------------------------------------------------------
 // Batch generation
 // ---------------------------------------------------------------------------
@@ -956,11 +999,9 @@ async function main(): Promise<void> {
     console.log(`Found ${subtests.length} subtest(s) to generate as helpers`);
   }
 
-  // Populate subtest map for helper resolution
+  // Populate subtest map for inline resolution
   for (const sub of subtests) {
-    const fnName = nameToCamelCase(sub.name);
-    const filename = `${sanitizeFilename(sub.name)}.ts`;
-    subtestMap.set(sub.public_id, { name: sub.name, functionName: fnName, filename });
+    subtestMap.set(sub.public_id, sub);
   }
 
   const publicTests = tests.filter(t => !hasPrivateLocations(t));
@@ -984,21 +1025,6 @@ async function main(): Promise<void> {
     const helpersPath = path.join(OUTPUT_BASE, 'helpers.ts');
     await writeFile(helpersPath, FIND_IN_FRAME_HELPER_SOURCE, 'utf-8');
     console.log(`\nWritten shared helpers: ${helpersPath}`);
-  }
-
-  // Generate subtest helper files
-  if (subtests.length > 0) {
-    const helpersDir = path.join(OUTPUT_BASE, 'helpers');
-    if (!existsSync(helpersDir)) await mkdir(helpersDir, { recursive: true });
-
-    console.log(`\nGenerating subtest helpers...`);
-    for (const sub of subtests) {
-      const meta = subtestMap.get(sub.public_id)!;
-      const helperContent = generateHelperFile(sub);
-      const helperPath = path.join(helpersDir, meta.filename);
-      await writeFile(helperPath, helperContent, 'utf-8');
-      console.log(`  Helper: ${meta.functionName}() → ${helperPath}`);
-    }
   }
 
   console.log('\nWriting variable usage report...');
