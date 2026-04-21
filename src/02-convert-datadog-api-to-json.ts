@@ -59,8 +59,20 @@ interface DatadogTest {
         password?: string;
       };
       query?: Record<string, string>;
+      certificate?: {
+        key?: { filename?: string; content?: string };
+        cert?: { filename?: string; content?: string };
+      };
     };
     assertions?: DatadogAssertion[];
+    configVariables?: Array<{
+      type: string;
+      name: string;
+      pattern?: string;
+      example?: string;
+      secure?: boolean;
+      id?: string;
+    }>;
   };
   options?: {
     tick_every?: number;
@@ -102,6 +114,10 @@ interface ChecklyCheck {
       password: string;
     };
     queryParameters?: Record<string, string>;
+    certificate?: {
+      key?: { filename?: string };
+      cert?: { filename?: string };
+    };
   };
   assertions: ChecklyAssertion[];
   frequency: string;
@@ -113,6 +129,7 @@ interface ChecklyCheck {
   activated: boolean;
   muted: boolean;
   shouldFail: boolean;
+  hasCertificate?: boolean;
   _datadogMeta: {
     publicId: string;
     monitorId?: number;
@@ -124,6 +141,14 @@ interface ChecklyCheck {
   };
   _conversionError?: string;
   _originalTest?: DatadogTest;
+  configVariables: Array<{
+    type: string;
+    name: string;
+    pattern?: string;
+    example?: string;
+    secure?: boolean;
+    id?: string;
+  }>;
 }
 
 // Datadog operator to Checkly comparison mapping
@@ -241,6 +266,7 @@ function convertTest(ddTest: DatadogTest): ChecklyCheck {
       shouldFail: false,
       _datadogMeta: { publicId: ddTest.public_id, subtype: ddTest.subtype },
       _conversionError: `Unsupported HTTP method: ${method}. Checkly supports: ${SUPPORTED_METHODS.join(', ')}`,
+      configVariables: ddTest.config?.configVariables ?? [],
     };
   }
 
@@ -289,6 +315,9 @@ function convertTest(ddTest: DatadogTest): ChecklyCheck {
       message: ddTest.message,
       subtype: ddTest.subtype,
     },
+
+    // Carry raw configVariables for downstream conversion (D-01, D-02, D-03)
+    configVariables: ddTest.config?.configVariables ?? [],
   };
 
   // Add optional request properties if present
@@ -316,6 +345,20 @@ function convertTest(ddTest: DatadogTest): ChecklyCheck {
 
   if (ddTest.config?.request?.query) {
     config.request.queryParameters = ddTest.config.request.query;
+  }
+
+  // Carry client certificate metadata (mTLS) for downstream flagging
+  if (ddTest.config?.request?.certificate) {
+    config.request.certificate = {
+      key: ddTest.config.request.certificate.key
+        ? { filename: ddTest.config.request.certificate.key.filename }
+        : undefined,
+      cert: ddTest.config.request.certificate.cert
+        ? { filename: ddTest.config.request.certificate.cert.filename }
+        : undefined,
+    };
+    config.hasCertificate = true;
+    config.tags.push('requiresClientCertificate');
   }
 
   return config;
@@ -348,9 +391,6 @@ async function main(): Promise<void> {
   };
 
   console.log(`Found ${data.tests.length} API tests to convert`);
-
-  // Subtypes that can be converted to Checkly API checks
-  const CONVERTIBLE_SUBTYPES = ['http', undefined];
 
   // Filter tests by subtype
   const multiStepTests = data.tests.filter(test => test.subtype === 'multi');
@@ -393,6 +433,7 @@ async function main(): Promise<void> {
         name: test.name,
         _conversionError: (err as Error).message,
         _originalTest: test,
+        configVariables: test.config?.configVariables ?? [],
       } as ChecklyCheck;
     }
   });

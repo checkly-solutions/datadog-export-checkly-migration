@@ -89,6 +89,14 @@ interface ApiChecksFile {
     logicalId: string;
     name: string;
     privateLocations?: string[];
+    tags?: string[];
+    hasCertificate?: boolean;
+    request?: {
+      certificate?: {
+        key?: { filename?: string };
+        cert?: { filename?: string };
+      };
+    };
     _conversionError?: string;
   }>;
 }
@@ -101,6 +109,18 @@ interface MultiStepTestsFile {
     public_id: string;
     name: string;
     privateLocations?: string[];
+    tags?: string[];
+    hasCertificate?: boolean;
+    config?: {
+      steps?: Array<{
+        request?: {
+          certificate?: {
+            key?: { filename?: string };
+            cert?: { filename?: string };
+          };
+        };
+      }>;
+    };
   }>;
 }
 
@@ -245,6 +265,20 @@ interface MigrationReport {
     affectedChecks: Array<{
       checkName: string;
       missingSecrets: string[];
+    }>;
+  };
+  checkLevelSecrets?: {
+    totalEntries: number;
+    uniqueChecks: number;
+    entries: Array<{ checkName: string; key: string }>;
+  };
+  clientCertificates?: {
+    totalChecks: number;
+    checks: Array<{
+      checkName: string;
+      checkType: 'api' | 'multistep';
+      publicId: string;
+      certFiles: { key?: string; cert?: string };
     }>;
   };
   nextSteps: string[];
@@ -414,6 +448,50 @@ function generateMarkdownReport(report: MigrationReport): string {
     }
     lines.push('');
     lines.push('> **Action:** Fill in secret values in `variables/secrets.json`, then remove the `missingSecretsFromDatadog` tag and set `activated: true` to re-enable these checks.');
+    lines.push('');
+  }
+
+  // Check-Level Secrets Requiring Manual Values (D-06)
+  if (report.checkLevelSecrets && report.checkLevelSecrets.totalEntries > 0) {
+    const cls = report.checkLevelSecrets;
+    lines.push('## Check-Level Secrets Requiring Manual Values');
+    lines.push('');
+    lines.push(`**${cls.totalEntries} secret(s)** across **${cls.uniqueChecks} check(s)** were migrated from Datadog \`configVariables\` with \`secure: true\`.`);
+    lines.push('These need values filled in within the generated \`.check.ts\` files or via \`variables/secrets.json\` \`checkLevel\` entries.');
+    lines.push('');
+    lines.push('| Check | Secret Key |');
+    lines.push('|-------|------------|');
+    const display = cls.entries.slice(0, 25);
+    for (const entry of display) {
+      lines.push(`| ${entry.checkName} | \`${entry.key}\` |`);
+    }
+    if (cls.entries.length > 25) {
+      lines.push(`| ... | ${cls.entries.length - 25} more (see secrets.json checkLevel) |`);
+    }
+    lines.push('');
+    lines.push('> **Action:** Fill in secret values in `variables/secrets.json` under the `checkLevel` section. The operator opens one file to see all secrets needing values.');
+    lines.push('');
+  }
+
+  // Checks Requiring Client Certificates (mTLS)
+  if (report.clientCertificates && report.clientCertificates.totalChecks > 0) {
+    const cc = report.clientCertificates;
+    lines.push('## Checks Requiring Client Certificates (mTLS)');
+    lines.push('');
+    lines.push(`**${cc.totalChecks} check(s)** require client certificates for mutual TLS authentication.`);
+    lines.push(`These checks are tagged with \`requiresClientCertificate\` and set to \`activated: false\`.`);
+    lines.push('');
+    lines.push('| Check | Type | Key File | Cert File |');
+    lines.push('|-------|------|----------|-----------|');
+    const display = cc.checks.slice(0, 25);
+    for (const c of display) {
+      lines.push(`| ${c.checkName} | ${c.checkType} | \`${c.certFiles.key || 'N/A'}\` | \`${c.certFiles.cert || 'N/A'}\` |`);
+    }
+    if (cc.checks.length > 25) {
+      lines.push(`| ... | | | ${cc.checks.length - 25} more (see migration-report.json) |`);
+    }
+    lines.push('');
+    lines.push('> **Action:** Upload your client certificate key and cert files to Checkly and configure them on each affected check. Then remove the `requiresClientCertificate` tag and set `activated: true` to enable these checks.');
     lines.push('');
   }
 
@@ -634,7 +712,10 @@ async function main(): Promise<void> {
   const multiStepTests = await readJsonFile<MultiStepTestsFile>(FILES.multiStepTests);
   const browserTests = await readJsonFile<BrowserTestsFile>(FILES.browserTests);
   const envVariables = await readJsonFile<Variable[]>(FILES.envVariables);
-  const secrets = await readJsonFile<Variable[]>(FILES.secrets);
+  const secretsRaw = await readJsonFile<Variable[] | { global: Variable[]; checkLevel: Array<{ checkName: string; key: string; value: string; locked: boolean }> }>(FILES.secrets);
+  // Normalize: extract global secrets for backward compat
+  const secrets = secretsRaw ? (Array.isArray(secretsRaw) ? secretsRaw : secretsRaw.global || []) : null;
+  const checkLevelSecrets = secretsRaw && !Array.isArray(secretsRaw) ? secretsRaw.checkLevel || [] : [];
   const variableUsage = await readJsonFile<VariableUsageFile>(FILES.variableUsage);
   const browserManifestPublic = await readJsonFile<Manifest>(FILES.browserManifestPublic);
   const browserManifestPrivate = await readJsonFile<Manifest>(FILES.browserManifestPrivate);
@@ -721,6 +802,58 @@ async function main(): Promise<void> {
     }
   }
 
+  // Collect checks requiring client certificates (mTLS)
+  const certChecks: Array<{
+    checkName: string;
+    checkType: 'api' | 'multistep';
+    publicId: string;
+    certFiles: { key?: string; cert?: string };
+  }> = [];
+
+  // From API checks
+  if (apiChecks?.checks) {
+    for (const check of apiChecks.checks) {
+      if (check.hasCertificate || check.tags?.includes('requiresClientCertificate')) {
+        certChecks.push({
+          checkName: check.name,
+          checkType: 'api',
+          publicId: check.logicalId,
+          certFiles: {
+            key: check.request?.certificate?.key?.filename,
+            cert: check.request?.certificate?.cert?.filename,
+          },
+        });
+      }
+    }
+  }
+
+  // From multi-step tests
+  if (multiStepTests?.tests) {
+    for (const test of multiStepTests.tests) {
+      if (test.hasCertificate || test.tags?.includes('requiresClientCertificate')) {
+        const keyFiles: string[] = [];
+        const certFileNames: string[] = [];
+        for (const step of (test.config?.steps || [])) {
+          if (step.request?.certificate?.key?.filename && !keyFiles.includes(step.request.certificate.key.filename)) {
+            keyFiles.push(step.request.certificate.key.filename);
+          }
+          if (step.request?.certificate?.cert?.filename && !certFileNames.includes(step.request.certificate.cert.filename)) {
+            certFileNames.push(step.request.certificate.cert.filename);
+          }
+        }
+        certChecks.push({
+          checkName: test.name,
+          checkType: 'multistep',
+          publicId: test.public_id,
+          certFiles: {
+            key: keyFiles.join(', ') || undefined,
+            cert: certFileNames.join(', ') || undefined,
+          },
+        });
+      }
+    }
+  }
+
   // Build the report
   const report: MigrationReport = {
     generatedAt: new Date().toISOString(),
@@ -801,6 +934,15 @@ async function main(): Promise<void> {
       filesModified: missingSecretsReport.filesModified,
       affectedChecks: missingSecretsReport.affectedChecks,
     } : undefined,
+    checkLevelSecrets: checkLevelSecrets.length > 0 ? {
+      totalEntries: checkLevelSecrets.length,
+      uniqueChecks: new Set(checkLevelSecrets.map(s => s.checkName)).size,
+      entries: checkLevelSecrets.map(s => ({ checkName: s.checkName, key: s.key })),
+    } : undefined,
+    clientCertificates: certChecks.length > 0 ? {
+      totalChecks: certChecks.length,
+      checks: certChecks,
+    } : undefined,
     nextSteps: [
       privateLocationsFile && privateLocationsFile.locations.length > 0
         ? `Create ${privateLocationsFile.locations.length} private location(s) in Checkly with the slugs shown in the report`
@@ -813,6 +955,12 @@ async function main(): Promise<void> {
         : null,
       missingSecretsReport && missingSecretsReport.checksAffected > 0
         ? `Fill in secret values in ${CHECKLY_DIR}/variables/secrets.json and remove "missingSecretsFromDatadog" tag from ${missingSecretsReport.checksAffected} deactivated check(s)`
+        : null,
+      checkLevelSecrets.length > 0
+        ? `Fill in values for ${checkLevelSecrets.length} check-level secret(s) in ${CHECKLY_DIR}/variables/secrets.json under the "checkLevel" section`
+        : null,
+      certChecks.length > 0
+        ? `Upload client certificates for ${certChecks.length} check(s) tagged "requiresClientCertificate", configure mTLS on each check, then remove the tag and set activated: true`
         : null,
       `Review checks tagged "datadogBasicAuthWeb" — these used web/form-based auth in Datadog and may need converting to browser or multi-step checks`,
       `Run "cd ${CHECKLY_DIR} && npm run create-variables" to import variables to Checkly`,
@@ -863,6 +1011,14 @@ async function main(): Promise<void> {
 
   if (report.missingSecrets) {
     console.log(`  Checks deactivated (missing secrets): ${report.missingSecrets.checksAffected}`);
+  }
+
+  if (report.checkLevelSecrets) {
+    console.log(`  Check-level secrets: ${report.checkLevelSecrets.totalEntries} across ${report.checkLevelSecrets.uniqueChecks} check(s)`);
+  }
+
+  if (certChecks.length > 0) {
+    console.log(`  Client certificate checks: ${certChecks.length}`);
   }
 
   console.log('\nView the full report:');

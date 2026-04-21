@@ -402,7 +402,7 @@ export default config;
       "delete-variables": "ts-node variables/delete-variables.ts",
     },
     devDependencies: {
-      "checkly": "^7.1.0",
+      "checkly": "^7.11.0",
       "ts-node": "^10.9.2",
       "typescript": "^5.9.3",
     },

@@ -35,6 +35,18 @@ interface ChecklyVariable {
   locked: boolean;
 }
 
+interface CheckLevelSecret {
+  checkName: string;
+  key: string;
+  value: string;
+  locked: boolean;
+}
+
+interface SecretsFile {
+  global: ChecklyVariable[];
+  checkLevel: CheckLevelSecret[];
+}
+
 /**
  * Main conversion function
  */
@@ -89,6 +101,18 @@ async function main(): Promise<void> {
   console.log(`  Non-secure variables: ${envVariables.length}`);
   console.log(`  Secure variables (secrets): ${secrets.length}`);
 
+  // Read check-level secrets accumulated by steps 04/06/08 (D-07, D-08)
+  const checkLevelSecretsPath = `${exportsDir}/check-level-secrets.json`;
+  let checkLevelSecrets: CheckLevelSecret[] = [];
+  if (existsSync(checkLevelSecretsPath)) {
+    try {
+      checkLevelSecrets = JSON.parse(await readFile(checkLevelSecretsPath, 'utf-8'));
+      console.log(`  Check-level secrets found: ${checkLevelSecrets.length} entries`);
+    } catch {
+      console.log('  Warning: Could not parse check-level-secrets.json — skipping check-level secrets');
+    }
+  }
+
   // Create output directory
   if (!existsSync(OUTPUT_DIR)) {
     await mkdir(OUTPUT_DIR, { recursive: true });
@@ -103,10 +127,14 @@ async function main(): Promise<void> {
   );
   console.log(`\nWritten: ${OUTPUT_DIR}/env-variables.json`);
 
-  // Write clean secrets.json (needs manual value entry)
+  // Write secrets.json with global and checkLevel sections (D-07)
+  const secretsFile: SecretsFile = {
+    global: secrets,
+    checkLevel: checkLevelSecrets,
+  };
   await writeFile(
     `${OUTPUT_DIR}/secrets.json`,
-    JSON.stringify(secrets, null, 2),
+    JSON.stringify(secretsFile, null, 2),
     'utf-8'
   );
   console.log(`Written: ${OUTPUT_DIR}/secrets.json`);
@@ -128,11 +156,12 @@ async function main(): Promise<void> {
   console.log(`  Total variables: ${variables.length}`);
   console.log(`  Non-secure (env-variables.json): ${envVariables.length}`);
   console.log(`  Secure (secrets.json): ${secrets.length}`);
+  console.log(`  Check-level secrets: ${checkLevelSecrets.length} entries across ${new Set(checkLevelSecrets.map(s => s.checkName)).size} check(s)`);
   console.log(`  Output directory: ${OUTPUT_DIR}`);
 
   console.log('\nGenerated files:');
   console.log('  - env-variables.json   (non-secure, values included)');
-  console.log('  - secrets.json         (secure, FILL IN VALUES MANUALLY)');
+  console.log('  - secrets.json         (global + check-level secrets, FILL IN VALUES MANUALLY)');
   console.log('  - create-variables.ts  (creates vars via API + appends to .env)');
   console.log('  - delete-variables.ts  (deletes vars via API + removes from .env)');
 
@@ -288,7 +317,9 @@ async function main(): Promise<void> {
   const secretsFile = path.join(SCRIPT_DIR, 'secrets.json');
   if (existsSync(secretsFile)) {
     console.log('\\nProcessing secrets.json...');
-    const secrets = JSON.parse(await readFile(secretsFile, 'utf-8')) as ChecklyVariable[];
+    const secretsData = JSON.parse(await readFile(secretsFile, 'utf-8'));
+    // Support both new format { global: [...], checkLevel: [...] } and legacy flat array
+    const secrets: ChecklyVariable[] = Array.isArray(secretsData) ? secretsData : (secretsData.global || []);
 
     for (const variable of secrets) {
       if (!variable.value) {
@@ -469,7 +500,8 @@ async function main(): Promise<void> {
 
   const secretsFile = path.join(SCRIPT_DIR, 'secrets.json');
   if (existsSync(secretsFile)) {
-    const secrets = JSON.parse(await readFile(secretsFile, 'utf-8')) as ChecklyVariable[];
+    const secretsData = JSON.parse(await readFile(secretsFile, 'utf-8'));
+    const secrets: ChecklyVariable[] = Array.isArray(secretsData) ? secretsData : (secretsData.global || []);
     keysToDelete.push(...secrets.map(v => v.key));
   }
 

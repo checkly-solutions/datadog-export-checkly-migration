@@ -11,10 +11,13 @@
 import { writeFile, readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { getExportsDir } from './output-config.ts';
+import type { DatadogConfigVariable } from './types.ts';
 
 export interface VariableUsage {
   usageCount: number;
   checks: string[];
+  definedAs?: 'environmentVariable' | 'accountLevel' | 'mixed';
+  source?: string;
 }
 
 export interface VariableUsageReport {
@@ -25,6 +28,9 @@ export interface VariableUsageReport {
 
 // In-memory store for variable usage during generation
 const variableUsage: Record<string, Set<string>> = {};
+
+// In-memory store for configVariable conversion metadata (D-10)
+const conversionMetadata: Record<string, { definedAs: 'environmentVariable' | 'accountLevel' | 'mixed'; source: string }> = {};
 
 /**
  * Regex patterns to match variable references
@@ -90,10 +96,17 @@ export function getVariableUsage(): Record<string, VariableUsage> {
   const result: Record<string, VariableUsage> = {};
 
   for (const [varName, checks] of Object.entries(variableUsage)) {
-    result[varName] = {
+    const entry: VariableUsage = {
       usageCount: checks.size,
       checks: Array.from(checks).sort(),
     };
+    // Merge conversion metadata if available (D-10)
+    const meta = conversionMetadata[varName];
+    if (meta) {
+      entry.definedAs = meta.definedAs;
+      entry.source = meta.source;
+    }
+    result[varName] = entry;
   }
 
   return result;
@@ -161,5 +174,65 @@ export async function loadExistingVariableUsage(): Promise<void> {
 export function clearVariableUsage(): void {
   for (const key of Object.keys(variableUsage)) {
     delete variableUsage[key];
+  }
+  for (const key of Object.keys(conversionMetadata)) {
+    delete conversionMetadata[key];
+  }
+}
+
+/**
+ * Record configVariable-to-environmentVariable conversion metadata.
+ * Called by steps 04, 06, 08 after calling convertConfigVariables().
+ * @param checkName - The check name for tracking
+ * @param configVars - The raw Datadog configVariables array
+ */
+export function trackConfigVariableConversions(
+  checkName: string,
+  configVars: DatadogConfigVariable[] | undefined | null
+): void {
+  if (!configVars || configVars.length === 0) return;
+
+  for (const v of configVars) {
+    const varName = v.name;
+
+    if (v.type === 'text') {
+      // Track as check-level environmentVariable
+      if (!variableUsage[varName]) {
+        variableUsage[varName] = new Set();
+      }
+      variableUsage[varName].add(checkName);
+      const existing = conversionMetadata[varName];
+      if (existing && existing.definedAs !== 'environmentVariable') {
+        // Variable appears as both text and global across different checks
+        conversionMetadata[varName] = {
+          definedAs: 'mixed',
+          source: 'configVariable (mixed: text + global)',
+        };
+      } else if (!existing) {
+        conversionMetadata[varName] = {
+          definedAs: 'environmentVariable',
+          source: 'configVariable (text)',
+        };
+      }
+    } else if (v.type === 'global') {
+      // Track as account-level variable
+      if (!variableUsage[varName]) {
+        variableUsage[varName] = new Set();
+      }
+      variableUsage[varName].add(checkName);
+      const existing = conversionMetadata[varName];
+      if (existing && existing.definedAs !== 'accountLevel') {
+        // Variable appears as both text and global across different checks
+        conversionMetadata[varName] = {
+          definedAs: 'mixed',
+          source: 'configVariable (mixed: text + global)',
+        };
+      } else if (!existing) {
+        conversionMetadata[varName] = {
+          definedAs: 'accountLevel',
+          source: 'configVariable (global)',
+        };
+      }
+    }
   }
 }

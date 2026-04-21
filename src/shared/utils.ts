@@ -2,6 +2,8 @@
  * Shared utility functions for Datadog to Checkly migration
  */
 
+import type { DatadogConfigVariable } from './types.ts';
+
 /**
  * Datadog tick_every (seconds) to Checkly frequency mapping
  */
@@ -160,4 +162,37 @@ export function normalizeDatadogBody(body: unknown): string | undefined {
   }
   // Fallback: stringify unexpected formats so they aren't silently lost
   return JSON.stringify(body);
+}
+
+/**
+ * Convert Datadog configVariables to Checkly environmentVariable entries.
+ *
+ * Conversion rules:
+ *   - type: "text", secure: false/absent → { key: name, value: pattern ?? '' }
+ *   - type: "text", secure: true         → { key: name, value: '', secret: true }
+ *   - type: "global"                     → skipped (handled at account level by step 09)
+ *   - any other type                     → skipped
+ *
+ * @param configVars - Raw Datadog configVariables array from test config
+ * @returns Array of Checkly-compatible environment variable objects. Empty when input
+ *          is empty, null, undefined, or contains only non-text variables.
+ */
+export function convertConfigVariables(
+  configVars: DatadogConfigVariable[] | undefined | null
+): Array<{ key: string; value: string; secret?: boolean }> {
+  if (!configVars || configVars.length === 0) return [];
+
+  const result: Array<{ key: string; value: string; secret?: boolean }> = [];
+
+  for (const v of configVars) {
+    if (v.type !== 'text') continue;
+
+    if (v.secure) {
+      result.push({ key: v.name, value: '', secret: true });
+    } else {
+      result.push({ key: v.name, value: v.pattern ?? '' });
+    }
+  }
+
+  return result;
 }

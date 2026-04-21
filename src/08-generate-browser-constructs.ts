@@ -11,7 +11,8 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import { FREQUENCY_MAP, sanitizeFilename, generateLogicalId, convertFrequency } from './shared/utils.ts';
+import { FREQUENCY_MAP, sanitizeFilename, generateLogicalId, convertFrequency, convertConfigVariables, escapeString } from './shared/utils.ts';
+import { trackConfigVariableConversions, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 // Relative path from __checks__/browser/{public,private} to tests/browser/{public,private}
 const SPECS_RELATIVE_PATH = '../../../tests/browser';
@@ -31,6 +32,17 @@ interface BrowserTest {
       count?: number;
       interval?: number;
     };
+  };
+  config?: {
+    steps?: unknown[];
+    configVariables?: Array<{
+      type: string;
+      name: string;
+      pattern?: string;
+      example?: string;
+      secure?: boolean;
+      id?: string;
+    }>;
   };
 }
 
@@ -96,6 +108,16 @@ function generateBrowserCheckCode(test: BrowserTest, specFilename: string, locat
     allTags.push('iframe');
   }
 
+  // Convert configVariables to environmentVariables
+  const envVars = convertConfigVariables(test.config?.configVariables);
+  const envVarsCode = envVars.length > 0
+    ? `\n  environmentVariables: [\n${envVars.map(v =>
+        v.secret
+          ? `    { key: "${escapeString(v.key)}", value: "", secret: true }`
+          : `    { key: "${escapeString(v.key)}", value: "${escapeString(v.value)}" }`
+      ).join(',\n')},\n  ],`
+    : '';
+
   const code = `/**
  * Migrated from Datadog Synthetic: ${public_id}
  */
@@ -112,7 +134,7 @@ new BrowserCheck("${logicalId}", {
     entrypoint: "${specsPath}/${specFilename}",
   },
   frequency: Frequency.${frequency},
-  locations: ${JSON.stringify(locations)},${privateLocations.length > 0 ? `\n  privateLocations: ${JSON.stringify(privateLocations)},` : ''}
+  locations: ${JSON.stringify(locations)},${privateLocations.length > 0 ? `\n  privateLocations: ${JSON.stringify(privateLocations)},` : ''}${envVarsCode}
   activated: ${activated},
   muted: false,
   retryStrategy: ${retryStrategy},
@@ -171,6 +193,8 @@ async function generateConstructsForLocationType(
       const filepath = path.join(outputDir, filename);
 
       await writeFile(filepath, code, 'utf-8');
+      // Track configVariable conversions (D-10)
+      trackConfigVariableConversions(test.name, test.config?.configVariables);
       successCount++;
       generatedFiles.push({
         logicalId: test.public_id,
@@ -207,6 +231,9 @@ async function main(): Promise<void> {
   console.log('='.repeat(60));
   console.log('BrowserCheck Construct Generator');
   console.log('='.repeat(60));
+
+  // Load existing variable usage (for merging across generator runs)
+  await loadExistingVariableUsage();
 
   // Check input file exists
   if (!existsSync(INPUT_FILE)) {
@@ -288,6 +315,45 @@ async function main(): Promise<void> {
     privateErrors = privateResult.errorCount;
   } else {
     console.log(`\nNo private manifest found at ${MANIFEST_FILE_PRIVATE}`);
+  }
+
+  // Write variable usage report
+  await writeVariableUsageReport();
+
+  // Write check-level secrets for downstream step 09 (D-06, D-08)
+  const checkLevelSecrets: Array<{ checkName: string; key: string; value: string; locked: boolean }> = [];
+  for (const test of tests) {
+    const envVars = convertConfigVariables(test.config?.configVariables);
+    for (const v of envVars) {
+      if (v.secret) {
+        checkLevelSecrets.push({
+          checkName: test.name,
+          key: v.key,
+          value: '',
+          locked: true,
+        });
+      }
+    }
+  }
+  if (checkLevelSecrets.length > 0) {
+    const secretsPath = path.join(exportsDir, 'check-level-secrets.json');
+    let existing: typeof checkLevelSecrets = [];
+    if (existsSync(secretsPath)) {
+      try {
+        existing = JSON.parse(await readFile(secretsPath, 'utf-8'));
+      } catch { /* start fresh */ }
+    }
+    const merged = [...existing, ...checkLevelSecrets];
+    // Deduplicate by checkName + key to prevent accumulation on re-runs
+    const seen = new Set<string>();
+    const deduped = merged.filter(entry => {
+      const id = `${entry.checkName}::${entry.key}`;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    await writeFile(secretsPath, JSON.stringify(deduped, null, 2), 'utf-8');
+    console.log(`  Written: ${secretsPath} (${checkLevelSecrets.length} check-level secret entries)`);
   }
 
   // Collect private locations for summary

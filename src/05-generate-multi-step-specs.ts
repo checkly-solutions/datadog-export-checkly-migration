@@ -23,6 +23,19 @@ function convertVariables(str: string): string {
   return str.replace(/\{\{\s*(\w+)\s*\}\}/g, '${process.env.$1}');
 }
 
+/**
+ * Rewrite process.env references for extracted variables to use local variable names.
+ * After convertVariables(), '{{ TOKEN }}' becomes '${process.env.TOKEN}'.
+ * For variables that are extracted from a prior step's response (not from process.env),
+ * rewrite to '${TOKEN}' to reference the local let variable.
+ */
+function rewriteExtractedVarRefs(converted: string, extractedVarNames: Set<string>): string {
+  if (extractedVarNames.size === 0) return converted;
+  return converted.replace(/\$\{process\.env\.(\w+)\}/g, (match, varName) => {
+    return extractedVarNames.has(varName) ? `\${${varName}}` : match;
+  });
+}
+
 interface DatadogAssertion {
   type: string;
   operator: string;
@@ -40,6 +53,10 @@ interface DatadogRequest {
   url?: string;
   headers?: Record<string, string>;
   body?: unknown;
+  certificate?: {
+    key?: { filename?: string; content?: string };
+    cert?: { filename?: string; content?: string };
+  };
 }
 
 interface DatadogStep {
@@ -48,6 +65,12 @@ interface DatadogStep {
   request: DatadogRequest;
   assertions: DatadogAssertion[];
   allowFailure?: boolean;
+  extractedValues?: Array<{
+    type: string;
+    parser: { type: string; value: string };
+    name: string;
+    secure?: boolean;
+  }>;
 }
 
 interface DatadogTest {
@@ -59,6 +82,7 @@ interface DatadogTest {
   originalLocations: string[];   // Original Datadog locations for reference
   status?: string;
   tags?: string[];
+  hasCertificate?: boolean;
   options?: {
     tick_every?: number;
     retry?: {
@@ -68,6 +92,7 @@ interface DatadogTest {
   };
   config?: {
     steps?: DatadogStep[];
+    hasCertificate?: boolean;
   };
 }
 
@@ -251,7 +276,7 @@ function generateComparisonCode(expectExpr: string, operator: string, target?: s
 /**
  * Generate the request call code for a step
  */
-function generateRequestCode(request: DatadogRequest, stepIndex: number): { code: string; responseVar: string } {
+function generateRequestCode(request: DatadogRequest, stepIndex: number, extractedVarNames: Set<string> = new Set()): { code: string; responseVar: string } {
   const { method, url, headers } = request;
   const body = normalizeDatadogBody(request.body);
   const methodLower = (method || 'GET').toLowerCase();
@@ -265,12 +290,19 @@ function generateRequestCode(request: DatadogRequest, stepIndex: number): { code
 
   // Add headers if present — convert variables in header values
   if (headers && Object.keys(headers).length > 0) {
-    const convertedHeaders: Record<string, string> = {};
+    const headerLines: string[] = [];
     for (const [key, value] of Object.entries(headers)) {
-      convertedHeaders[key] = convertVariables(value);
+      const converted = convertVariables(value);
+      const final = rewriteExtractedVarRefs(converted, extractedVarNames);
+      if (final.includes('${')) {
+        // Use backtick template literal for values with variable interpolation
+        headerLines.push(`      "${key}": \`${final}\``);
+      } else {
+        // Use regular JSON string for static values (preserves existing behavior)
+        headerLines.push(`      "${key}": "${escapeString(final)}"`);
+      }
     }
-    const headersStr = JSON.stringify(convertedHeaders, null, 6).replace(/\n/g, '\n      ');
-    options.push(`headers: ${headersStr}`);
+    options.push(`headers: {\n${headerLines.join(',\n')}\n    }`);
   }
 
   // Add body if present (for POST, PUT, PATCH) — convert variables in body
@@ -321,9 +353,9 @@ function getIncompatibleSubtypes(test: DatadogTest): string[] {
 /**
  * Generate a single step's code
  */
-function generateStepCode(step: DatadogStep, stepIndex: number): string {
+function generateStepCode(step: DatadogStep, stepIndex: number, extractedVarNames: Set<string> = new Set()): string {
   const { name, request, assertions, allowFailure } = step;
-  const { code: requestCode, responseVar } = generateRequestCode(request, stepIndex);
+  const { code: requestCode, responseVar } = generateRequestCode(request, stepIndex, extractedVarNames);
   const bodyVar = `body${stepIndex}`;
   const jsonBodyVar = `jsonBody${stepIndex}`;
 
@@ -365,6 +397,23 @@ function generateStepCode(step: DatadogStep, stepIndex: number): string {
     }
   }
 
+  // Generate extraction code for extractedValues (inter-step variable extraction)
+  if (step.extractedValues && step.extractedValues.length > 0) {
+    for (const ev of step.extractedValues) {
+      if (ev.type === 'http_body' && ev.parser?.type === 'json_path') {
+        // $.access_token → access_token (strip $. prefix for simple top-level paths)
+        const field = ev.parser.value.replace(/^\$\./, '');
+        stepCode += `\n`;
+        stepCode += `    // Extract ${ev.name} from step ${stepIndex + 1} response\n`;
+        stepCode += `    try {\n`;
+        stepCode += `      const _extractBody${stepIndex} = await ${responseVar}.text();\n`;
+        stepCode += `      const _extractJson${stepIndex} = JSON.parse(_extractBody${stepIndex});\n`;
+        stepCode += `      ${ev.name} = _extractJson${stepIndex}?.${field} ?? '';\n`;
+        stepCode += `    } catch { /* extraction failed, ${ev.name} remains empty */ }\n`;
+      }
+    }
+  }
+
   return stepCode;
 }
 
@@ -378,15 +427,35 @@ function generateSpecFile(test: DatadogTest): string {
   const testName = escapeString(name);
   const describeName = escapeString(name);
 
+  // Collect extracted variable names across all steps for function-scope declarations
+  const extractedVarNames = new Set<string>();
+  for (const step of steps) {
+    if (step.extractedValues) {
+      for (const ev of step.extractedValues) {
+        if (ev.type === 'http_body' && ev.parser?.type === 'json_path') {
+          extractedVarNames.add(ev.name);
+        }
+      }
+    }
+  }
+
   let spec = `import { test, expect } from "@playwright/test";
 
 test.describe("${describeName}", () => {
   test("${testName}", async ({ request }) => {
 `;
 
+  // Emit extracted variable declarations at function scope (before any step code)
+  if (extractedVarNames.size > 0) {
+    for (const varName of extractedVarNames) {
+      spec += `    let ${varName} = '';\n`;
+    }
+    spec += `\n`;
+  }
+
   // Generate code for each step
   for (let i = 0; i < steps.length; i++) {
-    spec += generateStepCode(steps[i], i);
+    spec += generateStepCode(steps[i], i, extractedVarNames);
     if (i < steps.length - 1) {
       spec += '\n';
     }
@@ -501,6 +570,25 @@ async function main(): Promise<void> {
   const tests = data.tests || [];
   console.log(`Found ${tests.length} multi-step tests to process`);
 
+  // Detect client certificates on multi-step test steps
+  let certDetectedCount = 0;
+  for (const test of tests) {
+    const hasAnyCert = (test.config?.steps || []).some(
+      (step: DatadogStep) => step.request?.certificate
+    );
+    if (hasAnyCert) {
+      test.hasCertificate = true;
+      if (!test.tags) test.tags = [];
+      if (!test.tags.includes('requiresClientCertificate')) {
+        test.tags.push('requiresClientCertificate');
+      }
+      certDetectedCount++;
+    }
+  }
+  if (certDetectedCount > 0) {
+    console.log(`  - Detected client certificates on ${certDetectedCount} test(s) — tagged requiresClientCertificate`);
+  }
+
   // Separate by location type
   const publicTests = tests.filter(t => !hasPrivateLocations(t));
   const privateTests = tests.filter(t => hasPrivateLocations(t));
@@ -524,6 +612,13 @@ async function main(): Promise<void> {
   // Generate specs for private tests
   console.log('\nGenerating private location specs...');
   const privateResult = await generateSpecsForTests(privateTests, OUTPUT_DIR_PRIVATE, 'private');
+
+  // Write back enriched test data (with certificate tags) for downstream steps
+  if (certDetectedCount > 0) {
+    const enrichedData = { ...data, tests };
+    await writeFile(INPUT_FILE, JSON.stringify(enrichedData, null, 2), 'utf-8');
+    console.log(`  Written enriched multi-step-tests.json (${certDetectedCount} test(s) with certificate tags)`);
+  }
 
   // Combine skipped tests for summary
   const allSkipped = [...publicResult.skippedTests, ...privateResult.skippedTests];

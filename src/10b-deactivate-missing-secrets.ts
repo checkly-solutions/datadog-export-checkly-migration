@@ -27,11 +27,24 @@ import type { VariableUsageReport } from './shared/variable-tracker.ts';
 const CHECK_TYPES = ['api', 'multi', 'browser'];
 const LOCATION_TYPES = ['public', 'private'];
 const TAG = 'missingSecretsFromDatadog';
+const CHECK_LEVEL_TAG = 'missingCheckLevelSecretsFromDatadog';
 
 interface SecretVariable {
   key: string;
   value: string;
   locked: boolean;
+}
+
+interface CheckLevelSecret {
+  checkName: string;
+  key: string;
+  value: string;
+  locked: boolean;
+}
+
+interface SecretsFile {
+  global: SecretVariable[];
+  checkLevel: CheckLevelSecret[];
 }
 
 interface AffectedCheck {
@@ -48,28 +61,51 @@ interface MissingSecretsReport {
   filesSkipped: number;
   errors: number;
   affectedChecks: AffectedCheck[];
+  checkLevelAffected: number;
+  checkLevelFilesModified: number;
+  checkLevelFilesSkipped: number;
+  checkLevelErrors: number;
+  checkLevelChecks: Array<{ checkName: string; missingSecrets: string[] }>;
 }
 
 /**
- * Read secrets.json and return keys that have empty values
+ * Read secrets.json and return keys that have empty values (global) and empty check-level entries
  */
-async function getEmptySecretKeys(outputRoot: string): Promise<string[]> {
+async function getEmptySecretKeys(outputRoot: string): Promise<{ globalKeys: string[]; checkLevel: CheckLevelSecret[] }> {
   const secretsPath = path.join(outputRoot, 'variables', 'secrets.json');
 
   if (!existsSync(secretsPath)) {
     console.log('  secrets.json not found — no secrets to check.');
-    return [];
+    return { globalKeys: [], checkLevel: [] };
   }
 
   const content = await readFile(secretsPath, 'utf-8');
-  const secrets: SecretVariable[] = JSON.parse(content);
+  const parsed = JSON.parse(content);
 
-  const emptyKeys = secrets
+  // Support both new format { global: [...], checkLevel: [...] } and legacy flat array
+  let globalSecrets: SecretVariable[];
+  let checkLevelSecrets: CheckLevelSecret[];
+
+  if (Array.isArray(parsed)) {
+    // Legacy flat array format
+    globalSecrets = parsed;
+    checkLevelSecrets = [];
+  } else {
+    globalSecrets = parsed.global || [];
+    checkLevelSecrets = parsed.checkLevel || [];
+  }
+
+  const emptyGlobalKeys = globalSecrets
     .filter(s => !s.value || s.value.trim() === '')
     .map(s => s.key);
 
-  console.log(`  Found ${secrets.length} secret(s), ${emptyKeys.length} with empty values`);
-  return emptyKeys;
+  const emptyCheckLevel = checkLevelSecrets
+    .filter(s => !s.value || s.value.trim() === '');
+
+  console.log(`  Found ${globalSecrets.length} global secret(s), ${emptyGlobalKeys.length} with empty values`);
+  console.log(`  Found ${checkLevelSecrets.length} check-level secret(s), ${emptyCheckLevel.length} with empty values`);
+
+  return { globalKeys: emptyGlobalKeys, checkLevel: emptyCheckLevel };
 }
 
 /**
@@ -134,6 +170,10 @@ async function deactivateCheckFile(
   );
 
   // Add tag to the tags array
+  // Note: This regex assumes tags are serialized on a single line via JSON.stringify
+  // in steps 04/06/08. Datadog tags are key:value strings that should not contain ']',
+  // but if they do, JSON.stringify does not escape it. In that edge case, this regex
+  // would match incorrectly. Datadog tag format (key:value) precludes this in practice.
   const tagsPattern = /tags:\s*\[([^\]]*)\]/;
   const tagsMatch = newContent.match(tagsPattern);
 
@@ -232,6 +272,107 @@ async function deactivateAffectedChecks(
 }
 
 /**
+ * Deactivate checks that have empty check-level secrets.
+ * Uses the checkName field from checkLevel entries to find matching .check.ts files.
+ */
+async function deactivateCheckLevelSecrets(
+  checksBase: string,
+  emptyCheckLevel: CheckLevelSecret[]
+): Promise<{ modified: number; skipped: number; errors: number }> {
+  let modified = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  if (emptyCheckLevel.length === 0) return { modified, skipped, errors };
+
+  // Group by check name
+  const checkSecretsMap = new Map<string, string[]>();
+  for (const entry of emptyCheckLevel) {
+    const existing = checkSecretsMap.get(entry.checkName) || [];
+    existing.push(entry.key);
+    checkSecretsMap.set(entry.checkName, existing);
+  }
+
+  console.log(`\nDeactivating ${checkSecretsMap.size} check(s) with empty check-level secrets...`);
+
+  for (const checkType of CHECK_TYPES) {
+    for (const locationType of LOCATION_TYPES) {
+      const dirPath = path.join(checksBase, checkType, locationType);
+
+      if (!existsSync(dirPath)) continue;
+
+      const files = await readdir(dirPath);
+      const checkFiles = files.filter(f => f.endsWith('.check.ts'));
+
+      for (const file of checkFiles) {
+        const filepath = path.join(dirPath, file);
+        try {
+          const content = await readFile(filepath, 'utf-8');
+
+          // Extract check name from the construct's name field
+          const nameMatch = content.match(/name:\s*['"](.+?)['"]/);
+          if (!nameMatch) continue;
+
+          const checkName = nameMatch[1];
+          const missingSecrets = checkSecretsMap.get(checkName);
+          if (!missingSecrets) continue;
+
+          // Skip if already tagged with check-level tag
+          if (content.includes(CHECK_LEVEL_TAG)) {
+            skipped++;
+            continue;
+          }
+
+          // Deactivate: set activated to false
+          let newContent = content;
+          newContent = newContent.replace(
+            /activated:\s*true/,
+            'activated: false'
+          );
+
+          // Add check-level tag
+          const tagsPattern = /tags:\s*\[([^\]]*)\]/;
+          const tagsMatch = newContent.match(tagsPattern);
+          if (tagsMatch) {
+            const existingTags = tagsMatch[1].trim();
+            let newTags: string;
+            if (existingTags === '') {
+              newTags = `tags: ["${CHECK_LEVEL_TAG}"]`;
+            } else {
+              newTags = `tags: [${existingTags}, "${CHECK_LEVEL_TAG}"]`;
+            }
+            newContent = newContent.replace(tagsPattern, newTags);
+          }
+
+          // Add comment
+          const secretsList = missingSecrets.join(', ');
+          const migratedCommentPattern = /(\/\/\s*Migrated from Datadog Synthetic:.*)/;
+          if (migratedCommentPattern.test(newContent)) {
+            newContent = newContent.replace(
+              migratedCommentPattern,
+              `$1\n// Deactivated: Missing check-level secret values (${secretsList})`
+            );
+          }
+
+          if (newContent !== content) {
+            await writeFile(filepath, newContent, 'utf-8');
+            modified++;
+            console.log(`  Deactivated [${CHECK_LEVEL_TAG}]: ${locationType}/${file} (secrets: ${secretsList})`);
+          } else {
+            skipped++;
+          }
+        } catch (err) {
+          console.error(`  Error processing ${file}: ${(err as Error).message}`);
+          errors++;
+        }
+      }
+    }
+  }
+
+  return { modified, skipped, errors };
+}
+
+/**
  * Main function
  */
 async function main(): Promise<void> {
@@ -245,21 +386,23 @@ async function main(): Promise<void> {
 
   // Step 1: Get secret keys with empty values
   console.log('\nReading secrets...');
-  const emptySecretKeys = await getEmptySecretKeys(outputRoot);
+  const { globalKeys: emptySecretKeys, checkLevel: emptyCheckLevel } = await getEmptySecretKeys(outputRoot);
 
-  if (emptySecretKeys.length === 0) {
+  if (emptySecretKeys.length === 0 && emptyCheckLevel.length === 0) {
     console.log('\nNo empty secrets found — all secret values are filled in.');
     console.log('Done!');
     return;
   }
 
-  console.log(`\nEmpty secret keys: ${emptySecretKeys.join(', ')}`);
+  if (emptySecretKeys.length > 0) {
+    console.log(`\nEmpty secret keys: ${emptySecretKeys.join(', ')}`);
+  }
 
   // Step 2: Find affected checks
   console.log('\nFinding checks that reference missing secrets...');
   const affectedChecks = await findAffectedChecks(exportsDir, emptySecretKeys);
 
-  if (affectedChecks.length === 0) {
+  if (affectedChecks.length === 0 && emptyCheckLevel.length === 0) {
     console.log('\nNo checks reference the empty secrets — nothing to deactivate.');
 
     // Still write report
@@ -272,6 +415,11 @@ async function main(): Promise<void> {
       filesSkipped: 0,
       errors: 0,
       affectedChecks: [],
+      checkLevelAffected: 0,
+      checkLevelFilesModified: 0,
+      checkLevelFilesSkipped: 0,
+      checkLevelErrors: 0,
+      checkLevelChecks: [],
     };
     const reportPath = path.join(exportsDir, 'missing-secrets-report.json');
     await writeFile(reportPath, JSON.stringify(report, null, 2), 'utf-8');
@@ -292,15 +440,30 @@ async function main(): Promise<void> {
     console.log(`\nSkipping file modifications: ${checksBase} not found.`);
     console.log('Run the migration scripts first to generate check files.');
   } else {
-    console.log(`\nDeactivating ${affectedChecks.length} check(s) in check files...`);
-    result = await deactivateAffectedChecks(checksBase, affectedChecks);
+    if (affectedChecks.length > 0) {
+      console.log(`\nDeactivating ${affectedChecks.length} check(s) in check files...`);
+      result = await deactivateAffectedChecks(checksBase, affectedChecks);
+
+      console.log('\n' + '-'.repeat(40));
+      console.log('File Modification Summary');
+      console.log('-'.repeat(40));
+      console.log(`  Files deactivated: ${result.modified}`);
+      console.log(`  Files skipped (already tagged): ${result.skipped}`);
+      console.log(`  Errors: ${result.errors}`);
+    }
+  }
+
+  // Deactivate checks with empty check-level secrets (D-09)
+  let checkLevelResult = { modified: 0, skipped: 0, errors: 0 };
+  if (emptyCheckLevel.length > 0 && existsSync(checksBase)) {
+    checkLevelResult = await deactivateCheckLevelSecrets(checksBase, emptyCheckLevel);
 
     console.log('\n' + '-'.repeat(40));
-    console.log('File Modification Summary');
+    console.log('Check-Level Secret Deactivation Summary');
     console.log('-'.repeat(40));
-    console.log(`  Files deactivated: ${result.modified}`);
-    console.log(`  Files skipped (already tagged): ${result.skipped}`);
-    console.log(`  Errors: ${result.errors}`);
+    console.log(`  Files deactivated: ${checkLevelResult.modified}`);
+    console.log(`  Files skipped (already tagged): ${checkLevelResult.skipped}`);
+    console.log(`  Errors: ${checkLevelResult.errors}`);
   }
 
   // Step 4: Write report
@@ -313,6 +476,18 @@ async function main(): Promise<void> {
     filesSkipped: result.skipped,
     errors: result.errors,
     affectedChecks,
+    checkLevelAffected: new Set(emptyCheckLevel.map(s => s.checkName)).size,
+    checkLevelFilesModified: checkLevelResult.modified,
+    checkLevelFilesSkipped: checkLevelResult.skipped,
+    checkLevelErrors: checkLevelResult.errors,
+    checkLevelChecks: Array.from(
+      emptyCheckLevel.reduce((map, s) => {
+        const existing = map.get(s.checkName) || [];
+        existing.push(s.key);
+        map.set(s.checkName, existing);
+        return map;
+      }, new Map<string, string[]>())
+    ).map(([checkName, missingSecrets]) => ({ checkName, missingSecrets })),
   };
 
   const reportPath = path.join(exportsDir, 'missing-secrets-report.json');

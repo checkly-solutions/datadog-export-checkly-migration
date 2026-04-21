@@ -13,7 +13,9 @@ export interface DatadogTest {
   status?: string;
   tags?: string[];
   locations?: string[];
-  config?: Record<string, unknown>;
+  config?: Record<string, unknown> & {
+    configVariables?: DatadogConfigVariable[];
+  };
   options?: Record<string, unknown>;
   message?: string;
   monitor_id?: number;
@@ -52,7 +54,33 @@ export interface BrowserTest {
   };
   config?: {
     steps?: BrowserStep[];
+    configVariables?: DatadogConfigVariable[];
   };
+}
+
+/**
+ * Datadog client certificate configuration (mTLS).
+ * Present on tests that require mutual TLS authentication.
+ */
+export interface DatadogCertificate {
+  key?: { filename?: string; content?: string };
+  cert?: { filename?: string; content?: string };
+}
+
+/**
+ * Datadog configVariable entry from test config.
+ * Three shapes exist:
+ *   - type: "text", secure: false — has pattern (the value) and example
+ *   - type: "text", secure: true  — no pattern/example (secret, value not exported)
+ *   - type: "global"              — reference to account-level variable (has id)
+ */
+export interface DatadogConfigVariable {
+  type: 'text' | 'global' | string;
+  name: string;
+  pattern?: string;
+  example?: string;
+  secure?: boolean;
+  id?: string;
 }
 
 /**
@@ -96,6 +124,21 @@ export interface DatadogRequest {
   url?: string;
   headers?: Record<string, string>;
   body?: string;
+  certificate?: DatadogCertificate;
+}
+
+/**
+ * Datadog extracted value from a multi-step test step.
+ * Used for inter-step variable extraction (e.g., OAuth token from response body).
+ */
+export interface DatadogExtractedValue {
+  type: 'http_body' | string;
+  parser: {
+    type: 'json_path' | 'regex' | string;
+    value: string;
+  };
+  name: string;
+  secure?: boolean;
 }
 
 /**
@@ -107,6 +150,7 @@ export interface DatadogStep {
   request: DatadogRequest;
   assertions: DatadogAssertion[];
   allowFailure?: boolean;
+  extractedValues?: DatadogExtractedValue[];
 }
 
 /**
@@ -127,5 +171,6 @@ export interface MultiStepTest {
   };
   config?: {
     steps?: DatadogStep[];
+    configVariables?: DatadogConfigVariable[];
   };
 }
