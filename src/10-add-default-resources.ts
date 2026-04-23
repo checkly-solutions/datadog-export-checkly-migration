@@ -312,6 +312,219 @@ export const alertChannels = [emailChannel];
 }
 
 /**
+ * Generate the update-mapping.ts script content for post-deploy UUID backfill.
+ *
+ * The generated script reads migration-mapping.csv, calls the Checkly API to list all
+ * checks (paginated), matches each check's migration_check_id tag to the datadog_public_id
+ * in the CSV, and writes the real Checkly UUID into the checkly_uuid column.
+ */
+function generateUpdateMappingScript(): string {
+  return `/**
+ * Backfills the checkly_uuid column in migration-mapping.csv after deploying to Checkly.
+ *
+ * Usage: npm run update-mapping
+ *
+ * Requires CHECKLY_API_KEY and CHECKLY_ACCOUNT_ID to be set (via .env or environment).
+ */
+
+import { readFile, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import 'dotenv/config';
+
+const CSV_FILE = './migration-mapping.csv';
+const API_BASE = 'https://api.checklyhq.com/v1';
+const PAGE_LIMIT = 100;
+
+const CHECKLY_API_KEY = process.env.CHECKLY_API_KEY?.trim();
+const CHECKLY_ACCOUNT_ID = process.env.CHECKLY_ACCOUNT_ID?.trim();
+
+interface ChecklyCheckItem {
+  id: string;
+  name: string;
+  tags: string[];
+}
+
+/**
+ * Parse a CSV line respecting double-quoted fields (RFC 4180 subset).
+ * Internal "" sequences are decoded back to ".
+ */
+function parseCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] === '"') {
+      // Quoted field
+      i++; // skip opening quote
+      let value = '';
+      while (i < line.length) {
+        if (line[i] === '"' && line[i + 1] === '"') {
+          value += '"';
+          i += 2;
+        } else if (line[i] === '"') {
+          i++; // skip closing quote
+          break;
+        } else {
+          value += line[i];
+          i++;
+        }
+      }
+      fields.push(value);
+      if (line[i] === ',') i++; // skip comma
+    } else {
+      // Unquoted field
+      const end = line.indexOf(',', i);
+      if (end === -1) {
+        fields.push(line.slice(i));
+        break;
+      } else {
+        fields.push(line.slice(i, end));
+        i = end + 1;
+      }
+    }
+  }
+  return fields;
+}
+
+/**
+ * Fetch all checks from Checkly API with pagination.
+ */
+async function fetchAllChecks(): Promise<ChecklyCheckItem[]> {
+  const allChecks: ChecklyCheckItem[] = [];
+  let page = 1;
+
+  while (true) {
+    const url = \`\${API_BASE}/checks?limit=\${PAGE_LIMIT}&page=\${page}\`;
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': \`Bearer \${CHECKLY_API_KEY}\`,
+        'X-Checkly-Account': CHECKLY_ACCOUNT_ID!,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(\`Checkly API error: HTTP \${response.status} \${response.statusText}\\n\${errorText}\`);
+    }
+
+    const items = await response.json() as ChecklyCheckItem[];
+    allChecks.push(...items);
+
+    if (items.length < PAGE_LIMIT) {
+      break; // Last page
+    }
+    page++;
+  }
+
+  return allChecks;
+}
+
+async function main(): Promise<void> {
+  console.log('='.repeat(60));
+  console.log('Update Migration Mapping — Backfill Checkly UUIDs');
+  console.log('='.repeat(60));
+
+  if (!CHECKLY_API_KEY) {
+    console.error('Error: CHECKLY_API_KEY not set in .env file');
+    process.exit(1);
+  }
+
+  if (!CHECKLY_ACCOUNT_ID) {
+    console.error('Error: CHECKLY_ACCOUNT_ID not set in .env file');
+    process.exit(1);
+  }
+
+  if (!existsSync(CSV_FILE)) {
+    console.error(\`Error: \${CSV_FILE} not found. Run the migration pipeline first.\`);
+    process.exit(1);
+  }
+
+  console.log('\\nFetching all checks from Checkly API...');
+  const checks = await fetchAllChecks();
+  console.log(\`  Found \${checks.length} checks in Checkly\`);
+
+  // Build lookup: datadogPublicId -> checkly UUID
+  const uuidByDdId = new Map<string, string>();
+  for (const check of checks) {
+    for (const tag of (check.tags || [])) {
+      if (tag.startsWith('migration_check_id:')) {
+        const ddId = tag.slice('migration_check_id:'.length);
+        uuidByDdId.set(ddId, check.id);
+        break;
+      }
+    }
+  }
+  console.log(\`  Matched \${uuidByDdId.size} checks via migration_check_id tags\`);
+
+  // Read and parse CSV
+  const rawCsv = await readFile(CSV_FILE, 'utf-8');
+  const lines = rawCsv.split('\\n');
+
+  if (lines.length < 2) {
+    console.error('Error: CSV file appears empty or has no data rows.');
+    process.exit(1);
+  }
+
+  const header = lines[0];
+  const headerFields = parseCsvLine(header);
+  const ddIdIdx = headerFields.indexOf('datadog_public_id');
+  const uuidIdx = headerFields.indexOf('checkly_uuid');
+
+  if (ddIdIdx === -1 || uuidIdx === -1) {
+    console.error('Error: CSV missing expected columns (datadog_public_id, checkly_uuid).');
+    process.exit(1);
+  }
+
+  let matched = 0;
+  let total = 0;
+
+  const updatedLines: string[] = [header];
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) {
+      updatedLines.push(line);
+      continue;
+    }
+
+    total++;
+    const fields = parseCsvLine(line);
+    const ddId = fields[ddIdIdx];
+
+    if (uuidByDdId.has(ddId) && fields[uuidIdx] === 'FILL_AFTER_DEPLOY') {
+      fields[uuidIdx] = uuidByDdId.get(ddId)!;
+      matched++;
+      // Reconstruct line (fields that contained commas/quotes were already unescaped by parseCsvLine;
+      // re-escape them to maintain valid CSV)
+      const escapedFields = fields.map(f => {
+        if (f.includes(',') || f.includes('"') || f.includes('\\n')) {
+          return \`"\${f.replace(/"/g, '""')}"\`;
+        }
+        return f;
+      });
+      updatedLines.push(escapedFields.join(','));
+    } else {
+      updatedLines.push(line);
+    }
+  }
+
+  await writeFile(CSV_FILE, updatedLines.join('\\n'), 'utf-8');
+
+  console.log(\`\\nDone! \${matched} of \${total} checks matched with Checkly UUIDs.\`);
+  if (matched < total) {
+    console.log(\`  \${total - matched} rows still show FILL_AFTER_DEPLOY — deploy those checks first.\`);
+  }
+  console.log(\`  Updated: \${CSV_FILE}\`);
+}
+
+main().catch(err => {
+  console.error('Error:', (err as Error).message);
+  process.exit(1);
+});
+`;
+}
+
+/**
  * Generate checkly config files and package.json inside the account directory
  */
 async function generateProjectFiles(outputRoot: string, accountName: string): Promise<void> {
@@ -400,6 +613,7 @@ export default config;
       "deploy:public": "npx checkly deploy --config=./checkly.public.config.ts --force",
       "create-variables": "ts-node variables/create-variables.ts",
       "delete-variables": "ts-node variables/delete-variables.ts",
+      "update-mapping": "ts-node update-mapping.ts",
     },
     devDependencies: {
       "checkly": "^7.11.0",
@@ -413,6 +627,11 @@ export default config;
   // README.md
   await generateReadme(outputRoot, accountName);
   console.log(`  Generated: ${outputRoot}/README.md`);
+
+  // update-mapping.ts — post-deploy UUID backfill script
+  const updateMappingScript = generateUpdateMappingScript();
+  await writeFile(path.join(outputRoot, 'update-mapping.ts'), updateMappingScript, 'utf-8');
+  console.log(`  Generated: ${outputRoot}/update-mapping.ts`);
 }
 
 /**
@@ -454,7 +673,8 @@ This directory contains a **Checkly-as-code** project migrated from Datadog Synt
 ├── checkly.public.config.ts        # Public checks only config
 ├── package.json                    # Project scripts
 ├── migration-report.json           # Machine-readable migration report
-└── migration-report.md             # Human-readable migration report
+├── migration-report.md             # Human-readable migration report
+└── update-mapping.ts               # Post-deploy script to backfill Checkly UUIDs in CSV
 \`\`\`
 
 ## Deployment Guide
@@ -541,7 +761,17 @@ npm run deploy:public
 npm run deploy:private
 \`\`\`
 
-### Step 9. Enable Check Groups
+### Step 9. Backfill Checkly UUIDs in Migration Mapping
+
+After deploying, run this to populate the \`checkly_uuid\` column in \`migration-mapping.csv\`:
+
+\`\`\`bash
+npm run update-mapping
+\`\`\`
+
+This calls the Checkly API to match deployed checks by their \`migration_check_id\` tag and writes the Checkly UUID back into the CSV. Requires \`CHECKLY_API_KEY\` and \`CHECKLY_ACCOUNT_ID\`.
+
+### Step 10. Enable Check Groups
 
 All checks deploy inside groups with \`activated: false\`. Nothing runs until you explicitly enable them:
 
@@ -549,7 +779,7 @@ All checks deploy inside groups with \`activated: false\`. Nothing runs until yo
 2. Find **"Datadog Migrated Public Checks"** and **"Datadog Migrated Private Checks"**
 3. Toggle each group to **activated** when ready
 
-### Step 10. Verify and Clean Up
+### Step 11. Verify and Clean Up
 
 - Monitor checks for a few days to confirm stability
 - Review checks tagged \`failingInDatadog\` or \`noDataInDatadog\` — fix, keep deactivated, or remove
@@ -582,6 +812,7 @@ git push -u origin main
 | \`npm run deploy:private\` | Deploy private checks to Checkly |
 | \`npm run create-variables\` | Import environment variables to Checkly |
 | \`npm run delete-variables\` | Remove imported variables from Checkly |
+| \`npm run update-mapping\` | Backfill Checkly UUIDs in migration-mapping.csv |
 
 ## Resources
 

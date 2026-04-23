@@ -4,6 +4,7 @@
  * Reads all exported and converted JSON files to produce:
  *   - exports/migration-report.json (machine-readable)
  *   - exports/migration-report.md (human-readable)
+ *   - migration-mapping.csv (Datadog-to-Checkly ID mapping)
  *
  * The report includes:
  *   - Summary of what was converted
@@ -17,6 +18,7 @@ import { readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
+import { generateLogicalId, sanitizeFilename } from './shared/utils.ts';
 
 let EXPORTS_DIR = '';
 let CHECKLY_DIR = '';
@@ -42,6 +44,7 @@ let FILES: {
 // Output files - initialized in main() after CHECKLY_DIR is set
 let OUTPUT_JSON = '';
 let OUTPUT_MD = '';
+let OUTPUT_CSV = '';
 
 // Types for the input data
 interface ExportSummary {
@@ -88,7 +91,9 @@ interface ApiChecksFile {
   checks: Array<{
     logicalId: string;
     name: string;
+    locations?: string[];
     privateLocations?: string[];
+    originalLocations?: string[];
     tags?: string[];
     hasCertificate?: boolean;
     request?: {
@@ -108,7 +113,9 @@ interface MultiStepTestsFile {
   tests: Array<{
     public_id: string;
     name: string;
+    locations?: string[];
     privateLocations?: string[];
+    originalLocations?: string[];
     tags?: string[];
     hasCertificate?: boolean;
     config?: {
@@ -131,7 +138,9 @@ interface BrowserTestsFile {
   tests: Array<{
     public_id: string;
     name: string;
+    locations?: string[];
     privateLocations?: string[];
+    originalLocations?: string[];
   }>;
 }
 
@@ -613,6 +622,17 @@ function generateMarkdownReport(report: MigrationReport): string {
   lines.push('```');
   lines.push('');
 
+  lines.push('### 7. Backfill Checkly UUIDs');
+  lines.push('');
+  lines.push('After deploying, populate the `checkly_uuid` column in `migration-mapping.csv`:');
+  lines.push('');
+  lines.push('```bash');
+  lines.push('npm run update-mapping');
+  lines.push('```');
+  lines.push('');
+  lines.push('This matches deployed checks by their `migration_check_id` tag and writes the Checkly UUID into the CSV for downstream tooling and dashboards.');
+  lines.push('');
+
   // Variable Usage Summary
   if (report.variables.usage.totalReferenced > 0) {
     lines.push('---');
@@ -675,6 +695,77 @@ function generateMarkdownReport(report: MigrationReport): string {
 }
 
 /**
+ * Escape a CSV field value. Wraps in double quotes if the value contains
+ * commas, double quotes, or newlines. Internal double quotes are doubled.
+ */
+function csvEscape(value: string): string {
+  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+/**
+ * Generate migration-mapping.csv with Datadog-to-Checkly ID mapping.
+ *
+ * Columns: datadog_public_id, datadog_name, checkly_logical_id, checkly_uuid, check_type,
+ *          location_type, dd_locations, checkly_locations, filename
+ *
+ * checkly_uuid is always FILL_AFTER_DEPLOY — run `npm run update-mapping` post-deploy to backfill.
+ * dd_locations: semicolon-separated original Datadog location strings.
+ * checkly_locations: semicolon-separated Checkly public + private location slugs.
+ */
+function generateMappingCsv(
+  apiChecks: ApiChecksFile | null,
+  multiStepTests: MultiStepTestsFile | null,
+  browserTests: BrowserTestsFile | null,
+): string {
+  const rows: string[] = [
+    'datadog_public_id,datadog_name,checkly_logical_id,checkly_uuid,check_type,location_type,dd_locations,checkly_locations,filename',
+  ];
+
+  // API checks
+  if (apiChecks?.checks) {
+    for (const check of apiChecks.checks) {
+      if (check._conversionError) continue;
+      const publicId = check.logicalId; // In API checks JSON, logicalId IS the Datadog public_id
+      const checklyId = `api-${generateLogicalId(check.name)}`;
+      const filename = `${sanitizeFilename(check.name)}.check.ts`;
+      const locationType = check.privateLocations && check.privateLocations.length > 0 ? 'private' : 'public';
+      const ddLocs = csvEscape((check.originalLocations || []).join(';'));
+      const checklyLocs = csvEscape([...(check.locations || []), ...(check.privateLocations || [])].join(';'));
+      rows.push(`${publicId},${csvEscape(check.name)},${checklyId},FILL_AFTER_DEPLOY,api,${locationType},${ddLocs},${checklyLocs},${filename}`);
+    }
+  }
+
+  // Multi-step tests
+  if (multiStepTests?.tests) {
+    for (const test of multiStepTests.tests) {
+      const checklyId = `multi-${generateLogicalId(test.name)}`;
+      const filename = `${sanitizeFilename(test.name)}.check.ts`;
+      const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
+      const ddLocs = csvEscape((test.originalLocations || []).join(';'));
+      const checklyLocs = csvEscape([...(test.locations || []), ...(test.privateLocations || [])].join(';'));
+      rows.push(`${test.public_id},${csvEscape(test.name)},${checklyId},FILL_AFTER_DEPLOY,multistep,${locationType},${ddLocs},${checklyLocs},${filename}`);
+    }
+  }
+
+  // Browser tests
+  if (browserTests?.tests) {
+    for (const test of browserTests.tests) {
+      const checklyId = `browser-${generateLogicalId(test.name)}`;
+      const filename = `${sanitizeFilename(test.name)}.check.ts`;
+      const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
+      const ddLocs = csvEscape((test.originalLocations || []).join(';'));
+      const checklyLocs = csvEscape([...(test.locations || []), ...(test.privateLocations || [])].join(';'));
+      rows.push(`${test.public_id},${csvEscape(test.name)},${checklyId},FILL_AFTER_DEPLOY,browser,${locationType},${ddLocs},${checklyLocs},${filename}`);
+    }
+  }
+
+  return rows.join('\n') + '\n';
+}
+
+/**
  * Main function
  */
 async function main(): Promise<void> {
@@ -682,6 +773,7 @@ async function main(): Promise<void> {
   EXPORTS_DIR = await getExportsDir();
   OUTPUT_JSON = path.join(CHECKLY_DIR, 'migration-report.json');
   OUTPUT_MD = path.join(CHECKLY_DIR, 'migration-report.md');
+  OUTPUT_CSV = path.join(CHECKLY_DIR, 'migration-mapping.csv');
   FILES = {
     exportSummary: path.join(EXPORTS_DIR, 'export-summary.json'),
     privateLocations: path.join(EXPORTS_DIR, 'private-locations.json'),
@@ -988,6 +1080,11 @@ async function main(): Promise<void> {
   await writeFile(OUTPUT_MD, markdown, 'utf-8');
   console.log(`  Written: ${OUTPUT_MD}`);
 
+  // CSV mapping
+  const csv = generateMappingCsv(apiChecks, multiStepTests, browserTests);
+  await writeFile(OUTPUT_CSV, csv, 'utf-8');
+  console.log(`  Written: ${OUTPUT_CSV}`);
+
   // Print summary
   console.log('\n' + '='.repeat(60));
   console.log('Migration Report Summary');
@@ -1024,6 +1121,7 @@ async function main(): Promise<void> {
   console.log('\nView the full report:');
   console.log(`  - ${OUTPUT_MD} (human-readable)`);
   console.log(`  - ${OUTPUT_JSON} (machine-readable)`);
+  console.log(`  - ${OUTPUT_CSV} (ID mapping)`);
 
   console.log('\nDone!');
 }

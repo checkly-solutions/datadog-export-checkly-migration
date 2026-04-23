@@ -11,7 +11,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import { FREQUENCY_MAP, sanitizeFilename, generateLogicalId, convertFrequency, convertConfigVariables, escapeString } from './shared/utils.ts';
+import { FREQUENCY_MAP, sanitizeFilename, generateLogicalId, convertFrequency, convertConfigVariables, escapeString, filterAndRemapTags } from './shared/utils.ts';
 import { trackConfigVariableConversions, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 // Relative path from __checks__/browser/{public,private} to tests/browser/{public,private}
@@ -102,8 +102,11 @@ function generateBrowserCheckCode(test: BrowserTest, specFilename: string, locat
   const activated = test.status === 'live'; // Preserves paused status from Datadog
   const specsPath = `${SPECS_RELATIVE_PATH}/${locationType}`;
 
+  // Filter and remap Datadog-origin tags, then add migration traceability tag
+  const allTags = filterAndRemapTags(tags || []);
+  allTags.push(`migration_check_id:${public_id}`);
+
   // Add "iframe" tag if the spec uses iframe handling
-  const allTags = [...(tags || [])];
   if (hasIframes && !allTags.includes('iframe')) {
     allTags.push('iframe');
   }

@@ -125,6 +125,7 @@ interface ChecklyCheck {
   maxResponseTime: number;
   locations: string[];
   privateLocations: string[];
+  originalLocations: string[];
   retryStrategy: ChecklyRetryStrategy;
   activated: boolean;
   muted: boolean;
@@ -243,7 +244,7 @@ const SUPPORTED_METHODS = ['GET', 'POST', 'PUT', 'HEAD', 'DELETE', 'PATCH'];
  */
 function convertTest(ddTest: DatadogTest): ChecklyCheck {
   // Locations are pre-processed by step 01
-  const { locations, privateLocations } = ddTest;
+  const { locations, privateLocations, originalLocations } = ddTest;
 
   // Check for unsupported HTTP method
   const rawMethod = ddTest.config?.request?.method;
@@ -260,6 +261,7 @@ function convertTest(ddTest: DatadogTest): ChecklyCheck {
       maxResponseTime: 30000,
       locations: [],
       privateLocations: [],
+      originalLocations: [],
       retryStrategy: { type: 'NONE' },
       activated: false,
       muted: false,
@@ -296,6 +298,7 @@ function convertTest(ddTest: DatadogTest): ChecklyCheck {
     // Locations
     locations,
     privateLocations,
+    originalLocations: originalLocations || [],
 
     // Retry strategy
     retryStrategy: convertRetryStrategy(ddTest.options?.retry),

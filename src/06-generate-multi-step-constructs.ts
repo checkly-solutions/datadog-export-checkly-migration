@@ -11,7 +11,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import { FREQUENCY_MAP, sanitizeFilename, generateLogicalId, convertFrequency, convertConfigVariables, escapeString } from './shared/utils.ts';
+import { FREQUENCY_MAP, sanitizeFilename, generateLogicalId, convertFrequency, convertConfigVariables, escapeString, filterAndRemapTags } from './shared/utils.ts';
 import { trackConfigVariableConversions, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 // Relative path from __checks__/multi/{public,private} to tests/multi/{public,private}
@@ -104,6 +104,11 @@ function generateMultiStepCheckCode(test: DatadogTest, specFilename: string, loc
   const { public_id, name, tags, options, locations, privateLocations } = test;
 
   const logicalId = `multi-${generateLogicalId(name)}`;
+
+  // Filter and remap Datadog-origin tags, then add migration traceability tag
+  const processedTags = filterAndRemapTags(tags || []);
+  processedTags.push(`migration_check_id:${public_id}`);
+
   const frequency = convertFrequency(options?.tick_every);
   const retryStrategy = generateRetryStrategy(options?.retry);
   const activated = test.status === 'live'; // Preserves paused status from Datadog
@@ -149,7 +154,7 @@ import {
 
 new MultiStepCheck("${logicalId}", {
   name: "${name.replace(/"/g, '\\"')}",
-  tags: ${JSON.stringify(tags || [])},
+  tags: ${JSON.stringify(processedTags)},
   code: {
     entrypoint: "${specsPath}/${specFilename}",
   },
