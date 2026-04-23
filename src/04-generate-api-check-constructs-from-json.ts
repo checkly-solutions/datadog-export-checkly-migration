@@ -39,6 +39,7 @@ interface ChecklyCheck {
     method: string;
     headers?: Record<string, string>;
     body?: string;
+    bodyType?: 'JSON' | 'FORM' | 'RAW' | 'GRAPHQL' | 'NONE';
     basicAuth?: {
       username: string;
       password: string;
@@ -438,6 +439,8 @@ function generateApiCheckCode(check: ChecklyCheck): string {
       ? `"${request.body.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"`
       : JSON.stringify(request.body);
     requestLines.push(`body: ${bodyStr}`);
+    const bodyType = request.bodyType && request.bodyType !== 'NONE' ? request.bodyType : 'JSON';
+    requestLines.push(`bodyType: "${bodyType}"`);
   }
 
   if (request.queryParameters && Object.keys(request.queryParameters).length > 0) {

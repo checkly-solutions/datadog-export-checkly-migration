@@ -12,7 +12,7 @@
 import { readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import { FREQUENCY_MAP, convertFrequency, normalizeDatadogBody } from './shared/utils.ts';
+import { FREQUENCY_MAP, convertFrequency, normalizeDatadogBody, detectBodyType } from './shared/utils.ts';
 import { getExportsDir } from './shared/output-config.ts';
 
 let EXPORTS_DIR = '';
@@ -109,6 +109,7 @@ interface ChecklyCheck {
     method: string;
     headers?: Record<string, string>;
     body?: string;
+    bodyType?: 'JSON' | 'FORM' | 'RAW' | 'GRAPHQL' | 'NONE';
     basicAuth?: {
       username: string;
       password: string;
@@ -330,6 +331,7 @@ function convertTest(ddTest: DatadogTest): ChecklyCheck {
 
   if (ddTest.config?.request?.body) {
     config.request.body = normalizeDatadogBody(ddTest.config.request.body);
+    config.request.bodyType = detectBodyType(ddTest.config.request.headers, true);
   }
 
   if (ddTest.config?.request?.basicAuth) {
