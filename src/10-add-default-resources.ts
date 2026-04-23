@@ -672,6 +672,7 @@ This directory contains a **Checkly-as-code** project migrated from Datadog Synt
 ├── checkly.private.config.ts       # Private checks only config
 ├── checkly.public.config.ts        # Public checks only config
 ├── package.json                    # Project scripts
+├── migration-mapping.csv           # Datadog-to-Checkly ID/location mapping
 ├── migration-report.json           # Machine-readable migration report
 ├── migration-report.md             # Human-readable migration report
 └── update-mapping.ts               # Post-deploy script to backfill Checkly UUIDs in CSV
