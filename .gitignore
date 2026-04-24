@@ -6,8 +6,8 @@
 .env.*
 !.env.example
 
-# Datadog export output
-checkly-migrated/*
+# Checkly Exported Datadog Project - exclude after finalizing map
+# checkly-migrated/*
 
 # Account name cache (written by pipeline on first prompt)
 .account-name
