@@ -4,6 +4,7 @@
  * Reads all exported and converted JSON files to produce:
  *   - exports/migration-report.json (machine-readable)
  *   - exports/migration-report.md (human-readable)
+ *   - migration-mapping.csv (Datadog-to-Checkly ID mapping)
  *
  * The report includes:
  *   - Summary of what was converted
@@ -17,6 +18,7 @@ import { readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
+import { generateLogicalId, sanitizeFilename } from './shared/utils.ts';
 
 let EXPORTS_DIR = '';
 let CHECKLY_DIR = '';
@@ -42,6 +44,7 @@ let FILES: {
 // Output files - initialized in main() after CHECKLY_DIR is set
 let OUTPUT_JSON = '';
 let OUTPUT_MD = '';
+let OUTPUT_CSV = '';
 
 // Types for the input data
 interface ExportSummary {
@@ -88,7 +91,17 @@ interface ApiChecksFile {
   checks: Array<{
     logicalId: string;
     name: string;
+    locations?: string[];
     privateLocations?: string[];
+    originalLocations?: string[];
+    tags?: string[];
+    hasCertificate?: boolean;
+    request?: {
+      certificate?: {
+        key?: { filename?: string };
+        cert?: { filename?: string };
+      };
+    };
     _conversionError?: string;
   }>;
 }
@@ -100,7 +113,21 @@ interface MultiStepTestsFile {
   tests: Array<{
     public_id: string;
     name: string;
+    locations?: string[];
     privateLocations?: string[];
+    originalLocations?: string[];
+    tags?: string[];
+    hasCertificate?: boolean;
+    config?: {
+      steps?: Array<{
+        request?: {
+          certificate?: {
+            key?: { filename?: string };
+            cert?: { filename?: string };
+          };
+        };
+      }>;
+    };
   }>;
 }
 
@@ -111,7 +138,9 @@ interface BrowserTestsFile {
   tests: Array<{
     public_id: string;
     name: string;
+    locations?: string[];
     privateLocations?: string[];
+    originalLocations?: string[];
   }>;
 }
 
@@ -245,6 +274,20 @@ interface MigrationReport {
     affectedChecks: Array<{
       checkName: string;
       missingSecrets: string[];
+    }>;
+  };
+  checkLevelSecrets?: {
+    totalEntries: number;
+    uniqueChecks: number;
+    entries: Array<{ checkName: string; key: string }>;
+  };
+  clientCertificates?: {
+    totalChecks: number;
+    checks: Array<{
+      checkName: string;
+      checkType: 'api' | 'multistep';
+      publicId: string;
+      certFiles: { key?: string; cert?: string };
     }>;
   };
   nextSteps: string[];
@@ -417,6 +460,50 @@ function generateMarkdownReport(report: MigrationReport): string {
     lines.push('');
   }
 
+  // Check-Level Secrets Requiring Manual Values (D-06)
+  if (report.checkLevelSecrets && report.checkLevelSecrets.totalEntries > 0) {
+    const cls = report.checkLevelSecrets;
+    lines.push('## Check-Level Secrets Requiring Manual Values');
+    lines.push('');
+    lines.push(`**${cls.totalEntries} secret(s)** across **${cls.uniqueChecks} check(s)** were migrated from Datadog \`configVariables\` with \`secure: true\`.`);
+    lines.push('These need values filled in within the generated \`.check.ts\` files or via \`variables/secrets.json\` \`checkLevel\` entries.');
+    lines.push('');
+    lines.push('| Check | Secret Key |');
+    lines.push('|-------|------------|');
+    const display = cls.entries.slice(0, 25);
+    for (const entry of display) {
+      lines.push(`| ${entry.checkName} | \`${entry.key}\` |`);
+    }
+    if (cls.entries.length > 25) {
+      lines.push(`| ... | ${cls.entries.length - 25} more (see secrets.json checkLevel) |`);
+    }
+    lines.push('');
+    lines.push('> **Action:** Fill in secret values in `variables/secrets.json` under the `checkLevel` section. The operator opens one file to see all secrets needing values.');
+    lines.push('');
+  }
+
+  // Checks Requiring Client Certificates (mTLS)
+  if (report.clientCertificates && report.clientCertificates.totalChecks > 0) {
+    const cc = report.clientCertificates;
+    lines.push('## Checks Requiring Client Certificates (mTLS)');
+    lines.push('');
+    lines.push(`**${cc.totalChecks} check(s)** require client certificates for mutual TLS authentication.`);
+    lines.push(`These checks are tagged with \`requiresClientCertificate\` and set to \`activated: false\`.`);
+    lines.push('');
+    lines.push('| Check | Type | Key File | Cert File |');
+    lines.push('|-------|------|----------|-----------|');
+    const display = cc.checks.slice(0, 25);
+    for (const c of display) {
+      lines.push(`| ${c.checkName} | ${c.checkType} | \`${c.certFiles.key || 'N/A'}\` | \`${c.certFiles.cert || 'N/A'}\` |`);
+    }
+    if (cc.checks.length > 25) {
+      lines.push(`| ... | | | ${cc.checks.length - 25} more (see migration-report.json) |`);
+    }
+    lines.push('');
+    lines.push('> **Action:** Upload your client certificate key and cert files to Checkly and configure them on each affected check. Then remove the `requiresClientCertificate` tag and set `activated: true` to enable these checks.');
+    lines.push('');
+  }
+
   // Action Required
   lines.push('---');
   lines.push('');
@@ -535,6 +622,17 @@ function generateMarkdownReport(report: MigrationReport): string {
   lines.push('```');
   lines.push('');
 
+  lines.push('### 7. Backfill Checkly UUIDs');
+  lines.push('');
+  lines.push('After deploying, populate the `checkly_uuid` column in `migration-mapping.csv`:');
+  lines.push('');
+  lines.push('```bash');
+  lines.push('npm run update-mapping');
+  lines.push('```');
+  lines.push('');
+  lines.push('This matches deployed checks by their `migration_check_id` tag and writes the Checkly UUID into the CSV for downstream tooling and dashboards.');
+  lines.push('');
+
   // Variable Usage Summary
   if (report.variables.usage.totalReferenced > 0) {
     lines.push('---');
@@ -597,6 +695,77 @@ function generateMarkdownReport(report: MigrationReport): string {
 }
 
 /**
+ * Escape a CSV field value. Wraps in double quotes if the value contains
+ * commas, double quotes, or newlines. Internal double quotes are doubled.
+ */
+function csvEscape(value: string): string {
+  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+/**
+ * Generate migration-mapping.csv with Datadog-to-Checkly ID mapping.
+ *
+ * Columns: datadog_public_id, datadog_name, checkly_logical_id, checkly_uuid, check_type,
+ *          location_type, dd_locations, checkly_locations, filename
+ *
+ * checkly_uuid is always FILL_AFTER_DEPLOY — run `npm run update-mapping` post-deploy to backfill.
+ * dd_locations: semicolon-separated original Datadog location strings.
+ * checkly_locations: semicolon-separated Checkly public + private location slugs.
+ */
+function generateMappingCsv(
+  apiChecks: ApiChecksFile | null,
+  multiStepTests: MultiStepTestsFile | null,
+  browserTests: BrowserTestsFile | null,
+): string {
+  const rows: string[] = [
+    'datadog_public_id,datadog_name,checkly_logical_id,checkly_uuid,check_type,location_type,dd_locations,checkly_locations,filename',
+  ];
+
+  // API checks
+  if (apiChecks?.checks) {
+    for (const check of apiChecks.checks) {
+      if (check._conversionError) continue;
+      const publicId = check.logicalId; // In API checks JSON, logicalId IS the Datadog public_id
+      const checklyId = `api-${generateLogicalId(check.name)}`;
+      const filename = `${sanitizeFilename(check.name)}.check.ts`;
+      const locationType = check.privateLocations && check.privateLocations.length > 0 ? 'private' : 'public';
+      const ddLocs = csvEscape((check.originalLocations || []).join(';'));
+      const checklyLocs = csvEscape([...(check.locations || []), ...(check.privateLocations || [])].join(';'));
+      rows.push(`${publicId},${csvEscape(check.name)},${checklyId},FILL_AFTER_DEPLOY,api,${locationType},${ddLocs},${checklyLocs},${filename}`);
+    }
+  }
+
+  // Multi-step tests
+  if (multiStepTests?.tests) {
+    for (const test of multiStepTests.tests) {
+      const checklyId = `multi-${generateLogicalId(test.name)}`;
+      const filename = `${sanitizeFilename(test.name)}.check.ts`;
+      const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
+      const ddLocs = csvEscape((test.originalLocations || []).join(';'));
+      const checklyLocs = csvEscape([...(test.locations || []), ...(test.privateLocations || [])].join(';'));
+      rows.push(`${test.public_id},${csvEscape(test.name)},${checklyId},FILL_AFTER_DEPLOY,multistep,${locationType},${ddLocs},${checklyLocs},${filename}`);
+    }
+  }
+
+  // Browser tests
+  if (browserTests?.tests) {
+    for (const test of browserTests.tests) {
+      const checklyId = `browser-${generateLogicalId(test.name)}`;
+      const filename = `${sanitizeFilename(test.name)}.check.ts`;
+      const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
+      const ddLocs = csvEscape((test.originalLocations || []).join(';'));
+      const checklyLocs = csvEscape([...(test.locations || []), ...(test.privateLocations || [])].join(';'));
+      rows.push(`${test.public_id},${csvEscape(test.name)},${checklyId},FILL_AFTER_DEPLOY,browser,${locationType},${ddLocs},${checklyLocs},${filename}`);
+    }
+  }
+
+  return rows.join('\n') + '\n';
+}
+
+/**
  * Main function
  */
 async function main(): Promise<void> {
@@ -604,6 +773,7 @@ async function main(): Promise<void> {
   EXPORTS_DIR = await getExportsDir();
   OUTPUT_JSON = path.join(CHECKLY_DIR, 'migration-report.json');
   OUTPUT_MD = path.join(CHECKLY_DIR, 'migration-report.md');
+  OUTPUT_CSV = path.join(CHECKLY_DIR, 'migration-mapping.csv');
   FILES = {
     exportSummary: path.join(EXPORTS_DIR, 'export-summary.json'),
     privateLocations: path.join(EXPORTS_DIR, 'private-locations.json'),
@@ -634,7 +804,10 @@ async function main(): Promise<void> {
   const multiStepTests = await readJsonFile<MultiStepTestsFile>(FILES.multiStepTests);
   const browserTests = await readJsonFile<BrowserTestsFile>(FILES.browserTests);
   const envVariables = await readJsonFile<Variable[]>(FILES.envVariables);
-  const secrets = await readJsonFile<Variable[]>(FILES.secrets);
+  const secretsRaw = await readJsonFile<Variable[] | { global: Variable[]; checkLevel: Array<{ checkName: string; key: string; value: string; locked: boolean }> }>(FILES.secrets);
+  // Normalize: extract global secrets for backward compat
+  const secrets = secretsRaw ? (Array.isArray(secretsRaw) ? secretsRaw : secretsRaw.global || []) : null;
+  const checkLevelSecrets = secretsRaw && !Array.isArray(secretsRaw) ? secretsRaw.checkLevel || [] : [];
   const variableUsage = await readJsonFile<VariableUsageFile>(FILES.variableUsage);
   const browserManifestPublic = await readJsonFile<Manifest>(FILES.browserManifestPublic);
   const browserManifestPrivate = await readJsonFile<Manifest>(FILES.browserManifestPrivate);
@@ -721,6 +894,58 @@ async function main(): Promise<void> {
     }
   }
 
+  // Collect checks requiring client certificates (mTLS)
+  const certChecks: Array<{
+    checkName: string;
+    checkType: 'api' | 'multistep';
+    publicId: string;
+    certFiles: { key?: string; cert?: string };
+  }> = [];
+
+  // From API checks
+  if (apiChecks?.checks) {
+    for (const check of apiChecks.checks) {
+      if (check.hasCertificate || check.tags?.includes('requiresClientCertificate')) {
+        certChecks.push({
+          checkName: check.name,
+          checkType: 'api',
+          publicId: check.logicalId,
+          certFiles: {
+            key: check.request?.certificate?.key?.filename,
+            cert: check.request?.certificate?.cert?.filename,
+          },
+        });
+      }
+    }
+  }
+
+  // From multi-step tests
+  if (multiStepTests?.tests) {
+    for (const test of multiStepTests.tests) {
+      if (test.hasCertificate || test.tags?.includes('requiresClientCertificate')) {
+        const keyFiles: string[] = [];
+        const certFileNames: string[] = [];
+        for (const step of (test.config?.steps || [])) {
+          if (step.request?.certificate?.key?.filename && !keyFiles.includes(step.request.certificate.key.filename)) {
+            keyFiles.push(step.request.certificate.key.filename);
+          }
+          if (step.request?.certificate?.cert?.filename && !certFileNames.includes(step.request.certificate.cert.filename)) {
+            certFileNames.push(step.request.certificate.cert.filename);
+          }
+        }
+        certChecks.push({
+          checkName: test.name,
+          checkType: 'multistep',
+          publicId: test.public_id,
+          certFiles: {
+            key: keyFiles.join(', ') || undefined,
+            cert: certFileNames.join(', ') || undefined,
+          },
+        });
+      }
+    }
+  }
+
   // Build the report
   const report: MigrationReport = {
     generatedAt: new Date().toISOString(),
@@ -801,6 +1026,15 @@ async function main(): Promise<void> {
       filesModified: missingSecretsReport.filesModified,
       affectedChecks: missingSecretsReport.affectedChecks,
     } : undefined,
+    checkLevelSecrets: checkLevelSecrets.length > 0 ? {
+      totalEntries: checkLevelSecrets.length,
+      uniqueChecks: new Set(checkLevelSecrets.map(s => s.checkName)).size,
+      entries: checkLevelSecrets.map(s => ({ checkName: s.checkName, key: s.key })),
+    } : undefined,
+    clientCertificates: certChecks.length > 0 ? {
+      totalChecks: certChecks.length,
+      checks: certChecks,
+    } : undefined,
     nextSteps: [
       privateLocationsFile && privateLocationsFile.locations.length > 0
         ? `Create ${privateLocationsFile.locations.length} private location(s) in Checkly with the slugs shown in the report`
@@ -813,6 +1047,12 @@ async function main(): Promise<void> {
         : null,
       missingSecretsReport && missingSecretsReport.checksAffected > 0
         ? `Fill in secret values in ${CHECKLY_DIR}/variables/secrets.json and remove "missingSecretsFromDatadog" tag from ${missingSecretsReport.checksAffected} deactivated check(s)`
+        : null,
+      checkLevelSecrets.length > 0
+        ? `Fill in values for ${checkLevelSecrets.length} check-level secret(s) in ${CHECKLY_DIR}/variables/secrets.json under the "checkLevel" section`
+        : null,
+      certChecks.length > 0
+        ? `Upload client certificates for ${certChecks.length} check(s) tagged "requiresClientCertificate", configure mTLS on each check, then remove the tag and set activated: true`
         : null,
       `Review checks tagged "datadogBasicAuthWeb" — these used web/form-based auth in Datadog and may need converting to browser or multi-step checks`,
       `Run "cd ${CHECKLY_DIR} && npm run create-variables" to import variables to Checkly`,
@@ -840,6 +1080,11 @@ async function main(): Promise<void> {
   await writeFile(OUTPUT_MD, markdown, 'utf-8');
   console.log(`  Written: ${OUTPUT_MD}`);
 
+  // CSV mapping
+  const csv = generateMappingCsv(apiChecks, multiStepTests, browserTests);
+  await writeFile(OUTPUT_CSV, csv, 'utf-8');
+  console.log(`  Written: ${OUTPUT_CSV}`);
+
   // Print summary
   console.log('\n' + '='.repeat(60));
   console.log('Migration Report Summary');
@@ -865,9 +1110,18 @@ async function main(): Promise<void> {
     console.log(`  Checks deactivated (missing secrets): ${report.missingSecrets.checksAffected}`);
   }
 
+  if (report.checkLevelSecrets) {
+    console.log(`  Check-level secrets: ${report.checkLevelSecrets.totalEntries} across ${report.checkLevelSecrets.uniqueChecks} check(s)`);
+  }
+
+  if (certChecks.length > 0) {
+    console.log(`  Client certificate checks: ${certChecks.length}`);
+  }
+
   console.log('\nView the full report:');
   console.log(`  - ${OUTPUT_MD} (human-readable)`);
   console.log(`  - ${OUTPUT_JSON} (machine-readable)`);
+  console.log(`  - ${OUTPUT_CSV} (ID mapping)`);
 
   console.log('\nDone!');
 }

@@ -42,13 +42,21 @@ The API key is used both for variable import and for the Checkly CLI (`test` and
 ### Optional Settings
 
 ```bash
-DD_CHECK_STATUS=true        # Check Datadog test status and deactivate failing tests
-CHECKLY_ACCOUNT_NAME=acme   # Account name for output directory
+CHECKLY_ACCOUNT_NAME=acme           # Account name for output directory
+DD_CHECK_STATUS=true                # Check Datadog test status and deactivate failing tests
+DD_TAGS_TO_MIGRATE=env:prod,NCP     # Only export tests matching these tags (OR logic)
+DD_TAGS_EXCLUDE=browsertype:*       # Remove specific tags from migrated checks (prefix:* wildcards)
+DD_TAGS_EXCLUDE_ALL=true            # Remove all common Datadog system tags at once
+DD_TAGS_REMAP=old_tag->new_tag      # Rename tags during migration (old->new pairs)
 ```
+
+`CHECKLY_ACCOUNT_NAME` sets the output directory name. Output goes to `checkly-migrated/<account-name>/`. If not set, you'll be prompted once and the value is cached in `.account-name` for subsequent pipeline steps.
 
 When `DD_CHECK_STATUS` is enabled, the migration pipeline queries Datadog for current monitor statuses and deactivates checks that are already failing. See [Failing Test Deactivation](#failing-test-deactivation) below.
 
-`CHECKLY_ACCOUNT_NAME` sets the output directory name. Output goes to `checkly-migrated/<account-name>/`. If not set, you'll be prompted once and the value is cached in `.account-name` for subsequent pipeline steps.
+`DD_TAGS_TO_MIGRATE` filters which tests to export from Datadog. Only tests matching at least one of the specified tags are included (OR logic, case-insensitive). When unset, all tests are exported.
+
+See [Tag Filtering](#tag-filtering) below for details on `DD_TAGS_EXCLUDE`, `DD_TAGS_EXCLUDE_ALL`, and `DD_TAGS_REMAP`.
 
 ### Datadog Regions
 
@@ -71,6 +79,8 @@ When `DD_CHECK_STATUS` is enabled, the migration pipeline queries Datadog for cu
 | Global Variables | Environment Variables | Secrets require manual value entry |
 | Locations | Public + Private | Private locations must be created in Checkly first |
 | Paused monitors | `activated: false` | Preserves paused state |
+| Test-scoped variables | `environmentVariables` | configVariables carried to check-level env vars |
+| Tags | Tags | Filterable via `DD_TAGS_EXCLUDE` / `DD_TAGS_REMAP` |
 
 ### Not Migrated
 
@@ -192,7 +202,17 @@ npm run deploy:private
 
 This creates all checks, groups, and alert channel subscriptions in your Checkly account.
 
-### Step 9. Enable Check Groups
+### Step 9. Backfill Checkly UUIDs in Migration Mapping
+
+After deploying, run this to populate the `checkly_uuid` column in `migration-mapping.csv`:
+
+```bash
+npm run update-mapping
+```
+
+This calls the Checkly API to match deployed checks by their `migration_check_id` tag and writes the Checkly UUID back into the CSV. Useful for dashboard/monitor conversion tooling that needs the Checkly UUID.
+
+### Step 10. Enable Check Groups
 
 All checks deploy inside groups with `activated: false`. Nothing runs until you explicitly enable them:
 
@@ -202,7 +222,7 @@ All checks deploy inside groups with `activated: false`. Nothing runs until you 
 
 This gives you a final kill switch before checks start running and generating alerts.
 
-### Step 10. Verify and Clean Up
+### Step 11. Verify and Clean Up
 
 - Monitor checks in Checkly for a few days to confirm they're stable
 - Review checks tagged `failingInDatadog` or `noDataInDatadog` — decide whether to fix, keep deactivated, or remove
@@ -232,7 +252,9 @@ checkly-migrated/<account-name>/
 ├── checkly.config.ts               # All checks config
 ├── checkly.private.config.ts       # Private checks config
 ├── checkly.public.config.ts        # Public checks config
+├── update-mapping.ts               # Post-deploy script to backfill Checkly UUIDs
 ├── package.json                    # Account project scripts
+├── migration-mapping.csv           # Datadog-to-Checkly ID/location mapping
 ├── migration-report.json           # Machine-readable report
 └── migration-report.md             # Human-readable report
 ```
@@ -271,7 +293,8 @@ These scripts run from the **root** project directory (not the account directory
 | `npm run generate:groups` | Generate check group constructs |
 | `npm run add:defaults` | Add alert channels, groups, tags, and generate project files |
 | `npm run check:status` | Check Datadog test status and deactivate failing tests |
-| `npm run generate:report` | Generate migration report |
+| `npm run check:secrets` | Deactivate checks referencing secrets with empty values |
+| `npm run generate:report` | Generate migration report (includes CSV mapping) |
 
 These scripts run from the **account** directory (`checkly-migrated/<account-name>/`):
 
@@ -283,6 +306,7 @@ These scripts run from the **account** directory (`checkly-migrated/<account-nam
 | `npm run deploy:private` | Deploy private checks to Checkly |
 | `npm run create-variables` | Import environment variables to Checkly |
 | `npm run delete-variables` | Remove imported environment variables from Checkly |
+| `npm run update-mapping` | Backfill Checkly UUIDs in migration-mapping.csv (after deploy) |
 
 ## Key Behaviors
 
@@ -309,6 +333,39 @@ Tests are separated by location type:
 - Tests using **only** public locations → `public/` folders
 
 This allows you to deploy and test public checks immediately while setting up private locations separately.
+
+### Tag Filtering
+
+Tags from Datadog are carried through to Checkly checks by default. Three env vars control tag processing during construct generation (steps 04/06/08):
+
+- **`DD_TAGS_EXCLUDE`** — Comma-separated patterns to remove. Supports `prefix:*` wildcards.
+  Example: `DD_TAGS_EXCLUDE=browsertype:*,device:*,run_type:*`
+- **`DD_TAGS_EXCLUDE_ALL=true`** — Shorthand to exclude all common Datadog system tags at once (`browsertype:*`, `device:*`, `run_type:*`, `ci_execution_rule:*`, `type:*`, `resolved_ip:*`, `step_id:*`, `step_name:*`, `actual_retries:*`, `last_retry:*`). Can be combined with `DD_TAGS_EXCLUDE` for additional exclusions.
+- **`DD_TAGS_REMAP`** — Comma-separated `old->new` pairs to rename tags. Uses `->` delimiter (not `:`) to avoid ambiguity with Datadog's `key:value` format.
+  Example: `DD_TAGS_REMAP=check_status:alert->status:alert`
+
+Pipeline-generated tags (`requiresClientCertificate`, `datadogBasicAuthWeb`, `migration_check_id:*`) are added **after** filtering and are never removed by user filters.
+
+### Migration Traceability
+
+Every generated check includes a `migration_check_id:<datadog_public_id>` tag (e.g., `migration_check_id:cpt-vgi-fiz`). This provides a traceable link between Datadog and Checkly checks, visible in Prometheus metrics and the Checkly UI.
+
+### Client Certificate Detection
+
+Tests with mTLS client certificates (`config.request.certificate`) are detected during conversion:
+- The check is tagged `requiresClientCertificate` and set to `activated: false`
+- A WARNING comment is added to the generated `.check.ts` file listing the key and cert filenames
+- The migration report lists all affected checks with required certificate files and an action item
+
+### CSV Mapping
+
+Step 12 generates `migration-mapping.csv` alongside the migration reports. Columns:
+
+```
+datadog_public_id, datadog_name, checkly_logical_id, checkly_uuid, check_type, location_type, dd_locations, checkly_locations, filename
+```
+
+The `checkly_uuid` column is `FILL_AFTER_DEPLOY` until you run `npm run update-mapping` from the account directory after deploying checks.
 
 ### Re-running for a Different Account
 

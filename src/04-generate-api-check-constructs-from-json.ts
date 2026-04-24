@@ -11,8 +11,8 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import { sanitizeFilename, generateLogicalId, hasPrivateLocations } from './shared/utils.ts';
-import { trackVariablesFromMultiple, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
+import { sanitizeFilename, generateLogicalId, hasPrivateLocations, convertConfigVariables, escapeString, filterAndRemapTags } from './shared/utils.ts';
+import { trackVariablesFromMultiple, loadExistingVariableUsage, writeVariableUsageReport, trackConfigVariableConversions } from './shared/variable-tracker.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
 interface ChecklyAssertion {
@@ -39,11 +39,16 @@ interface ChecklyCheck {
     method: string;
     headers?: Record<string, string>;
     body?: string;
+    bodyType?: 'JSON' | 'FORM' | 'RAW' | 'GRAPHQL' | 'NONE';
     basicAuth?: {
       username: string;
       password: string;
     };
     queryParameters?: Record<string, string>;
+    certificate?: {
+      key?: { filename?: string };
+      cert?: { filename?: string };
+    };
   };
   assertions: ChecklyAssertion[];
   frequency: string;
@@ -54,6 +59,7 @@ interface ChecklyCheck {
   retryStrategy: ChecklyRetryStrategy;
   activated: boolean;
   muted: boolean;
+  hasCertificate?: boolean;
   _conversionError?: string;
   _datadogMeta?: {
     publicId: string;
@@ -64,6 +70,14 @@ interface ChecklyCheck {
     message?: string;
     subtype?: string;
   };
+  configVariables?: Array<{
+    type: string;
+    name: string;
+    pattern?: string;
+    example?: string;
+    secure?: boolean;
+    id?: string;
+  }>;
 }
 
 interface GeneratedFile {
@@ -388,16 +402,33 @@ function generateApiCheckCode(check: ChecklyCheck): string {
   const datadogPublicId = _datadogMeta?.publicId || check.logicalId;
   const logicalId = `api-${generateLogicalId(name)}`;
 
+  // Filter and remap Datadog-origin tags, then add migration traceability tag
+  const processedTags = filterAndRemapTags(tags);
+  processedTags.push(`migration_check_id:${datadogPublicId}`);
+
+  // Certificate detection — force deactivation and add warning comment
+  const hasCertificate = check.hasCertificate || tags.includes('requiresClientCertificate');
+  const effectiveActivated = hasCertificate ? false : activated;
+  const certWarning = hasCertificate
+    ? (() => {
+        const certInfo: string[] = [];
+        if (check.request.certificate?.key?.filename) certInfo.push(`Key: ${check.request.certificate.key.filename}`);
+        if (check.request.certificate?.cert?.filename) certInfo.push(`Cert: ${check.request.certificate.cert.filename}`);
+        const filesStr = certInfo.length > 0 ? ` (${certInfo.join(', ')})` : '';
+        return `\n// WARNING: This check requires a client certificate (mTLS)${filesStr}.\n// Upload the certificate to Checkly, configure it on this check, then remove\n// the "requiresClientCertificate" tag and set activated: true.`;
+      })()
+    : '';
+
   // Build request object
   const requestLines: string[] = [
-    `url: "${request.url}"`,
-    `method: "${request.method}"`,
+    `url: "${escapeString(request.url)}"`,
+    `method: "${escapeString(request.method)}"`,
   ];
 
   if (request.headers && Object.keys(request.headers).length > 0) {
     // Convert headers from Record<string, string> to KeyValuePair[] format
     const headerPairs = Object.entries(request.headers).map(
-      ([key, value]) => `{ key: "${key}", value: "${value.replace(/"/g, '\\"')}" }`
+      ([key, value]) => `{ key: "${escapeString(key)}", value: "${escapeString(value)}" }`
     );
     requestLines.push(`headers: [\n      ${headerPairs.join(',\n      ')},\n    ]`);
   }
@@ -408,12 +439,14 @@ function generateApiCheckCode(check: ChecklyCheck): string {
       ? `"${request.body.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"`
       : JSON.stringify(request.body);
     requestLines.push(`body: ${bodyStr}`);
+    const bodyType = request.bodyType && request.bodyType !== 'NONE' ? request.bodyType : 'JSON';
+    requestLines.push(`bodyType: "${bodyType}"`);
   }
 
   if (request.queryParameters && Object.keys(request.queryParameters).length > 0) {
     // Convert query params from Record<string, string> to KeyValuePair[] format
     const queryPairs = Object.entries(request.queryParameters).map(
-      ([key, value]) => `{ key: "${key}", value: "${String(value).replace(/"/g, '\\"')}" }`
+      ([key, value]) => `{ key: "${escapeString(key)}", value: "${escapeString(String(value))}" }`
     );
     requestLines.push(`queryParameters: [\n      ${queryPairs.join(',\n      ')},\n    ]`);
   }
@@ -424,8 +457,8 @@ function generateApiCheckCode(check: ChecklyCheck): string {
       ? `\n      // WARNING: Datadog used web/form-based auth (type: "web") for this check.\n      // Checkly API checks send HTTP Basic Auth headers, which may not work for\n      // endpoints requiring a browser login flow. Consider converting to a browser\n      // check or multi-step API check if this fails.\n      `
       : '';
     requestLines.push(`${basicAuthComment}basicAuth: {
-      username: "${request.basicAuth.username}",
-      password: "${request.basicAuth.password}",
+      username: "${escapeString(request.basicAuth.username)}",
+      password: "${escapeString(request.basicAuth.password)}",
     }`);
   }
 
@@ -450,10 +483,20 @@ function generateApiCheckCode(check: ChecklyCheck): string {
   // Remove aws: prefix if present
   const cleanLocations = validLocations.map(loc => loc.replace(/^aws:/, ''));
 
+  // Convert configVariables to environmentVariables (D-05: inline, one entry per line)
+  const envVars = convertConfigVariables(check.configVariables);
+  const envVarsCode = envVars.length > 0
+    ? `\n  environmentVariables: [\n${envVars.map(v =>
+        v.secret
+          ? `    { key: "${escapeString(v.key)}", value: "", secret: true }`
+          : `    { key: "${escapeString(v.key)}", value: "${escapeString(v.value)}" }`
+      ).join(',\n')},\n  ],`
+    : '';
+
   // Build the full construct
   const code = `/**
  * Migrated from Datadog Synthetic: ${datadogPublicId}
- */
+ */${certWarning}
 import {
   ApiCheck,
   AssertionBuilder,
@@ -463,15 +506,15 @@ import {
 
 new ApiCheck("${logicalId}", {
   name: "${name.replace(/"/g, '\\"')}",
-  tags: ${JSON.stringify(tags)},
+  tags: ${JSON.stringify(processedTags)},
   request: {
     ${requestLines.join(',\n    ')},
   },
   frequency: Frequency.${frequency},
-  locations: ${JSON.stringify(cleanLocations)},${privateLocations.length > 0 ? `\n  privateLocations: ${JSON.stringify(privateLocations)},` : ''}
+  locations: ${JSON.stringify(cleanLocations)},${privateLocations.length > 0 ? `\n  privateLocations: ${JSON.stringify(privateLocations)},` : ''}${envVarsCode}
   degradedResponseTime: ${degradedResponseTime},
   maxResponseTime: ${maxResponseTime},
-  activated: ${activated}, // Preserves paused status from Datadog (status !== 'live' -> activated: false)
+  activated: ${effectiveActivated},${hasCertificate ? ' // Deactivated: requires client certificate (mTLS) — upload cert then set to true' : ' // Preserves paused status from Datadog (status !== \'live\' -> activated: false)'}
   muted: ${muted},
   retryStrategy: ${generateRetryStrategy(retryStrategy)},
 });
@@ -569,6 +612,7 @@ async function main(): Promise<void> {
       // Track variable usage for this check
       const variableContent = extractVariableContent(check);
       trackVariablesFromMultiple(check.name, variableContent);
+      trackConfigVariableConversions(check.name, check.configVariables);
 
       const code = generateApiCheckCode(check);
       const filename = `${sanitizeFilename(check.name)}.check.ts`;
@@ -589,6 +633,7 @@ async function main(): Promise<void> {
       // Track variable usage for this check
       const variableContent = extractVariableContent(check);
       trackVariablesFromMultiple(check.name, variableContent);
+      trackConfigVariableConversions(check.name, check.configVariables);
 
       const code = generateApiCheckCode(check);
       const filename = `${sanitizeFilename(check.name)}.check.ts`;
@@ -631,6 +676,43 @@ async function main(): Promise<void> {
   // Write variable usage report
   console.log('\nWriting variable usage report...');
   await writeVariableUsageReport();
+
+  // Write check-level secrets for downstream step 09 (D-06, D-08)
+  const checkLevelSecrets: Array<{ checkName: string; key: string; value: string; locked: boolean }> = [];
+  for (const check of validChecks) {
+    const envVars = convertConfigVariables(check.configVariables);
+    for (const v of envVars) {
+      if (v.secret) {
+        checkLevelSecrets.push({
+          checkName: check.name,
+          key: v.key,
+          value: '',
+          locked: true,
+        });
+      }
+    }
+  }
+  if (checkLevelSecrets.length > 0) {
+    const secretsPath = path.join(exportsDir, 'check-level-secrets.json');
+    // Merge with existing file (from steps 06/08 which may have run first)
+    let existing: typeof checkLevelSecrets = [];
+    if (existsSync(secretsPath)) {
+      try {
+        existing = JSON.parse(await readFile(secretsPath, 'utf-8'));
+      } catch { /* start fresh */ }
+    }
+    const merged = [...existing, ...checkLevelSecrets];
+    // Deduplicate by checkName + key to prevent accumulation on re-runs
+    const seen = new Set<string>();
+    const deduped = merged.filter(entry => {
+      const id = `${entry.checkName}::${entry.key}`;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    await writeFile(secretsPath, JSON.stringify(deduped, null, 2), 'utf-8');
+    console.log(`  Written: ${secretsPath} (${checkLevelSecrets.length} check-level secret entries)`);
+  }
 
   console.log('\nNext steps:');
   console.log('  1. Review generated files in', OUTPUT_BASE);
