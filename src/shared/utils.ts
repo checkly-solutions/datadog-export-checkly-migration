@@ -331,3 +331,15 @@ export function filterAndRemapTags(tags: string[]): string[] {
 
   return result;
 }
+
+/**
+ * Build a Checkly tag from Datadog's `options.monitor_priority` (1–5).
+ * Returns `priority:P<n>` for valid 1–5 values, or null when missing/invalid.
+ * Mirrors Datadog's "P1–P5" UI convention so users can still filter by priority in Checkly.
+ */
+export function priorityTag(monitorPriority?: number | null): string | null {
+  if (typeof monitorPriority !== 'number') return null;
+  if (!Number.isInteger(monitorPriority)) return null;
+  if (monitorPriority < 1 || monitorPriority > 5) return null;
+  return `priority:P${monitorPriority}`;
+}

@@ -11,7 +11,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import { sanitizeFilename, generateLogicalId, hasPrivateLocations, convertConfigVariables, escapeString, filterAndRemapTags } from './shared/utils.ts';
+import { sanitizeFilename, generateLogicalId, hasPrivateLocations, convertConfigVariables, escapeString, filterAndRemapTags, priorityTag } from './shared/utils.ts';
 import { trackVariablesFromMultiple, loadExistingVariableUsage, writeVariableUsageReport, trackConfigVariableConversions } from './shared/variable-tracker.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
@@ -64,6 +64,7 @@ interface ChecklyCheck {
   _datadogMeta?: {
     publicId: string;
     monitorId?: number;
+    monitorPriority?: number;
     createdAt?: string;
     modifiedAt?: string;
     creator?: Record<string, unknown>;
@@ -405,6 +406,10 @@ export function generateApiCheckCode(check: ChecklyCheck): string {
   // Filter and remap Datadog-origin tags, then add migration traceability tag
   const processedTags = filterAndRemapTags(tags);
   processedTags.push(`migration_check_id:${datadogPublicId}`);
+
+  // Preserve Datadog monitor priority (P1–P5) as a tag for filtering in Checkly
+  const ptag = priorityTag(_datadogMeta?.monitorPriority);
+  if (ptag) processedTags.push(ptag);
 
   // Certificate detection — force deactivation and add warning comment
   const hasCertificate = check.hasCertificate || tags.includes('requiresClientCertificate');

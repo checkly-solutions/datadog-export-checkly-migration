@@ -11,7 +11,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import { FREQUENCY_MAP, sanitizeFilename, generateLogicalId, convertFrequency, convertConfigVariables, escapeString, filterAndRemapTags } from './shared/utils.ts';
+import { FREQUENCY_MAP, sanitizeFilename, generateLogicalId, convertFrequency, convertConfigVariables, escapeString, filterAndRemapTags, priorityTag } from './shared/utils.ts';
 import { trackConfigVariableConversions, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 // Relative path from __checks__/browser/{public,private} to tests/browser/{public,private}
@@ -32,6 +32,7 @@ interface BrowserTest {
       count?: number;
       interval?: number;
     };
+    monitor_priority?: number;
   };
   config?: {
     steps?: unknown[];
@@ -105,6 +106,10 @@ function generateBrowserCheckCode(test: BrowserTest, specFilename: string, locat
   // Filter and remap Datadog-origin tags, then add migration traceability tag
   const allTags = filterAndRemapTags(tags || []);
   allTags.push(`migration_check_id:${public_id}`);
+
+  // Preserve Datadog monitor priority (P1–P5) as a tag for filtering in Checkly
+  const ptag = priorityTag(options?.monitor_priority);
+  if (ptag) allTags.push(ptag);
 
   // Add "iframe" tag if the spec uses iframe handling
   if (hasIframes && !allTags.includes('iframe')) {

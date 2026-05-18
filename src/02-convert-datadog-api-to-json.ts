@@ -77,6 +77,7 @@ interface DatadogTest {
   options?: {
     tick_every?: number;
     retry?: DatadogRetry;
+    monitor_priority?: number;
   };
   message?: string;
   monitor_id?: number;
@@ -135,6 +136,7 @@ interface ChecklyCheck {
   _datadogMeta: {
     publicId: string;
     monitorId?: number;
+    monitorPriority?: number;
     createdAt?: string;
     modifiedAt?: string;
     creator?: Record<string, unknown>;
@@ -313,6 +315,7 @@ function convertTest(ddTest: DatadogTest): ChecklyCheck {
     _datadogMeta: {
       publicId: ddTest.public_id,
       monitorId: ddTest.monitor_id,
+      monitorPriority: ddTest.options?.monitor_priority,
       createdAt: ddTest.created_at,
       modifiedAt: ddTest.modified_at,
       creator: ddTest.creator,
