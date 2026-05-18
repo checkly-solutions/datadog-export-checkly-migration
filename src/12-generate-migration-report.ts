@@ -730,7 +730,7 @@ function generateMappingCsv(
       if (check._conversionError) continue;
       const publicId = check.logicalId; // In API checks JSON, logicalId IS the Datadog public_id
       const checklyId = `api-${generateLogicalId(check.name)}`;
-      const filename = `${sanitizeFilename(check.name)}.check.ts`;
+      const filename = `${sanitizeFilename(check.name, publicId)}.check.ts`;
       const locationType = check.privateLocations && check.privateLocations.length > 0 ? 'private' : 'public';
       const ddLocs = csvEscape((check.originalLocations || []).join(';'));
       const checklyLocs = csvEscape([...(check.locations || []), ...(check.privateLocations || [])].join(';'));
@@ -742,7 +742,7 @@ function generateMappingCsv(
   if (multiStepTests?.tests) {
     for (const test of multiStepTests.tests) {
       const checklyId = `multi-${generateLogicalId(test.name)}`;
-      const filename = `${sanitizeFilename(test.name)}.check.ts`;
+      const filename = `${sanitizeFilename(test.name, test.public_id)}.check.ts`;
       const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
       const ddLocs = csvEscape((test.originalLocations || []).join(';'));
       const checklyLocs = csvEscape([...(test.locations || []), ...(test.privateLocations || [])].join(';'));
@@ -754,7 +754,7 @@ function generateMappingCsv(
   if (browserTests?.tests) {
     for (const test of browserTests.tests) {
       const checklyId = `browser-${generateLogicalId(test.name)}`;
-      const filename = `${sanitizeFilename(test.name)}.check.ts`;
+      const filename = `${sanitizeFilename(test.name, test.public_id)}.check.ts`;
       const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
       const ddLocs = csvEscape((test.originalLocations || []).join(';'));
       const checklyLocs = csvEscape([...(test.locations || []), ...(test.privateLocations || [])].join(';'));

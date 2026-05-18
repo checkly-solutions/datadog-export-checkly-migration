@@ -502,7 +502,7 @@ async function generateSpecsForTests(
       trackVariablesFromMultiple(test.name, variableContent);
 
       const spec = generateSpecFile(test);
-      const filename = `${sanitizeFilename(test.name)}.spec.ts`;
+      const filename = `${sanitizeFilename(test.name, test.public_id)}.spec.ts`;
       const filepath = path.join(outputDir, filename);
 
       await writeFile(filepath, spec, 'utf-8');

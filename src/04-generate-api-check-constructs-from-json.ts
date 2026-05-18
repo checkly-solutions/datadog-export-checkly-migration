@@ -382,7 +382,7 @@ function generateRetryStrategy(retryStrategy: ChecklyRetryStrategy): string {
 /**
  * Generate a single ApiCheck construct
  */
-function generateApiCheckCode(check: ChecklyCheck): string {
+export function generateApiCheckCode(check: ChecklyCheck): string {
   const {
     name,
     tags,
@@ -615,7 +615,7 @@ async function main(): Promise<void> {
       trackConfigVariableConversions(check.name, check.configVariables);
 
       const code = generateApiCheckCode(check);
-      const filename = `${sanitizeFilename(check.name)}.check.ts`;
+      const filename = `${sanitizeFilename(check.name, check._datadogMeta?.publicId || check.logicalId)}.check.ts`;
       const filepath = path.join(OUTPUT_DIR_PUBLIC, filename);
 
       await writeFile(filepath, code, 'utf-8');
@@ -636,7 +636,7 @@ async function main(): Promise<void> {
       trackConfigVariableConversions(check.name, check.configVariables);
 
       const code = generateApiCheckCode(check);
-      const filename = `${sanitizeFilename(check.name)}.check.ts`;
+      const filename = `${sanitizeFilename(check.name, check._datadogMeta?.publicId || check.logicalId)}.check.ts`;
       const filepath = path.join(OUTPUT_DIR_PRIVATE, filename);
 
       await writeFile(filepath, code, 'utf-8');

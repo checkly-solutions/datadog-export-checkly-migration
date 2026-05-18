@@ -192,7 +192,7 @@ async function generateConstructsForLocationType(
     try {
       const hasIframes = iframeMap.get(test.public_id) || false;
       const code = generateBrowserCheckCode(test, specFilename, locationType, hasIframes);
-      const filename = `${sanitizeFilename(test.name)}.check.ts`;
+      const filename = `${sanitizeFilename(test.name, test.public_id)}.check.ts`;
       const filepath = path.join(outputDir, filename);
 
       await writeFile(filepath, code, 'utf-8');

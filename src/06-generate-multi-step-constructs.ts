@@ -214,7 +214,7 @@ async function generateConstructsForLocationType(
 
     try {
       const code = generateMultiStepCheckCode(test, specFilename, locationType);
-      const filename = `${sanitizeFilename(test.name)}.check.ts`;
+      const filename = `${sanitizeFilename(test.name, test.public_id)}.check.ts`;
       const filepath = path.join(outputDir, filename);
 
       await writeFile(filepath, code, 'utf-8');

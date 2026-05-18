@@ -23,14 +23,32 @@ export const FREQUENCY_MAP: Record<number, string> = {
 };
 
 /**
- * Sanitize a string to be a valid filename
+ * Sanitize a string to be a valid filename.
+ *
+ * When the slugified name exceeds MAX_LEN, a short suffix derived from
+ * `uniqueId` is appended so that multiple long names sharing the same
+ * truncated prefix (e.g. regional variants of the same check) don't
+ * overwrite each other on disk.
  */
-export function sanitizeFilename(str: string): string {
-  return str
+export function sanitizeFilename(str: string, uniqueId?: string): string {
+  const MAX_LEN = 50;
+
+  const slug = str
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .substring(0, 50);
+    .replace(/^-|-$/g, '');
+
+  if (slug.length <= MAX_LEN) {
+    return slug;
+  }
+
+  if (uniqueId) {
+    const suffix = '-' + uniqueId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase().slice(0, 9);
+    const head = slug.slice(0, MAX_LEN - suffix.length).replace(/-+$/, '');
+    return head + suffix;
+  }
+
+  return slug.slice(0, MAX_LEN);
 }
 
 /**
