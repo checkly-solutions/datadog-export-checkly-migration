@@ -159,13 +159,13 @@ const response2 = await request.get('/protected', {
 
 ## Non-HTTP Step Limitations
 
-Tests containing non-HTTP steps are **skipped entirely** because Playwright only supports HTTP/HTTPS.
+Multi-step tests containing non-HTTP steps are **skipped entirely** because Playwright only supports HTTP/HTTPS. This limitation applies only to non-HTTP steps **inside a multi-step test** — standalone Datadog synthetics with `subtype: tcp` are migrated separately as `TcpMonitor` constructs by step 04b (see the "TCP Monitors" section in the main `README.md`).
 
 | Step Subtype | Reason | Alternative in Checkly |
 |--------------|--------|------------------------|
-| `tcp` | Not supported in Playwright | Use `TcpMonitor` construct |
+| `tcp` | Not supported in Playwright | Standalone TCP tests migrate via step 04b. Multi-step TCP steps would need to be lifted out into a separate `TcpMonitor`. |
 | `icmp` | Not supported in Playwright | Not available |
-| `dns` | Not supported in Playwright | Use `DnsMonitor` construct |
+| `dns` | Not supported in Playwright | `DnsMonitor` exists in the Checkly SDK but is not yet wired into this migrator |
 | `wait` | No direct equivalent | Manual implementation |
 
 Skipped tests are recorded in `_manifest.json`:

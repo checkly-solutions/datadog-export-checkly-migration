@@ -401,12 +401,17 @@ async function main(): Promise<void> {
   console.log(`Found ${data.tests.length} API tests to convert`);
 
   // Filter tests by subtype
+  // Subtypes handled by dedicated downstream steps (not skipped, not converted here):
+  //   - 'multi' → step 05/06 (multi-step constructs)
+  //   - 'tcp'   → step 04b (TcpMonitor constructs)
+  const HANDLED_ELSEWHERE = new Set(['multi', 'tcp']);
   const multiStepTests = data.tests.filter(test => test.subtype === 'multi');
+  const tcpTests = data.tests.filter(test => test.subtype === 'tcp');
   const httpTests = data.tests.filter(test =>
-    test.subtype !== 'multi' && (test.subtype === 'http' || !test.subtype)
+    !HANDLED_ELSEWHERE.has(test.subtype || '') && (test.subtype === 'http' || !test.subtype)
   );
   const skippedTests = data.tests.filter(test =>
-    test.subtype !== 'multi' && test.subtype && test.subtype !== 'http'
+    !HANDLED_ELSEWHERE.has(test.subtype || '') && test.subtype && test.subtype !== 'http'
   );
 
   // Group skipped tests by subtype for reporting
@@ -422,8 +427,11 @@ async function main(): Promise<void> {
   if (multiStepTests.length > 0) {
     console.log(`  - Skipping ${multiStepTests.length} multi-step tests (require MultiStepCheck)`);
   }
+  if (tcpTests.length > 0) {
+    console.log(`  - Routing ${tcpTests.length} TCP tests to step 04b (TcpMonitor constructs)`);
+  }
   if (skippedTests.length > 0) {
-    console.log(`  - Skipping ${skippedTests.length} non-HTTP tests (icmp/tcp/dns/ssl/etc - not supported)`);
+    console.log(`  - Skipping ${skippedTests.length} non-HTTP tests (dns/ssl/icmp/etc - not yet supported)`);
     for (const [subtype, tests] of Object.entries(skippedBySubtype)) {
       console.log(`    - ${subtype}: ${tests.length} tests`);
     }
@@ -468,6 +476,7 @@ async function main(): Promise<void> {
       successful,
       failed,
       skippedMultiStep: multiStepTests.length,
+      tcpHandledByStep04b: tcpTests.length,
       skippedNonHttp: skippedTests.length,
     },
     skippedNonHttpTests: skippedBySubtype,

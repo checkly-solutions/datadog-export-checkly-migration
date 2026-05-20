@@ -191,8 +191,9 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
     HEADERS: 'headers',
   };
 
-  // Unsupported Datadog assertion sources that have no Checkly equivalent
-  // These are typically from SSL and TCP checks
+  // Unsupported Datadog assertion sources that have no Checkly equivalent.
+  // Typically these come from SSL or gRPC HTTP tests. (TCP synthetic tests are
+  // routed to step 04b's TcpMonitor generator and never reach this code.)
   const unsupportedSources = [
     'CERTIFICATE',
     'TLSVERSION',
@@ -475,7 +476,7 @@ export function generateApiCheckCode(check: ChecklyCheck): string {
 
   if (validAssertions.length > 0) {
     const skippedComment = skippedCount > 0
-      ? ` // Note: ${skippedCount} unsupported assertion(s) from Datadog were skipped (e.g., SSL certificate, TCP connection)`
+      ? ` // Note: ${skippedCount} unsupported assertion(s) from Datadog were skipped (e.g., SSL certificate, TLS version, gRPC health check)`
       : '';
     requestLines.push(`assertions: [${skippedComment}
       ${validAssertions.join(',\n      ')},
