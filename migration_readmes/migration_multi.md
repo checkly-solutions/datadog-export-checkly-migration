@@ -165,7 +165,7 @@ Multi-step tests containing non-HTTP steps are **skipped entirely** because Play
 |--------------|--------|------------------------|
 | `tcp` | Not supported in Playwright | Standalone TCP tests migrate via step 04b. Multi-step TCP steps would need to be lifted out into a separate `TcpMonitor`. |
 | `icmp` | Not supported in Playwright | Not available |
-| `dns` | Not supported in Playwright | `DnsMonitor` exists in the Checkly SDK but is not yet wired into this migrator |
+| `dns` | Not supported in Playwright | Standalone DNS tests migrate via step 04c. Multi-step DNS steps would need to be lifted out into a separate `DnsMonitor`. |
 | `wait` | No direct equivalent | Manual implementation |
 
 Skipped tests are recorded in `_manifest.json`:

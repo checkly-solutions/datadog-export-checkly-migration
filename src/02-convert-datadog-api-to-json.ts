@@ -404,9 +404,11 @@ async function main(): Promise<void> {
   // Subtypes handled by dedicated downstream steps (not skipped, not converted here):
   //   - 'multi' → step 05/06 (multi-step constructs)
   //   - 'tcp'   → step 04b (TcpMonitor constructs)
-  const HANDLED_ELSEWHERE = new Set(['multi', 'tcp']);
+  //   - 'dns'   → step 04c (DnsMonitor constructs)
+  const HANDLED_ELSEWHERE = new Set(['multi', 'tcp', 'dns']);
   const multiStepTests = data.tests.filter(test => test.subtype === 'multi');
   const tcpTests = data.tests.filter(test => test.subtype === 'tcp');
+  const dnsTests = data.tests.filter(test => test.subtype === 'dns');
   const httpTests = data.tests.filter(test =>
     !HANDLED_ELSEWHERE.has(test.subtype || '') && (test.subtype === 'http' || !test.subtype)
   );
@@ -430,8 +432,11 @@ async function main(): Promise<void> {
   if (tcpTests.length > 0) {
     console.log(`  - Routing ${tcpTests.length} TCP tests to step 04b (TcpMonitor constructs)`);
   }
+  if (dnsTests.length > 0) {
+    console.log(`  - Routing ${dnsTests.length} DNS tests to step 04c (DnsMonitor constructs)`);
+  }
   if (skippedTests.length > 0) {
-    console.log(`  - Skipping ${skippedTests.length} non-HTTP tests (dns/ssl/icmp/etc - not yet supported)`);
+    console.log(`  - Skipping ${skippedTests.length} non-HTTP tests (ssl/icmp/etc - not yet supported)`);
     for (const [subtype, tests] of Object.entries(skippedBySubtype)) {
       console.log(`    - ${subtype}: ${tests.length} tests`);
     }
@@ -477,6 +482,7 @@ async function main(): Promise<void> {
       failed,
       skippedMultiStep: multiStepTests.length,
       tcpHandledByStep04b: tcpTests.length,
+      dnsHandledByStep04c: dnsTests.length,
       skippedNonHttp: skippedTests.length,
     },
     skippedNonHttpTests: skippedBySubtype,

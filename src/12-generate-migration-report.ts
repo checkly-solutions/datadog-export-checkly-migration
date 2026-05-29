@@ -244,6 +244,7 @@ interface MigrationReport {
     browserChecks: { public: number; private: number; total: number };
     multiStepChecks: { public: number; private: number; total: number };
     tcpMonitors: { public: number; private: number; total: number };
+    dnsMonitors: { public: number; private: number; total: number };
   };
   notConverted: {
     nonHttpTests: {
@@ -358,6 +359,7 @@ function generateMarkdownReport(report: MigrationReport): string {
   lines.push(`| Browser Checks | ${report.converted.browserChecks.public} | ${report.converted.browserChecks.private} | ${report.converted.browserChecks.total} |`);
   lines.push(`| Multi-Step Checks | ${report.converted.multiStepChecks.public} | ${report.converted.multiStepChecks.private} | ${report.converted.multiStepChecks.total} |`);
   lines.push(`| TCP Monitors | ${report.converted.tcpMonitors.public} | ${report.converted.tcpMonitors.private} | ${report.converted.tcpMonitors.total} |`);
+  lines.push(`| DNS Monitors | ${report.converted.dnsMonitors.public} | ${report.converted.dnsMonitors.private} | ${report.converted.dnsMonitors.total} |`);
   lines.push('');
 
   // What was NOT migrated
@@ -368,8 +370,8 @@ function generateMarkdownReport(report: MigrationReport): string {
     if (report.notConverted.nonHttpTests.count > 0) {
       lines.push(`### Non-HTTP Tests (${report.notConverted.nonHttpTests.count} tests)`);
       lines.push('');
-      lines.push('Checkly does not yet support DNS/SSL/ICMP synthetics. These were skipped:');
-      lines.push('(TCP tests are now migrated as TcpMonitor constructs — see "What Was Migrated".)');
+      lines.push('Checkly does not yet support SSL/ICMP synthetics. These were skipped:');
+      lines.push('(TCP and DNS tests are now migrated as TcpMonitor / DnsMonitor constructs — see "What Was Migrated".)');
       lines.push('');
       for (const [type, tests] of Object.entries(report.notConverted.nonHttpTests.byType)) {
         lines.push(`#### ${type.toUpperCase()} (${tests.length})`);
@@ -706,7 +708,7 @@ function generateMarkdownReport(report: MigrationReport): string {
   lines.push('');
   lines.push('| Feature | Reason |');
   lines.push('|---------|--------|');
-  lines.push('| DNS/SSL/ICMP tests | Checkly does not yet have direct equivalents (TCP is supported as of 2026 via TcpMonitor) |');
+  lines.push('| SSL/ICMP tests | Checkly does not yet have direct equivalents (TCP and DNS are supported as of 2026 via TcpMonitor / DnsMonitor) |');
   lines.push('| OPTIONS HTTP method | Checkly supports: GET, POST, PUT, HEAD, DELETE, PATCH |');
   lines.push('| JavaScript assertions | Custom JS assertions must be manually converted to Playwright |');
   lines.push('| Multi-step wait steps | Steps with `subtype: wait` are not supported |');
@@ -742,6 +744,7 @@ function generateMappingCsv(
   browserTests: BrowserTestsFile | null,
   apiTestsRaw: RawApiTestsFile | null,
   tcpFilenamesOnDisk: Set<string>,
+  dnsFilenamesOnDisk: Set<string>,
 ): string {
   const rows: string[] = [
     'datadog_public_id,datadog_name,checkly_logical_id,checkly_uuid,check_type,location_type,dd_locations,checkly_locations,filename',
@@ -799,6 +802,21 @@ function generateMappingCsv(
       const ddLocs = csvEscape((test.originalLocations || []).join(';'));
       const checklyLocs = csvEscape([...(test.locations || []), ...(test.privateLocations || [])].join(';'));
       rows.push(`${test.public_id},${csvEscape(test.name)},${checklyId},FILL_AFTER_DEPLOY,tcp,${locationType},${ddLocs},${checklyLocs},${filename}`);
+    }
+  }
+
+  // DNS monitors (Datadog subtype:'dns' → Checkly DnsMonitor via step 04c).
+  // Same on-disk gate as TCP — CHECKLY_DNS_PROJECT_NAME splits DNS to a sibling project.
+  if (apiTestsRaw?.tests) {
+    for (const test of apiTestsRaw.tests) {
+      if (test.subtype !== 'dns') continue;
+      const filename = `${sanitizeFilename(test.name, test.public_id)}.check.ts`;
+      if (!dnsFilenamesOnDisk.has(filename)) continue;
+      const checklyId = `dns-${generateLogicalId(test.name)}`;
+      const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
+      const ddLocs = csvEscape((test.originalLocations || []).join(';'));
+      const checklyLocs = csvEscape([...(test.locations || []), ...(test.privateLocations || [])].join(';'));
+      rows.push(`${test.public_id},${csvEscape(test.name)},${checklyId},FILL_AFTER_DEPLOY,dns,${locationType},${ddLocs},${checklyLocs},${filename}`);
     }
   }
 
@@ -900,8 +918,10 @@ async function main(): Promise<void> {
   };
   const tcpPublicCount = await countTcpFilesIn(path.join(CHECKLY_DIR, '__checks__', 'tcp', 'public'));
   const tcpPrivateCount = await countTcpFilesIn(path.join(CHECKLY_DIR, '__checks__', 'tcp', 'private'));
-  // Track which DD publicIds have a corresponding TCP .check.ts file on disk, so the
-  // mapping CSV only emits rows for actually-generated monitors.
+  const dnsPublicCount = await countTcpFilesIn(path.join(CHECKLY_DIR, '__checks__', 'dns', 'public'));
+  const dnsPrivateCount = await countTcpFilesIn(path.join(CHECKLY_DIR, '__checks__', 'dns', 'private'));
+  // Track which DD publicIds have a corresponding TCP/DNS .check.ts file on disk,
+  // so the mapping CSV only emits rows for actually-generated monitors.
   const tcpFilenamesOnDisk = new Set<string>();
   for (const dir of [
     path.join(CHECKLY_DIR, '__checks__', 'tcp', 'public'),
@@ -913,12 +933,24 @@ async function main(): Promise<void> {
       }
     }
   }
+  const dnsFilenamesOnDisk = new Set<string>();
+  for (const dir of [
+    path.join(CHECKLY_DIR, '__checks__', 'dns', 'public'),
+    path.join(CHECKLY_DIR, '__checks__', 'dns', 'private'),
+  ]) {
+    if (existsSync(dir)) {
+      for (const f of await readdir(dir)) {
+        if (f.endsWith('.check.ts')) dnsFilenamesOnDisk.add(f);
+      }
+    }
+  }
 
   const totalChecklyChecks =
     apiPublicCount + apiPrivateCount +
     browserPublicCount + browserPrivateCount +
     multiPublicCount + multiPrivateCount +
-    tcpPublicCount + tcpPrivateCount;
+    tcpPublicCount + tcpPrivateCount +
+    dnsPublicCount + dnsPrivateCount;
 
   const totalDatadogTests = exportSummary.summary.apiTests + exportSummary.summary.browserTests;
 
@@ -1050,6 +1082,11 @@ async function main(): Promise<void> {
         private: tcpPrivateCount,
         total: tcpPublicCount + tcpPrivateCount,
       },
+      dnsMonitors: {
+        public: dnsPublicCount,
+        private: dnsPrivateCount,
+        total: dnsPublicCount + dnsPrivateCount,
+      },
     },
     notConverted: {
       nonHttpTests: {
@@ -1155,7 +1192,7 @@ async function main(): Promise<void> {
   console.log(`  Written: ${OUTPUT_MD}`);
 
   // CSV mapping
-  const csv = generateMappingCsv(apiChecks, multiStepTests, browserTests, apiTestsRaw, tcpFilenamesOnDisk);
+  const csv = generateMappingCsv(apiChecks, multiStepTests, browserTests, apiTestsRaw, tcpFilenamesOnDisk, dnsFilenamesOnDisk);
   await writeFile(OUTPUT_CSV, csv, 'utf-8');
   console.log(`  Written: ${OUTPUT_CSV}`);
 
