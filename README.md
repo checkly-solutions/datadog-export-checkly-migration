@@ -12,6 +12,14 @@ npm run migrate:all     # Reads CHECKLY_ACCOUNT_NAME from .env, outputs a self-c
 
 The pipeline reads `CHECKLY_ACCOUNT_NAME` from `.env` (e.g. `acme`) and writes all output to `checkly-migrated/<account-name>/` — a self-contained Checkly project directory. If the variable is not set, you'll be prompted.
 
+## Documentation
+
+- **New here?** [`docs/getting-started.md`](docs/getting-started.md) — how the tool works, what migrates, and the run + deploy runbook.
+- **Run it with an AI assistant** (the fast first-line path): [`docs/using-ai-assistants.md`](docs/using-ai-assistants.md), backed by [`AGENTS.md`](AGENTS.md) and the deep runbook [`docs/ai-primer.md`](docs/ai-primer.md).
+- **Something broke?** [`docs/troubleshooting.md`](docs/troubleshooting.md) — symptom → cause → fix.
+- **Per-type detail:** [`migration_readmes/`](migration_readmes/) (linked under [Detailed Guides](#detailed-guides) below).
+- Full index: [`docs/README.md`](docs/README.md).
+
 ## Configuration
 
 ### Datadog Credentials (Required)
