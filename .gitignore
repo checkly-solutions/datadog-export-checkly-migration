@@ -12,6 +12,10 @@ checkly-migrated/*
 # Account name cache (written by pipeline on first prompt)
 .account-name
 
+# Local authoring scratch — not part of the project
+/guides/
+/.doc-build/
+
 
 # Logs
 logs
