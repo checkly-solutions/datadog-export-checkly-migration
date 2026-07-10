@@ -12,6 +12,7 @@
 import { readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import { FREQUENCY_MAP, convertFrequency, normalizeDatadogBody, detectBodyType } from './shared/utils.ts';
 import { getExportsDir } from './shared/output-config.ts';
 
@@ -78,6 +79,8 @@ interface DatadogTest {
     tick_every?: number;
     retry?: DatadogRetry;
     monitor_priority?: number;
+    follow_redirects?: boolean;
+    allow_insecure?: boolean;
   };
   message?: string;
   monitor_id?: number;
@@ -116,6 +119,8 @@ interface ChecklyCheck {
       password: string;
     };
     queryParameters?: Record<string, string>;
+    followRedirects?: boolean;
+    skipSSL?: boolean;
     certificate?: {
       key?: { filename?: string };
       cert?: { filename?: string };
@@ -187,7 +192,7 @@ const ASSERTION_SOURCE_MAP: Record<string, string> = {
 /**
  * Convert a Datadog assertion to Checkly assertion format
  */
-function convertAssertion(ddAssertion: DatadogAssertion): ChecklyAssertion | null {
+export function convertAssertion(ddAssertion: DatadogAssertion): ChecklyAssertion | null {
   const { type, operator, target, property } = ddAssertion;
 
   // Skip JavaScript assertions - they require custom handling
@@ -220,7 +225,7 @@ function convertAssertion(ddAssertion: DatadogAssertion): ChecklyAssertion | nul
 /**
  * Convert Datadog retry config to Checkly retry strategy
  */
-function convertRetryStrategy(ddRetry?: DatadogRetry): ChecklyRetryStrategy {
+export function convertRetryStrategy(ddRetry?: DatadogRetry): ChecklyRetryStrategy {
   if (!ddRetry || ddRetry.count === 0) {
     return {
       type: 'NONE',
@@ -245,7 +250,7 @@ const SUPPORTED_METHODS = ['GET', 'POST', 'PUT', 'HEAD', 'DELETE', 'PATCH'];
 /**
  * Convert a single Datadog API test to Checkly config
  */
-function convertTest(ddTest: DatadogTest): ChecklyCheck {
+export function convertTest(ddTest: DatadogTest): ChecklyCheck {
   // Locations are pre-processed by step 01
   const { locations, privateLocations, originalLocations } = ddTest;
 
@@ -353,6 +358,18 @@ function convertTest(ddTest: DatadogTest): ChecklyCheck {
 
   if (ddTest.config?.request?.query) {
     config.request.queryParameters = ddTest.config.request.query;
+  }
+
+  // Redirect fidelity (FID-01/FID-02, D-04): only an explicit Datadog false diverges
+  // from Checkly's default (follow). true or absent is omitted so Checkly's default applies.
+  if (ddTest.options?.follow_redirects === false) {
+    config.request.followRedirects = false;
+  }
+
+  // TLS-verification fidelity (FID-03, D-05): only an explicit Datadog true diverges
+  // from Checkly's default (verify). false or absent is omitted so Checkly's default applies.
+  if (ddTest.options?.allow_insecure === true) {
+    config.request.skipSSL = true;
   }
 
   // Carry client certificate metadata (mTLS) for downstream flagging
@@ -520,7 +537,11 @@ async function main(): Promise<void> {
   console.log('\nDone!');
 }
 
-main().catch(err => {
-  console.error('Error:', (err as Error).message);
-  process.exit(1);
-});
+// ESM main-guard: only run if this file is the direct entry point
+const __filename = fileURLToPath(import.meta.url);
+if (typeof process.argv[1] === 'string' && path.resolve(__filename) === path.resolve(process.argv[1])) {
+  main().catch(err => {
+    console.error('Error:', (err as Error).message);
+    process.exit(1);
+  });
+}

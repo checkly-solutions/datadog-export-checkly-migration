@@ -1,0 +1,9 @@
+datadog_public_id,datadog_name,checkly_logical_id,checkly_uuid,check_type,location_type,dd_locations,checkly_locations,filename
+syn-001-abc,Synthetic API Check,api-synthetic-api-check-syn-001-abc,FILL_AFTER_DEPLOY,api,public,aws:us-east-1,us-east-1,synthetic-api-check-syn-001-abc.check.ts
+syn-002-def,Synthetic Private API,api-synthetic-private-api-syn-002-def,FILL_AFTER_DEPLOY,api,private,pl:example-private-location-00000000,example-private,synthetic-private-api-syn-002-def.check.ts
+syn-005-mno,Synthetic Login Flow,multi-synthetic-login-flow-syn-005-mno,FILL_AFTER_DEPLOY,multistep,public,aws:us-east-1,us-east-1,synthetic-login-flow-syn-005-mno.check.ts
+syn-006-pqr,Synthetic Browser Flow,browser-synthetic-browser-flow-syn-006-pqr,FILL_AFTER_DEPLOY,browser,public,aws:us-east-1,us-east-1,synthetic-browser-flow-syn-006-pqr.check.ts
+syn-206-tuv,Synthetic Browser Flow,browser-synthetic-browser-flow-syn-206-tuv,FILL_AFTER_DEPLOY,browser,public,aws:us-east-1,us-east-1,synthetic-browser-flow-syn-206-tuv.check.ts
+syn-306-mbf,PWCS Multi Browser Flow,browser-pwcs-multi-browser-flow-syn-306-mbf,FILL_AFTER_DEPLOY,browser,public,aws:us-east-1,us-east-1,pwcs-multi-browser-flow-syn-306-mbf.check.ts
+syn-003-ghi,Synthetic TCP Check,tcp-synthetic-tcp-check-syn-003-ghi,FILL_AFTER_DEPLOY,tcp,public,aws:us-east-1,us-east-1,synthetic-tcp-check-syn-003-ghi.check.ts
+syn-004-jkl,Synthetic DNS Check,dns-synthetic-dns-check-syn-004-jkl,FILL_AFTER_DEPLOY,dns,public,aws:us-east-1,us-east-1,synthetic-dns-check-syn-004-jkl.check.ts

@@ -21,6 +21,7 @@ import 'dotenv/config';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import { deriveChecklySlugFromDatadogPrivateLocation } from './shared/utils.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
@@ -349,7 +350,7 @@ function extractLocationsFromTests(tests: DatadogTest[]): {
  * @param privateLocationSlugMap - Map of Datadog ID to Checkly slug
  * @param privateLocationUsage - Map to track usage counts (will be mutated)
  */
-function transformTestLocations(
+export function transformTestLocations(
   test: DatadogTest,
   privateLocationSlugMap: Map<string, string>,
   privateLocationUsage: Map<string, number>
@@ -744,4 +745,10 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+// ESM main-guard: only run if this file is the direct entry point.
+// Required so tool-tests can import transformTestLocations without triggering the
+// live Datadog export (matches the guard already used by src/02-08, 11, 12).
+const __filename = fileURLToPath(import.meta.url);
+if (typeof process.argv[1] === 'string' && path.resolve(__filename) === path.resolve(process.argv[1])) {
+  main();
+}

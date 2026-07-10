@@ -37,14 +37,16 @@
 import { readFile, writeFile, mkdir, copyFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import {
   sanitizeFilename,
-  generateLogicalId,
+  uniqueLogicalId,
   hasPrivateLocations,
   convertFrequency,
   escapeString,
   filterAndRemapTags,
   priorityTag,
+  normalizePublicChecklyLocations,
 } from './shared/utils.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
@@ -105,7 +107,7 @@ interface GenerateOptions {
 
 const CHECKLY_DNS_MAX_RESPONSE_TIME_LIMIT = 5000;
 
-function deriveResponseTimes(assertions: DatadogAssertion[] | undefined): {
+export function deriveResponseTimes(assertions: DatadogAssertion[] | undefined): {
   maxResponseTime?: number;
   degradedResponseTime?: number;
 } {
@@ -121,7 +123,7 @@ function deriveResponseTimes(assertions: DatadogAssertion[] | undefined): {
   return { maxResponseTime: max, degradedResponseTime: degraded };
 }
 
-function generateRetryStrategy(retry: DatadogRetry | undefined): string {
+export function generateRetryStrategy(retry: DatadogRetry | undefined): string {
   if (!retry || !retry.count) {
     return 'RetryStrategyBuilder.noRetries()';
   }
@@ -133,12 +135,6 @@ function generateRetryStrategy(retry: DatadogRetry | undefined): string {
   return `RetryStrategyBuilder.linearStrategy({
     ${opts.join(',\n    ')},
   })`;
-}
-
-function cleanPublicLocations(locations: string[]): string[] {
-  return locations
-    .filter(loc => !loc.includes(':') || loc.startsWith('aws:'))
-    .map(loc => loc.replace(/^aws:/, ''));
 }
 
 /**
@@ -153,7 +149,7 @@ function cleanPublicLocations(locations: string[]): string[] {
  * become "10.247.1.*" — close enough to the user's intent in practice. The user
  * is told via a comment that recordEvery semantics were not preserved.
  */
-function generateRecordAssertions(assertions: DatadogAssertion[] | undefined): {
+export function generateRecordAssertions(assertions: DatadogAssertion[] | undefined): {
   lines: string[];
   notes: string[];
   recordEveryDowngraded: boolean;
@@ -196,7 +192,7 @@ export function generateDnsMonitorCode(test: DatadogDnsTest, opts: GenerateOptio
   const dnsServer = rawDnsServer.trim() || undefined;
   const timeoutWasSet = typeof test.config?.request?.timeout === 'number';
 
-  const logicalId = `dns-${generateLogicalId(test.name)}`;
+  const logicalId = uniqueLogicalId('dns', test.name, test.public_id);
 
   const processedTags = filterAndRemapTags(test.tags || []);
   processedTags.push(`migration_check_id:${test.public_id}`);
@@ -206,7 +202,7 @@ export function generateDnsMonitorCode(test: DatadogDnsTest, opts: GenerateOptio
   const { maxResponseTime, degradedResponseTime } = deriveResponseTimes(test.config?.assertions);
   const { lines: recordAssertions, notes: recordNotes } = generateRecordAssertions(test.config?.assertions);
   const frequency = convertFrequency(test.options?.tick_every);
-  const cleanLocations = cleanPublicLocations(test.locations || []);
+  const cleanLocations = normalizePublicChecklyLocations(test.locations || []);
   const privateLocations = test.privateLocations || [];
   const activated = (test.status || 'live') === 'live';
 
@@ -270,7 +266,7 @@ ${alertChannelsProp}});
   return code;
 }
 
-function generateIndexFile(generatedFiles: GeneratedFile[]): string {
+export function generateIndexFile(generatedFiles: GeneratedFile[]): string {
   const imports = generatedFiles.map(f => {
     const checkFilename = f.filename.replace('.ts', '');
     return `import "./${checkFilename}";`;
@@ -289,19 +285,21 @@ ${imports.join('\n')}
  * Build a TCP-style migration-mapping.csv from the DNS tests being processed.
  * Header matches step 12's schema so update-mapping.ts can consume either.
  */
-function csvEscapeField(value: string): string {
+export function csvEscapeField(value: string): string {
   if (value.includes(',') || value.includes('"') || value.includes('\n')) {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;
 }
 
-function buildMappingCsvForDns(tests: DatadogDnsTest[]): string {
+export function buildMappingCsvForDns(tests: DatadogDnsTest[]): string {
   const header = 'datadog_public_id,datadog_name,checkly_logical_id,checkly_uuid,check_type,location_type,dd_locations,checkly_locations,filename';
   const rows: string[] = [header];
   for (const test of tests) {
     const filename = `${sanitizeFilename(test.name, test.public_id)}.check.ts`;
-    const checklyId = `dns-${generateLogicalId(test.name)}`;
+    // Same shared helper as the emit site, so the standalone mapping CSV can never
+    // drift from the emitted DnsMonitor logical id (D-02).
+    const checklyId = uniqueLogicalId('dns', test.name, test.public_id);
     const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
     const ddLocs = csvEscapeField((test.originalLocations || []).join(';'));
     const checklyLocs = csvEscapeField([...(test.locations || []), ...(test.privateLocations || [])].join(';'));
@@ -508,7 +506,7 @@ Populates the \`checkly_uuid\` column in \`migration-mapping.csv\`.
 `,
 };
 
-async function writeStandaloneScaffolding(
+export async function writeStandaloneScaffolding(
   destRoot: string,
   projectName: string,
   logicalId: string,
@@ -681,7 +679,11 @@ async function main(): Promise<void> {
   if (errorCount > 0) process.exit(1);
 }
 
-main().catch(err => {
-  console.error('Error:', (err as Error).message);
-  process.exit(1);
-});
+// ESM main-guard: only run if this file is the direct entry point
+const __filename = fileURLToPath(import.meta.url);
+if (typeof process.argv[1] === 'string' && path.resolve(__filename) === path.resolve(process.argv[1])) {
+  main().catch(err => {
+    console.error('Error:', (err as Error).message);
+    process.exit(1);
+  });
+}

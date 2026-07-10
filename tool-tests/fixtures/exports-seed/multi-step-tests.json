@@ -1,0 +1,64 @@
+{
+  "exportedAt": "2026-01-01T00:00:00.000Z",
+  "site": "datadoghq.com",
+  "count": 1,
+  "tests": [
+    {
+      "public_id": "syn-005-mno",
+      "name": "Synthetic Login Flow",
+      "type": "api",
+      "subtype": "multi",
+      "status": "live",
+      "tags": ["env:synthetic", "team:example"],
+      "locations": ["us-east-1"],
+      "privateLocations": [],
+      "originalLocations": ["aws:us-east-1"],
+      "options": {
+        "tick_every": 900,
+        "retry": { "count": 1, "interval": 300 }
+      },
+      "config": {
+        "steps": [
+          {
+            "name": "Get auth token",
+            "subtype": "http",
+            "request": {
+              "method": "POST",
+              "url": "https://auth.example.com/token",
+              "headers": { "Content-Type": "application/x-www-form-urlencoded" },
+              "body": "grant_type=client_credentials"
+            },
+            "assertions": [
+              { "type": "statusCode", "operator": "is", "target": 200 }
+            ],
+            "allowFailure": false,
+            "extractedValues": [
+              {
+                "type": "http_body",
+                "parser": { "type": "json_path", "value": "$.access_token" },
+                "name": "AUTH_TOKEN",
+                "secure": false
+              }
+            ]
+          },
+          {
+            "name": "Fetch profile",
+            "subtype": "http",
+            "request": {
+              "method": "GET",
+              "url": "https://api.example.com/v1/profile",
+              "headers": { "Authorization": "Bearer {{ AUTH_TOKEN }}" }
+            },
+            "assertions": [
+              { "type": "statusCode", "operator": "is", "target": 200 },
+              { "type": "body", "operator": "contains", "target": "profile" }
+            ],
+            "allowFailure": false
+          }
+        ]
+      },
+      "message": "Synthetic multi alert",
+      "monitor_id": 1005
+    }
+  ]
+}

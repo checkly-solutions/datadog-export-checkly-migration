@@ -1,0 +1,13 @@
+{
+  "exportedAt": "NORMALIZED",
+  "site": "datadoghq.com",
+  "summary": {
+    "apiTests": 5,
+    "browserTests": 1,
+    "browserSubtests": 0,
+    "globalVariables": 0,
+    "privateLocations": 1,
+    "publicLocations": 1,
+    "unmappedLocations": 0
+  }
+}

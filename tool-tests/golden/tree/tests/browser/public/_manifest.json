@@ -1,0 +1,40 @@
+{
+  "generatedAt": "NORMALIZED",
+  "outputDir": "./checkly-migrated/golden/tests/browser/public",
+  "locationType": "public",
+  "files": [
+    {
+      "logicalId": "syn-006-pqr",
+      "name": "Synthetic Browser Flow",
+      "filename": "synthetic-browser-flow-syn-006-pqr.spec.ts",
+      "stepCount": 4,
+      "hasIframes": false,
+      "hasMultiCandidate": true,
+      "secretKeys": [],
+      "pwEngines": []
+    },
+    {
+      "logicalId": "syn-206-tuv",
+      "name": "Synthetic Browser Flow",
+      "filename": "synthetic-browser-flow-syn-206-tuv.spec.ts",
+      "stepCount": 1,
+      "hasIframes": false,
+      "hasMultiCandidate": false,
+      "secretKeys": [],
+      "pwEngines": []
+    },
+    {
+      "logicalId": "syn-306-mbf",
+      "name": "PWCS Multi Browser Flow",
+      "filename": "pwcs-multi-browser-flow-syn-306-mbf.spec.ts",
+      "stepCount": 2,
+      "hasIframes": false,
+      "hasMultiCandidate": false,
+      "secretKeys": [],
+      "pwEngines": [
+        "chromium",
+        "firefox"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "exportedAt": "2026-01-01T00:00:00.000Z",
+  "site": "datadoghq.com",
+  "count": 3,
+  "tests": [
+    {
+      "public_id": "syn-006-pqr",
+      "name": "Synthetic Browser Flow",
+      "type": "browser",
+      "status": "live",
+      "tags": ["env:synthetic", "team:example"],
+      "locations": ["us-east-1"],
+      "privateLocations": [],
+      "originalLocations": ["aws:us-east-1"],
+      "options": {
+        "tick_every": 900,
+        "retry": { "count": 0, "interval": 300 }
+      },
+      "config": {
+        "request": {
+          "url": "https://app.example.com/login"
+        }
+      },
+      "steps": [
+        {
+          "name": "Open login page",
+          "type": "goToUrl",
+          "params": { "value": "https://app.example.com/login" }
+        },
+        {
+          "name": "Type username",
+          "type": "typeText",
+          "params": {
+            "value": "user@example.com",
+            "element": {
+              "targetOuterHTML": "<input id=\"username\" type=\"text\">"
+            }
+          }
+        },
+        {
+          "name": "Click sign in",
+          "type": "click",
+          "params": {
+            "element": {
+              "targetOuterHTML": "<button id=\"submit\">Sign in</button>"
+            }
+          }
+        },
+        {
+          "name": "Assert welcome text",
+          "type": "assertPageContains",
+          "params": { "value": "Welcome" },
+          "allowFailure": false
+        }
+      ]
+    },
+    {
+      "public_id": "syn-206-tuv",
+      "name": "Synthetic Browser Flow",
+      "type": "browser",
+      "status": "live",
+      "tags": ["env:synthetic", "team:example"],
+      "locations": ["us-east-1"],
+      "privateLocations": [],
+      "originalLocations": ["aws:us-east-1"],
+      "options": {
+        "tick_every": 900,
+        "retry": { "count": 0, "interval": 300 }
+      },
+      "config": {
+        "request": {
+          "url": "https://app.example.com/health"
+        }
+      },
+      "steps": [
+        {
+          "name": "Open health page",
+          "type": "goToUrl",
+          "params": { "value": "https://app.example.com/health" }
+        }
+      ]
+    },
+    {
+      "public_id": "syn-306-mbf",
+      "name": "PWCS Multi Browser Flow",
+      "type": "browser",
+      "status": "live",
+      "tags": ["env:synthetic", "team:example"],
+      "locations": ["us-east-1"],
+      "privateLocations": [],
+      "originalLocations": ["aws:us-east-1"],
+      "options": {
+        "tick_every": 300,
+        "retry": { "count": 0, "interval": 300 },
+        "device_ids": ["chrome.laptop_large", "firefox.laptop_large", "edge.laptop_large"]
+      },
+      "config": {
+        "request": {
+          "url": "https://app.example.com/checkout"
+        }
+      },
+      "steps": [
+        {
+          "name": "Open checkout page",
+          "type": "goToUrl",
+          "params": { "value": "https://app.example.com/checkout" }
+        },
+        {
+          "name": "Assert checkout text",
+          "type": "assertPageContains",
+          "params": { "value": "Checkout" },
+          "allowFailure": false
+        }
+      ]
+    }
+  ]
+}

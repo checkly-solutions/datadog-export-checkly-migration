@@ -1,0 +1,12 @@
+{
+  "generatedAt": "NORMALIZED",
+  "totalVariablesReferenced": 1,
+  "variables": {
+    "AUTH_TOKEN": {
+      "usageCount": 1,
+      "checks": [
+        "Synthetic Login Flow"
+      ]
+    }
+  }
+}

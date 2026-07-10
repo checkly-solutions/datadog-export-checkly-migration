@@ -10,13 +10,13 @@ cp .env.example .env   # Edit with your credentials
 npm run migrate:all     # Reads CHECKLY_ACCOUNT_NAME from .env, outputs a self-contained project
 ```
 
-The pipeline reads `CHECKLY_ACCOUNT_NAME` from `.env` (e.g. `acme`) and writes all output to `checkly-migrated/<account-name>/` — a self-contained Checkly project directory. If the variable is not set, you'll be prompted.
+The pipeline reads `CHECKLY_ACCOUNT_NAME` from `.env` (e.g. `acme`) and writes all output to `checkly-migrated/<account-name>/`, a self-contained Checkly project directory. If the variable is not set, you'll be prompted.
 
 ## Documentation
 
-- **New here?** [`docs/getting-started.md`](docs/getting-started.md) — how the tool works, what migrates, and the run + deploy runbook.
+- **New here?** [`docs/getting-started.md`](docs/getting-started.md), how the tool works, what migrates, and the run + deploy runbook.
 - **Run it with an AI assistant** (the fast first-line path): [`docs/using-ai-assistants.md`](docs/using-ai-assistants.md), backed by [`AGENTS.md`](AGENTS.md) and the deep runbook [`docs/ai-primer.md`](docs/ai-primer.md).
-- **Something broke?** [`docs/troubleshooting.md`](docs/troubleshooting.md) — symptom → cause → fix.
+- **Something broke?** [`docs/troubleshooting.md`](docs/troubleshooting.md), symptom → cause → fix.
 - **Per-type detail:** [`migration_readmes/`](migration_readmes/) (linked under [Detailed Guides](#detailed-guides) below).
 - Full index: [`docs/README.md`](docs/README.md).
 
@@ -94,11 +94,11 @@ See [Tag Filtering](#tag-filtering) below for details on `DD_TAGS_EXCLUDE`, `DD_
 
 ### Not Migrated
 
-- **SSL / ICMP tests** — No Checkly equivalent yet (TCP and DNS are supported as of 2026 via `TcpMonitor` / `DnsMonitor`)
-- **TCP / DNS / ICMP steps inside multi-step tests** — Playwright has no equivalent for these step types. The surrounding multi-step test is skipped; standalone TCP and DNS synthetics are migrated separately by steps 04b and 04c.
-- **OPTIONS HTTP method** — Not supported
-- **JavaScript assertions** — Must be manually converted to Playwright
-- **DNS `recordEvery matches` assertions** — Downgraded: Checkly's `textAnswer(regex)` checks "some record matches" not "every record matches". Migrated with a WARNING comment in the generated file.
+- **SSL / ICMP tests**, No Checkly equivalent yet (TCP and DNS are supported as of 2026 via `TcpMonitor` / `DnsMonitor`)
+- **TCP / DNS / ICMP steps inside multi-step tests**, Playwright has no equivalent for these step types. The surrounding multi-step test is skipped; standalone TCP and DNS synthetics are migrated separately by steps 04b and 04c.
+- **OPTIONS HTTP method**, Not supported
+- **JavaScript assertions**, Must be manually converted to Playwright
+- **DNS `recordEvery matches` assertions**, Downgraded: Checkly's `textAnswer(regex)` checks "some record matches" not "every record matches". Migrated with a WARNING comment in the generated file.
 
 See `checkly-migrated/<account-name>/migration-report.md` for a full breakdown of your specific migration.
 
@@ -196,9 +196,9 @@ npm run test:private
 ```
 
 Review the results. Common issues to fix:
-- **Browser checks**: Locators from Datadog may not match — update selectors in the Playwright spec files under `tests/browser/`
-- **Multi-step checks**: Variable extraction between steps may need adjustment — review specs under `tests/multi/`
-- **Environment variables**: Missing or incorrect values — check `variables/secrets.json`
+- **Browser checks**: Locators from Datadog may not match, update selectors in the Playwright spec files under `tests/browser/`
+- **Multi-step checks**: Variable extraction between steps may need adjustment, review specs under `tests/multi/`
+- **Environment variables**: Missing or incorrect values, check `variables/secrets.json`
 
 ### Step 8. Deploy to Checkly
 
@@ -237,7 +237,8 @@ This gives you a final kill switch before checks start running and generating al
 ### Step 11. Verify and Clean Up
 
 - Monitor checks in Checkly for a few days to confirm they're stable
-- Review checks tagged `failingInDatadog` or `noDataInDatadog` — decide whether to fix, keep deactivated, or remove
+- Review checks tagged `failingInDatadog` or `noDataInDatadog`: decide whether to fix, keep deactivated, or remove
+- Review checks tagged `reviewMultiSelector`: these use a self-healing multi-candidate locator chain, so give each one a per-check verification pass to confirm it resolves the element the original Datadog step targeted
 - Once confident, decommission the corresponding Datadog Synthetic monitors
 - Rotate any API keys used during the migration
 
@@ -275,7 +276,7 @@ checkly-migrated/<account-name>/
 
 ## Handing Off to Customers
 
-The generated account directory (`checkly-migrated/<account-name>/`) is **self-contained** — it includes everything needed to test and deploy the migrated checks, along with its own `README.md` with step-by-step deployment instructions written for the customer.
+The generated account directory (`checkly-migrated/<account-name>/`) is **self-contained**, it includes everything needed to test and deploy the migrated checks, along with its own `README.md` with step-by-step deployment instructions written for the customer.
 
 To hand off to a customer:
 
@@ -289,7 +290,7 @@ To hand off to a customer:
    git init && echo ".env" >> .gitignore && echo "node_modules/" >> .gitignore
    git add . && git commit -m "Initial Checkly project from Datadog migration"
    ```
-3. **Share with the customer** — they can follow the included `README.md` to deploy without needing access to this migration tool repo.
+3. **Share with the customer**, they can follow the included `README.md` to deploy without needing access to this migration tool repo.
 
 ## Pipeline Scripts
 
@@ -328,9 +329,9 @@ These scripts run from the **account** directory (`checkly-migrated/<account-nam
 
 ### Check Activation
 
-- **Check groups** are created with `activated: false` — checks won't run until you enable the group in Checkly
+- **Check groups** are created with `activated: false`, checks won't run until you enable the group in Checkly
 - **Individual checks** preserve their Datadog status: paused monitors become `activated: false`
-- This means deployment is safe — nothing runs or alerts until you explicitly enable the groups
+- This means deployment is safe, nothing runs or alerts until you explicitly enable the groups
 
 ### Failing Test Deactivation
 
@@ -354,13 +355,13 @@ This allows you to deploy and test public checks immediately while setting up pr
 
 Tags from Datadog are carried through to Checkly checks by default. Three env vars control tag processing during construct generation (steps 04/06/08):
 
-- **`DD_TAGS_EXCLUDE`** — Comma-separated patterns to remove. Supports `prefix:*` wildcards.
+- **`DD_TAGS_EXCLUDE`**, Comma-separated patterns to remove. Supports `prefix:*` wildcards.
   Example: `DD_TAGS_EXCLUDE=browsertype:*,device:*,run_type:*`
-- **`DD_TAGS_EXCLUDE_ALL=true`** — Shorthand to exclude all common Datadog system tags at once (`browsertype:*`, `device:*`, `run_type:*`, `ci_execution_rule:*`, `type:*`, `resolved_ip:*`, `step_id:*`, `step_name:*`, `actual_retries:*`, `last_retry:*`). Can be combined with `DD_TAGS_EXCLUDE` for additional exclusions.
-- **`DD_TAGS_REMAP`** — Comma-separated `old->new` pairs to rename tags. Uses `->` delimiter (not `:`) to avoid ambiguity with Datadog's `key:value` format.
+- **`DD_TAGS_EXCLUDE_ALL=true`**, Shorthand to exclude all common Datadog system tags at once (`browsertype:*`, `device:*`, `run_type:*`, `ci_execution_rule:*`, `type:*`, `resolved_ip:*`, `step_id:*`, `step_name:*`, `actual_retries:*`, `last_retry:*`). Can be combined with `DD_TAGS_EXCLUDE` for additional exclusions.
+- **`DD_TAGS_REMAP`**, Comma-separated `old->new` pairs to rename tags. Uses `->` delimiter (not `:`) to avoid ambiguity with Datadog's `key:value` format.
   Example: `DD_TAGS_REMAP=check_status:alert->status:alert`
 
-Pipeline-generated tags (`requiresClientCertificate`, `datadogBasicAuthWeb`, `migration_check_id:*`) are added **after** filtering and are never removed by user filters.
+Pipeline-generated tags (`requiresClientCertificate`, `datadogBasicAuthWeb`, `migration_check_id:*`, `reviewMultiSelector`) are added **after** filtering and are never removed by user filters.
 
 ### TCP Monitors
 
@@ -380,8 +381,8 @@ TCP files are generated by step 04b (`npm run generate:tcp`), which runs automat
 
 **Output mode is configurable via `CHECKLY_TCP_PROJECT_NAME`:**
 
-- **Unset (default)** — TCP files go into the main migration project at `<account>/__checks__/tcp/{public,private}/`. They deploy as part of the same Checkly project as the API, browser, and multi-step checks.
-- **Set to a slug** (e.g. `CHECKLY_TCP_PROJECT_NAME=acme-tcp`) — TCP files are written to a **separate, fully self-contained Checkly project** at `checkly-migrated/acme-tcp/` with its own `checkly.config.ts`, `package.json`, `README.md`, `default_resources/alertChannels.ts`, `variables/`, `update-mapping.ts`, and a TCP-only `migration-mapping.csv`. Use this when you want to deploy TCP monitors as an isolated Checkly project (different `logicalId`, separate from the main migration). Deploying the standalone project will not touch the main project's checks.
+- **Unset (default)**, TCP files go into the main migration project at `<account>/__checks__/tcp/{public,private}/`. They deploy as part of the same Checkly project as the API, browser, and multi-step checks.
+- **Set to a slug** (e.g. `CHECKLY_TCP_PROJECT_NAME=acme-tcp`), TCP files are written to a **separate, fully self-contained Checkly project** at `checkly-migrated/acme-tcp/` with its own `checkly.config.ts`, `package.json`, `README.md`, `default_resources/alertChannels.ts`, `variables/`, `update-mapping.ts`, and a TCP-only `migration-mapping.csv`. Use this when you want to deploy TCP monitors as an isolated Checkly project (different `logicalId`, separate from the main migration). Deploying the standalone project will not touch the main project's checks.
 
 ```bash
 # Default: inline mode
@@ -391,7 +392,7 @@ CHECKLY_ACCOUNT_NAME=acme npm run generate:tcp
 CHECKLY_ACCOUNT_NAME=acme CHECKLY_TCP_PROJECT_NAME=acme-tcp npm run generate:tcp
 ```
 
-Note: multi-step tests that contain a TCP step (`subtype: tcp` inside a step) are not migrated to TcpMonitor — TcpMonitor is a single-host/port construct, not a sequence. Those multi-step tests are still skipped at step 05/06.
+Note: multi-step tests that contain a TCP step (`subtype: tcp` inside a step) are not migrated to TcpMonitor, TcpMonitor is a single-host/port construct, not a sequence. Those multi-step tests are still skipped at step 05/06.
 
 ### DNS Monitors
 
@@ -404,7 +405,7 @@ Datadog DNS synthetic tests (`subtype: dns`) migrate to Checkly's `DnsMonitor` c
 | (defaulted) | `request.recordType: 'A'` |
 | `config.assertions[responseTime lessThan T]` | `maxResponseTime: T` (and `degradedResponseTime: floor(T * 0.8)`) |
 | `config.assertions[recordSome is V]` | `DnsAssertionBuilder.textAnswer().contains(V)` |
-| `config.assertions[recordEvery matches P]` | `DnsAssertionBuilder.textAnswer(<regex>).notEquals('')` (**downgrade** — see below) |
+| `config.assertions[recordEvery matches P]` | `DnsAssertionBuilder.textAnswer(<regex>).notEquals('')` (**downgrade**, see below) |
 | `options.tick_every` | `frequency` |
 | `options.retry` | `RetryStrategyBuilder.linearStrategy({...})` |
 | `options.monitor_priority` | `priority:P<n>` tag |
@@ -412,7 +413,7 @@ Datadog DNS synthetic tests (`subtype: dns`) migrate to Checkly's `DnsMonitor` c
 
 DNS files are generated by step 04c (`npm run generate:dns`), which runs automatically as part of `npm run migrate:api`.
 
-**Inline vs standalone modes** mirror the TCP behavior — set `CHECKLY_DNS_PROJECT_NAME=<slug>` to split DNS into a separate Checkly project at `checkly-migrated/<slug>/`.
+**Inline vs standalone modes** mirror the TCP behavior, set `CHECKLY_DNS_PROJECT_NAME=<slug>` to split DNS into a separate Checkly project at `checkly-migrated/<slug>/`.
 
 ```bash
 # Default: inline mode
@@ -427,7 +428,7 @@ CHECKLY_ACCOUNT_NAME=acme CHECKLY_DNS_PROJECT_NAME=acme-dns npm run generate:dns
 - **`recordEvery matches` is downgraded.** Datadog's "every record matches pattern" semantic has no Checkly equivalent. The closest is `textAnswer(regex).notEquals('')` which only checks that **some** record matches. The generated `.check.ts` includes a WARNING comment so you can tighten the assertion by hand if "every record" is a hard requirement.
 - **Only `A` records are migrated.** All observed Datadog DNS tests use the default A record type. If your tests query AAAA/MX/TXT/etc., the generated file will need the `recordType` field updated by hand.
 - **`config.request.timeout` is dropped.** `DnsMonitor` has no request-level timeout; the `maxResponseTime` property is the effective deadline. The generated file includes a NOTE comment when the source test had a timeout set.
-- **DNS steps inside multi-step tests are not migrated.** Same reasoning as TCP — `DnsMonitor` is a single-query construct.
+- **DNS steps inside multi-step tests are not migrated.** Same reasoning as TCP, `DnsMonitor` is a single-query construct.
 
 ### Migration Traceability
 
@@ -467,7 +468,7 @@ Change the `CHECKLY_ACCOUNT_NAME` value in `.env` (or delete the `.account-name`
 
 - Never commit `.env` to version control
 - `checkly-migrated/` is gitignored
-- Secret values are not exported from Datadog — fill in manually
+- Secret values are not exported from Datadog, fill in manually
 - Rotate API keys after migration is complete
 
 ## License

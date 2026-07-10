@@ -28,14 +28,16 @@
 import { readFile, writeFile, mkdir, copyFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import {
   sanitizeFilename,
-  generateLogicalId,
+  uniqueLogicalId,
   hasPrivateLocations,
   convertFrequency,
   escapeString,
   filterAndRemapTags,
   priorityTag,
+  normalizePublicChecklyLocations,
 } from './shared/utils.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
@@ -99,7 +101,7 @@ const CHECKLY_TCP_MAX_RESPONSE_TIME_LIMIT = 5000;
  * Derive maxResponseTime + degradedResponseTime from Datadog's responseTime assertion.
  * Datadog responseTime assertions are in milliseconds; same units as Checkly.
  */
-function deriveResponseTimes(assertions: DatadogAssertion[] | undefined): {
+export function deriveResponseTimes(assertions: DatadogAssertion[] | undefined): {
   maxResponseTime?: number;
   degradedResponseTime?: number;
 } {
@@ -119,7 +121,7 @@ function deriveResponseTimes(assertions: DatadogAssertion[] | undefined): {
  * Map Datadog retry options to a Checkly LinearRetryStrategy.
  * Datadog retry.interval is in milliseconds; Checkly baseBackoffSeconds is in seconds.
  */
-function generateRetryStrategy(retry: DatadogRetry | undefined): string {
+export function generateRetryStrategy(retry: DatadogRetry | undefined): string {
   if (!retry || !retry.count) {
     return 'RetryStrategyBuilder.noRetries()';
   }
@@ -134,16 +136,6 @@ function generateRetryStrategy(retry: DatadogRetry | undefined): string {
 }
 
 /**
- * Filter out unsupported location formats. Valid Checkly public locations are
- * AWS region codes (e.g. us-east-1). aws: prefix is tolerated but stripped.
- */
-function cleanPublicLocations(locations: string[]): string[] {
-  return locations
-    .filter(loc => !loc.includes(':') || loc.startsWith('aws:'))
-    .map(loc => loc.replace(/^aws:/, ''));
-}
-
-/**
  * Generate a single TcpMonitor construct.
  */
 export function generateTcpMonitorCode(test: DatadogTcpTest, opts: GenerateOptions = {}): string {
@@ -153,7 +145,7 @@ export function generateTcpMonitorCode(test: DatadogTcpTest, opts: GenerateOptio
     throw new Error(`Missing host/port in TCP test config (publicId=${test.public_id})`);
   }
 
-  const logicalId = `tcp-${generateLogicalId(test.name)}`;
+  const logicalId = uniqueLogicalId('tcp', test.name, test.public_id);
 
   const processedTags = filterAndRemapTags(test.tags || []);
   processedTags.push(`migration_check_id:${test.public_id}`);
@@ -162,7 +154,7 @@ export function generateTcpMonitorCode(test: DatadogTcpTest, opts: GenerateOptio
 
   const { maxResponseTime, degradedResponseTime } = deriveResponseTimes(test.config?.assertions);
   const frequency = convertFrequency(test.options?.tick_every);
-  const cleanLocations = cleanPublicLocations(test.locations || []);
+  const cleanLocations = normalizePublicChecklyLocations(test.locations || []);
   const privateLocations = test.privateLocations || [];
   const activated = (test.status || 'live') === 'live';
 
@@ -209,7 +201,7 @@ ${alertChannelsProp}});
 /**
  * Generate an index file that re-exports all checks in a directory.
  */
-function generateIndexFile(generatedFiles: GeneratedFile[]): string {
+export function generateIndexFile(generatedFiles: GeneratedFile[]): string {
   const imports = generatedFiles.map(f => {
     const checkFilename = f.filename.replace('.ts', '');
     return `import "./${checkFilename}";`;
@@ -233,19 +225,21 @@ ${imports.join('\n')}
  * source CSV because the source folder has no TCP files. Generating from the
  * in-memory test data is the only correct source.
  */
-function csvEscapeField(value: string): string {
+export function csvEscapeField(value: string): string {
   if (value.includes(',') || value.includes('"') || value.includes('\n')) {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;
 }
 
-function buildMappingCsvForTcp(tests: DatadogTcpTest[]): string {
+export function buildMappingCsvForTcp(tests: DatadogTcpTest[]): string {
   const header = 'datadog_public_id,datadog_name,checkly_logical_id,checkly_uuid,check_type,location_type,dd_locations,checkly_locations,filename';
   const rows: string[] = [header];
   for (const test of tests) {
     const filename = `${sanitizeFilename(test.name, test.public_id)}.check.ts`;
-    const checklyId = `tcp-${generateLogicalId(test.name)}`;
+    // Same shared helper as the emit site, so the standalone mapping CSV can never
+    // drift from the emitted TcpMonitor logical id (D-02).
+    const checklyId = uniqueLogicalId('tcp', test.name, test.public_id);
     const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
     const ddLocs = csvEscapeField((test.originalLocations || []).join(';'));
     const checklyLocs = csvEscapeField([...(test.locations || []), ...(test.privateLocations || [])].join(';'));
@@ -451,7 +445,7 @@ Populates the \`checkly_uuid\` column in \`migration-mapping.csv\`.
  * Write the full standalone-project scaffolding into destRoot.
  * Returns the list of files written for logging.
  */
-async function writeStandaloneScaffolding(
+export async function writeStandaloneScaffolding(
   destRoot: string,
   projectName: string,
   logicalId: string,
@@ -625,7 +619,11 @@ async function main(): Promise<void> {
   if (errorCount > 0) process.exit(1);
 }
 
-main().catch(err => {
-  console.error('Error:', (err as Error).message);
-  process.exit(1);
-});
+// ESM main-guard: only run if this file is the direct entry point
+const __filename = fileURLToPath(import.meta.url);
+if (typeof process.argv[1] === 'string' && path.resolve(__filename) === path.resolve(process.argv[1])) {
+  main().catch(err => {
+    console.error('Error:', (err as Error).message);
+    process.exit(1);
+  });
+}

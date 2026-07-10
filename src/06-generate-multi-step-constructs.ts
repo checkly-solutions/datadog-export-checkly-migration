@@ -11,7 +11,8 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import { FREQUENCY_MAP, sanitizeFilename, generateLogicalId, convertFrequency, convertConfigVariables, escapeString, filterAndRemapTags, priorityTag } from './shared/utils.ts';
+import { fileURLToPath } from 'node:url';
+import { sanitizeFilename, uniqueLogicalId, convertFrequency, convertConfigVariables, escapeString, filterAndRemapTags, priorityTag, normalizePublicChecklyLocations } from './shared/utils.ts';
 import { trackConfigVariableConversions, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 // Relative path from __checks__/multi/{public,private} to tests/multi/{public,private}
@@ -27,6 +28,8 @@ interface DatadogTest {
   status?: string;
   tags?: string[];
   hasCertificate?: boolean;
+  // Set by the promotion transform to record why a test left the ApiCheck path.
+  _promotionReason?: string;
   options?: {
     tick_every?: number;
     retry?: {
@@ -83,7 +86,7 @@ interface GenerationResult {
 /**
  * Generate RetryStrategyBuilder code
  */
-function generateRetryStrategy(ddRetry?: { count?: number; interval?: number }): string {
+export function generateRetryStrategy(ddRetry?: { count?: number; interval?: number }): string {
   if (!ddRetry || ddRetry.count === 0) {
     return 'RetryStrategyBuilder.noRetries()';
   }
@@ -101,14 +104,29 @@ function generateRetryStrategy(ddRetry?: { count?: number; interval?: number }):
 /**
  * Generate a MultiStepCheck construct for a test
  */
-function generateMultiStepCheckCode(test: DatadogTest, specFilename: string, locationType: string): string {
+export function generateMultiStepCheckCode(test: DatadogTest, specFilename: string, locationType: string): string {
   const { public_id, name, tags, options, locations, privateLocations } = test;
 
-  const logicalId = `multi-${generateLogicalId(name)}`;
+  // Normalize public locations the same way step 04 does (drop azure:/gcp:,
+  // strip aws:) so a promoted former-ApiCheck test cannot emit an un-normalized
+  // location on the multi path. Only the public field is touched; private
+  // location slugs are never passed through this filter (WR-03).
+  const cleanLocations = normalizePublicChecklyLocations(locations);
+
+  // DEPLOY-01 (D-05): the public_id tail keeps two same-name multi-step tests from
+  // collapsing to one logical id. Same shared helper as every other emit site.
+  const logicalId = uniqueLogicalId('multi', name, public_id);
 
   // Filter and remap Datadog-origin tags, then add migration traceability tag
   const processedTags = filterAndRemapTags(tags || []);
   processedTags.push(`migration_check_id:${public_id}`);
+
+  // Marker for tests promoted off the ApiCheck path (e.g. regex assertions).
+  // Appended after filterAndRemapTags, like migration_check_id, so a user
+  // DD_TAGS_EXCLUDE rule cannot strip this traceability tag (REGX-07/09).
+  if (test._promotionReason) {
+    processedTags.push('promotedFromApiCheck');
+  }
 
   // Preserve Datadog monitor priority (P1–P5) as a tag for filtering in Checkly
   const ptag = priorityTag(options?.monitor_priority);
@@ -158,13 +176,13 @@ import {
 } from "checkly/constructs";
 
 new MultiStepCheck("${logicalId}", {
-  name: "${name.replace(/"/g, '\\"')}",
+  name: "${escapeString(name)}",
   tags: ${JSON.stringify(processedTags)},
   code: {
     entrypoint: "${specsPath}/${specFilename}",
   },
   frequency: Frequency.${frequency},
-  locations: ${JSON.stringify(locations)},${privateLocations.length > 0 ? `\n  privateLocations: ${JSON.stringify(privateLocations)},` : ''}${envVarsCode}
+  locations: ${JSON.stringify(cleanLocations)},${privateLocations.length > 0 ? `\n  privateLocations: ${JSON.stringify(privateLocations)},` : ''}${envVarsCode}
   activated: ${effectiveActivated},${hasCertificate ? ' // Deactivated: requires client certificate (mTLS)' : ''}
   muted: false,
   retryStrategy: ${retryStrategy},
@@ -178,7 +196,7 @@ new MultiStepCheck("${logicalId}", {
 /**
  * Generate an index file that imports all checks
  */
-function generateIndexFile(files: GeneratedFile[]): string {
+export function generateIndexFile(files: GeneratedFile[]): string {
   const imports = files.map(f => {
     // Use the already-generated filename (without .ts extension)
     const checkFilename = f.filename.replace('.ts', '');
@@ -198,7 +216,7 @@ ${imports.join('\n')}
 /**
  * Generate constructs for a location type
  */
-async function generateConstructsForLocationType(
+export async function generateConstructsForLocationType(
   tests: DatadogTest[],
   specFileMap: Map<string, string>,
   outputDir: string,
@@ -406,7 +424,11 @@ async function main(): Promise<void> {
   console.log('\nDone!');
 }
 
-main().catch(err => {
-  console.error('Error:', (err as Error).message);
-  process.exit(1);
-});
+// ESM main-guard: only run if this file is the direct entry point
+const __filename = fileURLToPath(import.meta.url);
+if (typeof process.argv[1] === 'string' && path.resolve(__filename) === path.resolve(process.argv[1])) {
+  main().catch(err => {
+    console.error('Error:', (err as Error).message);
+    process.exit(1);
+  });
+}

@@ -17,6 +17,10 @@ checkly-migrated/*
 /.doc-build/
 
 
+# Local pre-push scrub map (inventories customer identifiers; never commit)
+SCRUB-MAP.local.md
+
+
 # Logs
 logs
 *.log
@@ -152,3 +156,4 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+/skills/playwright-best-practices-for-agents

@@ -1,0 +1,171 @@
+{
+  "exportedAt": "2026-01-01T00:00:00.000Z",
+  "site": "datadoghq.com",
+  "count": 3,
+  "tests": [
+    {
+      "public_id": "syn-a01-str",
+      "name": "Six strategies flow",
+      "type": "browser",
+      "status": "live",
+      "tags": ["env:synthetic", "team:example"],
+      "locations": ["us-east-1"],
+      "privateLocations": [],
+      "originalLocations": ["aws:us-east-1"],
+      "options": {
+        "tick_every": 900,
+        "retry": { "count": 0, "interval": 300 }
+      },
+      "config": {
+        "request": {
+          "url": "https://app.example.com/portal"
+        }
+      },
+      "steps": [
+        {
+          "name": "Open portal",
+          "type": "goToUrl",
+          "params": { "value": "https://app.example.com/portal" }
+        },
+        {
+          "name": "Click sign in",
+          "type": "click",
+          "params": {
+            "element": {
+              "targetOuterHTML": "<span>sign in</span>",
+              "multiLocator": {
+                "ro": "//span[translate(text(), \"SIGN IN\", \"sign in\")=\"sign in\"]",
+                "co": "[{\"relation\":\"self\",\"tagName\":\"span\",\"text\":\"sign in\",\"textType\":\"directText\"}]",
+                "cl": "contains(concat(' ', normalize-space(@class), ' '), \" cta \")",
+                "clt": "/descendant::span[contains(concat(\" \", @class, \" \"), \" cta \")]",
+                "at": "/descendant::span[@data-qa=\"signin\"]",
+                "ab": "/html/body/div/span"
+              }
+            }
+          }
+        },
+        {
+          "name": "Assert logo image",
+          "type": "assertElementContent",
+          "params": {
+            "value": "brand logo",
+            "check": "contains",
+            "element": {
+              "targetOuterHTML": "<img>",
+              "multiLocator": {
+                "co": "[{\"relation\":\"self\",\"tagName\":\"img\",\"text\":\"brand logo\",\"textType\":\"alt\"}]"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "public_id": "syn-b02-shd",
+      "name": "Shadow host flow",
+      "type": "browser",
+      "status": "live",
+      "tags": ["env:synthetic", "team:example"],
+      "locations": ["us-east-1"],
+      "privateLocations": [],
+      "originalLocations": ["aws:us-east-1"],
+      "options": {
+        "tick_every": 900,
+        "retry": { "count": 0, "interval": 300 }
+      },
+      "config": {
+        "request": {
+          "url": "https://app.example.com/widget"
+        }
+      },
+      "steps": [
+        {
+          "name": "Open widget",
+          "type": "goToUrl",
+          "params": { "value": "https://app.example.com/widget" }
+        },
+        {
+          "name": "Click inside host",
+          "type": "click",
+          "params": {
+            "element": {
+              "targetOuterHTML": "<my-widget id=\"host\">go</my-widget>",
+              "multiLocator": {
+                "ro": "//my-widget[@id=\"host\"]",
+                "co": "[{\"relation\":\"self\",\"tagName\":\"my-widget\",\"text\":\"go\",\"textType\":\"directText\"}]",
+                "cl": "contains(concat(' ', normalize-space(@class), ' '), \" host \")",
+                "clt": "/descendant::my-widget[contains(concat(\" \", @class, \" \"), \" host \")]",
+                "at": "/descendant::my-widget[@data-qa=\"host\"]",
+                "ab": "/html/body/my-widget",
+                "sd": {
+                  "ro": "//button[@id=\"inner\"]",
+                  "co": "[{\"relation\":\"self\",\"tagName\":\"button\",\"text\":\"go\",\"textType\":\"directText\"}]",
+                  "cl": "contains(concat(' ', normalize-space(@class), ' '), \" inner \")",
+                  "clt": "/descendant::button[contains(concat(\" \", @class, \" \"), \" inner \")]",
+                  "at": "/descendant::button[@data-qa=\"inner\"]",
+                  "ab": "/html/body/my-widget/button"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "public_id": "syn-c03-usr",
+      "name": "User locator flow",
+      "type": "browser",
+      "status": "live",
+      "tags": ["env:synthetic", "team:example"],
+      "locations": ["us-east-1"],
+      "privateLocations": [],
+      "originalLocations": ["aws:us-east-1"],
+      "options": {
+        "tick_every": 900,
+        "retry": { "count": 0, "interval": 300 }
+      },
+      "config": {
+        "request": {
+          "url": "https://app.example.com/account"
+        }
+      },
+      "steps": [
+        {
+          "name": "Open account",
+          "type": "goToUrl",
+          "params": { "value": "https://app.example.com/account" }
+        },
+        {
+          "name": "Click saved card",
+          "type": "click",
+          "params": {
+            "element": {
+              "targetOuterHTML": "<button class=\"card\">use card</button>",
+              "userLocator": {
+                "values": [{ "type": "css", "value": "btn primary large" }],
+                "failTestOnCannotLocate": true
+              },
+              "multiLocator": {
+                "co": "[{\"relation\":\"self\",\"tagName\":\"button\",\"text\":\"use card\",\"textType\":\"directText\"}]",
+                "ab": "/html/body/div/button"
+              }
+            }
+          }
+        },
+        {
+          "name": "Type into dynamic id",
+          "type": "typeText",
+          "params": {
+            "value": "user@example.com",
+            "element": {
+              "targetOuterHTML": "<input id=\"input12\" type=\"text\">",
+              "multiLocator": {
+                "ab": "/html/body/form/input"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

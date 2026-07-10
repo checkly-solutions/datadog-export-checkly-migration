@@ -23,7 +23,9 @@ import 'dotenv/config';
 import { readFile, writeFile, readdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
+import { classifyStatus, applyOutcomeToSource, type StatusOutcome } from './shared/status-decision.ts';
 
 // Configuration
 const DD_API_KEY = process.env.DD_API_KEY;
@@ -48,6 +50,7 @@ interface ExportedTestFile {
     name: string;
     monitor_id?: number;
     privateLocations?: string[];
+    status?: string;
   }>;
 }
 
@@ -72,6 +75,7 @@ interface TestStatusEntry {
   monitorId: number | null;
   overallState: string;
   isDeactivated: boolean;
+  tag: string | null;
   locationType: 'public' | 'private';
   fetchedAt: string;
 }
@@ -189,6 +193,7 @@ interface TestMapping {
   name: string;
   monitorId: number | null;
   locationType: 'public' | 'private';
+  configStatus?: string;
 }
 
 async function collectTestMappings(): Promise<TestMapping[]> {
@@ -214,6 +219,7 @@ async function collectTestMappings(): Promise<TestMapping[]> {
             name: test.name,
             monitorId: test.monitor_id ?? null,
             locationType: hasPrivateLocations ? 'private' : 'public',
+            configStatus: test.status,
           });
         }
         console.log(`  ${filename}: ${data.tests.length} tests`);
@@ -263,8 +269,12 @@ function buildStatusReport(
       }
     }
 
-    // Deactivate both Alert (failing) and No Data (not running) tests
-    const isDeactivated = overallState === 'Alert' || overallState === 'No Data';
+    // Classify the outcome from the two locked signals: the monitor/search
+    // state and the test's exported config status (D-04/D-06 truth table).
+    // A live-in-Datadog test mislabeled No Data stays active with a review tag;
+    // a genuinely paused No Data test still deactivates.
+    const outcome = classifyStatus(overallState, test.configStatus);
+    const isDeactivated = outcome.deactivate;
 
     incrementCounts(summary, overallState, isDeactivated);
     incrementCounts(
@@ -279,6 +289,7 @@ function buildStatusReport(
       monitorId: test.monitorId,
       overallState,
       isDeactivated,
+      tag: outcome.tag,
       locationType: test.locationType,
       fetchedAt,
     });
@@ -295,55 +306,19 @@ function buildStatusReport(
 }
 
 /**
- * Modify a check file to deactivate it and add the appropriate tag.
- * Alert → "failingInDatadog", No Data → "noDataInDatadog"
+ * Apply a status outcome to a check file: read it, run the pure
+ * applyOutcomeToSource transform, and write only if the content changed.
+ *
+ * All mutation logic (the per-tag idempotency guard, the activated flip gated
+ * on outcome.deactivate, the post-filter tags-array append, and the diagnostic
+ * comment) lives in the tested applyOutcomeToSource. The activated: true ->
+ * false flip runs ONLY when outcome.deactivate is true, so a live-but-mislabeled
+ * No Data check gains its reviewNoDataInDatadog tag without ever being
+ * deactivated (D-08).
  */
-async function deactivateCheckFile(filepath: string, publicId: string, overallState: string): Promise<boolean> {
+async function deactivateCheckFile(filepath: string, outcome: StatusOutcome): Promise<boolean> {
   const content = await readFile(filepath, 'utf-8');
-
-  const tag = overallState === 'Alert' ? 'failingInDatadog' : 'noDataInDatadog';
-
-  // Idempotency: skip if already tagged with this specific tag
-  if (content.includes(tag)) {
-    return false;
-  }
-
-  let newContent = content;
-
-  // Only change activated: true → activated: false (don't touch already-false)
-  newContent = newContent.replace(
-    /activated:\s*true/,
-    'activated: false'
-  );
-
-  // Add tag to the tags array
-  const tagsPattern = /tags:\s*\[([^\]]*)\]/;
-  const tagsMatch = newContent.match(tagsPattern);
-
-  if (tagsMatch) {
-    const existingTags = tagsMatch[1].trim();
-    let newTags: string;
-
-    if (existingTags === '') {
-      newTags = `tags: ["${tag}"]`;
-    } else {
-      newTags = `tags: [${existingTags}, "${tag}"]`;
-    }
-
-    newContent = newContent.replace(tagsPattern, newTags);
-  }
-
-  // Add comment after the "Migrated from Datadog" comment line
-  const reason = overallState === 'Alert'
-    ? 'This test was failing (Alert) in Datadog at migration time'
-    : 'This test had no data (paused/not running) in Datadog at migration time';
-  const migratedCommentPattern = /(\/\/\s*Migrated from Datadog Synthetic:.*)/;
-  if (migratedCommentPattern.test(newContent)) {
-    newContent = newContent.replace(
-      migratedCommentPattern,
-      `$1\n// Deactivated: ${reason}`
-    );
-  }
+  const newContent = applyOutcomeToSource(content, outcome);
 
   if (newContent !== content) {
     await writeFile(filepath, newContent, 'utf-8');
@@ -354,13 +329,17 @@ async function deactivateCheckFile(filepath: string, publicId: string, overallSt
 }
 
 /**
- * Scan check directories and deactivate tests that are failing or have no data.
- * deactivateMap: publicId → overallState (Alert or No Data)
+ * Scan check directories and apply status outcomes to the matching check files.
+ * outcomeMap: publicId -> StatusOutcome (every entry with a non-null tag, i.e.
+ * both deactivations and the review-active case). The scan is uniform across
+ * every check type and location (api/multi/browser x public/private) because
+ * the classify + apply logic is type-agnostic (D-07).
  */
 async function deactivateTests(
-  deactivateMap: Map<string, string>
-): Promise<{ modified: number; skipped: number; errors: number }> {
-  let modified = 0;
+  outcomeMap: Map<string, StatusOutcome>
+): Promise<{ deactivated: number; reviewed: number; skipped: number; errors: number }> {
+  let deactivated = 0;
+  let reviewed = 0;
   let skipped = 0;
   let errors = 0;
 
@@ -387,16 +366,20 @@ async function deactivateTests(
           }
 
           const publicId = idMatch[1];
-          const overallState = deactivateMap.get(publicId);
-          if (!overallState) {
+          const outcome = outcomeMap.get(publicId);
+          if (!outcome) {
             continue;
           }
 
-          const wasModified = await deactivateCheckFile(filepath, publicId, overallState);
+          const wasModified = await deactivateCheckFile(filepath, outcome);
           if (wasModified) {
-            modified++;
-            const tag = overallState === 'Alert' ? 'failingInDatadog' : 'noDataInDatadog';
-            console.log(`  Deactivated [${tag}]: ${locationType}/${file} (${publicId})`);
+            if (outcome.deactivate) {
+              deactivated++;
+              console.log(`  Deactivated [${outcome.tag}]: ${locationType}/${file} (${publicId})`);
+            } else {
+              reviewed++;
+              console.log(`  Left active for review [${outcome.tag}]: ${locationType}/${file} (${publicId})`);
+            }
           } else {
             skipped++;
           }
@@ -408,7 +391,7 @@ async function deactivateTests(
     }
   }
 
-  return { modified, skipped, errors };
+  return { deactivated, reviewed, skipped, errors };
 }
 
 /**
@@ -488,31 +471,43 @@ async function main(): Promise<void> {
   printCounts('Public Checks', report.publicSummary);
   printCounts('Private Checks', report.privateSummary);
 
-  // Step 5: Deactivate failing and no-data tests in check files
-  if (report.summary.deactivated === 0) {
-    console.log('\nNo tests to deactivate — all checks are passing.');
-  } else {
-    console.log(`\nDeactivating ${report.summary.deactivated} test(s) in check files...`);
-    console.log(`  (${report.summary.failing} failing + ${report.summary.noData} no data)`);
-
-    // Build map of publicId → overallState for tests that need deactivation
-    const deactivateMap = new Map<string, string>();
-    for (const test of report.tests) {
-      if (test.isDeactivated) {
-        deactivateMap.set(test.publicId, test.overallState);
+  // Step 5: Apply status outcomes to check files. This covers BOTH deactivations
+  // (Alert, or No Data with a paused/absent config status) and the review-active
+  // case (No Data on a live test), keyed on every entry that carries a tag. The
+  // review-active case has deactivate:false, so it gets its review tag appended
+  // without flipping activated (D-08).
+  const outcomeMap = new Map<string, StatusOutcome>();
+  let reviewActiveCount = 0;
+  for (const test of report.tests) {
+    if (test.tag !== null) {
+      outcomeMap.set(test.publicId, {
+        deactivate: test.isDeactivated,
+        tag: test.tag,
+        isReview: test.tag.startsWith('review'),
+      });
+      if (!test.isDeactivated) {
+        reviewActiveCount++;
       }
     }
+  }
+
+  if (outcomeMap.size === 0) {
+    console.log('\nNo status changes to apply. All checks are passing.');
+  } else {
+    console.log(`\nApplying status outcomes to ${outcomeMap.size} check file(s)...`);
+    console.log(`  (${report.summary.deactivated} to deactivate, ${reviewActiveCount} left active for review)`);
 
     if (!existsSync(CHECKS_BASE)) {
       console.log(`\nSkipping file modifications: ${CHECKS_BASE} not found.`);
       console.log('Run the migration scripts first to generate check files.');
     } else {
-      const { modified, skipped, errors } = await deactivateTests(deactivateMap);
+      const { deactivated, reviewed, skipped, errors } = await deactivateTests(outcomeMap);
 
       console.log('\n' + '-'.repeat(40));
       console.log('File Modification Summary');
       console.log('-'.repeat(40));
-      console.log(`  Files deactivated: ${modified}`);
+      console.log(`  Files deactivated: ${deactivated}`);
+      console.log(`  Files left active for review: ${reviewed}`);
       console.log(`  Files skipped (already tagged): ${skipped}`);
       console.log(`  Errors: ${errors}`);
     }
@@ -526,16 +521,34 @@ async function main(): Promise<void> {
   if (report.summary.deactivated > 0) {
     console.log(`\n${report.summary.deactivated} test(s) deactivated:`);
     if (report.summary.failing > 0) {
-      console.log(`  - ${report.summary.failing} failing (Alert) → tagged "failingInDatadog"`);
+      console.log(`  - ${report.summary.failing} failing (Alert), tagged "failingInDatadog"`);
     }
-    if (report.summary.noData > 0) {
-      console.log(`  - ${report.summary.noData} no data (paused) → tagged "noDataInDatadog"`);
+    const noDataDeactivated = report.tests.filter(
+      t => t.isDeactivated && t.tag === 'noDataInDatadog'
+    ).length;
+    const reviewDeactivated = report.tests.filter(
+      t => t.isDeactivated && t.tag === 'reviewNoDataInDatadog'
+    ).length;
+    if (noDataDeactivated > 0) {
+      console.log(`  - ${noDataDeactivated} no data (paused), tagged "noDataInDatadog"`);
+    }
+    if (reviewDeactivated > 0) {
+      console.log(`  - ${reviewDeactivated} no data (absent/unknown config status), tagged "reviewNoDataInDatadog"`);
     }
     console.log('Review these after migration and re-activate once ready.');
   }
+
+  if (reviewActiveCount > 0) {
+    console.log(`\n${reviewActiveCount} test(s) left active for review, tagged "reviewNoDataInDatadog":`);
+    console.log('  Live in Datadog but monitor/search reported No Data. Verify recent run health in Datadog before relying on them.');
+  }
 }
 
-main().catch(err => {
-  console.error('Error:', (err as Error).message);
-  process.exit(1);
-});
+// ESM main-guard: only run if this file is the direct entry point
+const __filename = fileURLToPath(import.meta.url);
+if (typeof process.argv[1] === 'string' && path.resolve(__filename) === path.resolve(process.argv[1])) {
+  main().catch(err => {
+    console.error('Error:', (err as Error).message);
+    process.exit(1);
+  });
+}

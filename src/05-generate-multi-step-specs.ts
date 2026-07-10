@@ -11,14 +11,15 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import { sanitizeFilename, hasPrivateLocations, escapeTemplateLiteral, escapeString, normalizeDatadogBody } from './shared/utils.ts';
+import { fileURLToPath } from 'node:url';
+import { sanitizeFilename, hasPrivateLocations, escapeTemplateLiteral, escapeString, normalizeDatadogBody, parseDatadogRegex } from './shared/utils.ts';
 import { trackVariablesFromMultiple, loadExistingVariableUsage, writeVariableUsageReport } from './shared/variable-tracker.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
 /**
  * Convert Datadog variable syntax {{ VAR }} to process.env.VAR for Playwright specs
  */
-function convertVariables(str: string): string {
+export function convertVariables(str: string): string {
   if (!str) return str;
   return str.replace(/\{\{\s*(\w+)\s*\}\}/g, '${process.env.$1}');
 }
@@ -29,7 +30,7 @@ function convertVariables(str: string): string {
  * For variables that are extracted from a prior step's response (not from process.env),
  * rewrite to '${TOKEN}' to reference the local let variable.
  */
-function rewriteExtractedVarRefs(converted: string, extractedVarNames: Set<string>): string {
+export function rewriteExtractedVarRefs(converted: string, extractedVarNames: Set<string>): string {
   if (extractedVarNames.size === 0) return converted;
   return converted.replace(/\$\{process\.env\.(\w+)\}/g, (match, varName) => {
     return extractedVarNames.has(varName) ? `\${${varName}}` : match;
@@ -53,6 +54,15 @@ interface DatadogRequest {
   url?: string;
   headers?: Record<string, string>;
   body?: unknown;
+  follow_redirects?: boolean;
+  allow_insecure?: boolean;
+  // HTTP Basic auth carried from config.request by the promotion transform
+  // (plan 05-01). type 'web' is a Datadog browser/form login, not an
+  // Authorization: Basic header, so it is flagged upstream and never replayed.
+  basicAuth?: { username?: string; password?: string; type?: string };
+  // Query parameters carried from config.request by the promotion transform
+  // (plan 05-01); replayed via Playwright's per-call params option.
+  query?: Record<string, string>;
   certificate?: {
     key?: { filename?: string; content?: string };
     cert?: { filename?: string; content?: string };
@@ -112,7 +122,7 @@ interface SkippedTest {
 /**
  * Extract all content strings that might contain variables from a multi-step test
  */
-function extractVariableContent(test: DatadogTest): string[] {
+export function extractVariableContent(test: DatadogTest): string[] {
   const content: string[] = [];
 
   for (const step of test.config?.steps || []) {
@@ -131,6 +141,14 @@ function extractVariableContent(test: DatadogTest): string[] {
         content.push(value);
       }
     }
+    // Request query params (mirrors the headers loop). Without this, a variable
+    // referenced only in a query param is missing from variable-usage.json and
+    // the report's secret prioritization (WR-01).
+    if (step.request?.query) {
+      for (const value of Object.values(step.request.query)) {
+        content.push(value);
+      }
+    }
   }
 
   return content;
@@ -146,7 +164,7 @@ interface GenerationResult {
 /**
  * Generate assertion code for a single assertion
  */
-function generateAssertionCode(
+export function generateAssertionCode(
   assertion: DatadogAssertion,
   responseVar: string,
   bodyVar: string,
@@ -157,8 +175,15 @@ function generateAssertionCode(
   const expect = softPrefix ? 'expect.soft' : 'expect';
 
   switch (type) {
-    case 'statusCode':
-      return { code: generateComparisonCode(`${expect}(${responseVar}.status())`, operator, target), needsJsonBody: false };
+    case 'statusCode': {
+      // toMatch requires a string receiver; status() returns a number, so
+      // regex operators coerce it with String() while all others keep the
+      // plain numeric receiver.
+      const statusReceiver = operator === 'matches' || operator === 'doesNotMatch'
+        ? `${expect}(String(${responseVar}.status()))`
+        : `${expect}(${responseVar}.status())`;
+      return { code: generateComparisonCode(statusReceiver, operator, target), needsJsonBody: false };
+    }
 
     case 'responseTime':
       // Response time assertions are handled separately via timing
@@ -227,7 +252,7 @@ function generateAssertionCode(
 /**
  * Generate comparison code based on operator
  */
-function generateComparisonCode(expectExpr: string, operator: string, target?: string | number | object): string {
+export function generateComparisonCode(expectExpr: string, operator: string, target?: string | number | object): string {
   // Handle different target types
   let targetValue: string;
   if (target === undefined || target === null) {
@@ -260,10 +285,29 @@ function generateComparisonCode(expectExpr: string, operator: string, target?: s
       return `${expectExpr}.toContain(${targetValue});`;
     case 'doesNotContain':
       return `${expectExpr}.not.toContain(${targetValue});`;
-    case 'matches':
-      return `${expectExpr}.toMatch(${typeof target === 'string' ? `/${escapeString(target).replace(/\//g, '\\/')}/` : targetValue});`;
-    case 'doesNotMatch':
-      return `${expectExpr}.not.toMatch(${typeof target === 'string' ? `/${escapeString(target).replace(/\//g, '\\/')}/` : targetValue});`;
+    case 'matches': {
+      // Genuine-regex site: the Datadog target is already a regex pattern.
+      // Emit constructor form with JSON.stringify as the single JS-string
+      // escaper; never a slash-delimited literal built from data (REGX-02).
+      if (typeof target === 'string') {
+        const { source, flags } = parseDatadogRegex(target);
+        const regexExpr = flags
+          ? `new RegExp(${JSON.stringify(source)}, ${JSON.stringify(flags)})`
+          : `new RegExp(${JSON.stringify(source)})`;
+        return `${expectExpr}.toMatch(${regexExpr});`;
+      }
+      return `${expectExpr}.toMatch(${targetValue});`;
+    }
+    case 'doesNotMatch': {
+      if (typeof target === 'string') {
+        const { source, flags } = parseDatadogRegex(target);
+        const regexExpr = flags
+          ? `new RegExp(${JSON.stringify(source)}, ${JSON.stringify(flags)})`
+          : `new RegExp(${JSON.stringify(source)})`;
+        return `${expectExpr}.not.toMatch(${regexExpr});`;
+      }
+      return `${expectExpr}.not.toMatch(${targetValue});`;
+    }
     case 'isEmpty':
       return `${expectExpr}.toBeFalsy();`;
     case 'isNotEmpty':
@@ -276,7 +320,7 @@ function generateComparisonCode(expectExpr: string, operator: string, target?: s
 /**
  * Generate the request call code for a step
  */
-function generateRequestCode(request: DatadogRequest, stepIndex: number, extractedVarNames: Set<string> = new Set()): { code: string; responseVar: string } {
+export function generateRequestCode(request: DatadogRequest, stepIndex: number, extractedVarNames: Set<string> = new Set()): { code: string; responseVar: string } {
   const { method, url, headers } = request;
   const body = normalizeDatadogBody(request.body);
   const methodLower = (method || 'GET').toLowerCase();
@@ -288,9 +332,11 @@ function generateRequestCode(request: DatadogRequest, stepIndex: number, extract
 
   const options: string[] = [];
 
-  // Add headers if present — convert variables in header values
+  // Build the header lines first, then append a runtime-computed Basic auth
+  // Authorization header below, so a basicAuth-only request still gets a
+  // headers block (the block is emitted whenever any header line exists).
+  const headerLines: string[] = [];
   if (headers && Object.keys(headers).length > 0) {
-    const headerLines: string[] = [];
     for (const [key, value] of Object.entries(headers)) {
       const converted = convertVariables(value);
       const final = rewriteExtractedVarRefs(converted, extractedVarNames);
@@ -302,6 +348,24 @@ function generateRequestCode(request: DatadogRequest, stepIndex: number, extract
         headerLines.push(`      "${key}": "${escapeString(final)}"`);
       }
     }
+  }
+
+  // HTTP Basic auth replay (REGX-05). type 'web' is a Datadog browser/form
+  // login flow, not an Authorization: Basic header, so it is flagged upstream
+  // (datadogBasicAuthWeb) and never emitted here. Base64 is computed at runtime
+  // via Buffer.from(...).toString("base64") so any {{ VARS }} in the credentials
+  // still interpolate through process.env at run time rather than being frozen
+  // into a literal at generation time. Checkly's runtime provides Buffer; a
+  // btoa fallback would be needed only outside a Node runtime.
+  if (request.basicAuth && request.basicAuth.type !== 'web') {
+    const authUser = convertVariables(escapeTemplateLiteral(request.basicAuth.username || ''));
+    const authPass = convertVariables(escapeTemplateLiteral(request.basicAuth.password || ''));
+    headerLines.push(
+      '      "Authorization": `Basic ${Buffer.from(`' + authUser + ':' + authPass + '`).toString("base64")}`'
+    );
+  }
+
+  if (headerLines.length > 0) {
     options.push(`headers: {\n${headerLines.join(',\n')}\n    }`);
   }
 
@@ -309,6 +373,40 @@ function generateRequestCode(request: DatadogRequest, stepIndex: number, extract
   if (body && ['post', 'put', 'patch'].includes(methodLower)) {
     const convertedBody = convertVariables(escapeTemplateLiteral(body));
     options.push(`data: \`${convertedBody}\``);
+  }
+
+  // Per-step redirect and TLS fidelity (FID-05, D-06). Emit fixed per-call
+  // Playwright options only for the explicit divergent values; absent stays
+  // omitted (Playwright defaults: follow redirects, verify TLS). Per-call form
+  // only, valid in Playwright 1.51.1; never context-level newContext maxRedirects.
+  if (request.follow_redirects === false) {
+    options.push('maxRedirects: 0');
+  }
+  if (request.allow_insecure === true) {
+    options.push('ignoreHTTPSErrors: true');
+  }
+
+  // Query parameter replay (REGX-05). Playwright accepts a per-call params
+  // Record and serializes it into the URL query string. Per-call form only,
+  // matching the redirect/TLS convention above; never context-level newContext.
+  // Each value runs through convertVariables + rewriteExtractedVarRefs exactly
+  // like the header path above, so a {{ VAR }} query value resolves at runtime
+  // via process.env instead of being sent as the literal token. Emit as a
+  // template-literal object so ${...} interpolates; JSON.stringify cannot.
+  if (request.query && Object.keys(request.query).length > 0) {
+    const queryLines: string[] = [];
+    for (const [key, value] of Object.entries(request.query)) {
+      const converted = convertVariables(String(value ?? ''));
+      const final = rewriteExtractedVarRefs(converted, extractedVarNames);
+      if (final.includes('${')) {
+        // Backtick template literal for values with variable interpolation.
+        queryLines.push(`"${escapeString(key)}": \`${final}\``);
+      } else {
+        // Regular JSON string for static values.
+        queryLines.push(`"${escapeString(key)}": "${escapeString(final)}"`);
+      }
+    }
+    options.push(`params: { ${queryLines.join(', ')} }`);
   }
 
   if (options.length > 0) {
@@ -326,7 +424,7 @@ const HTTP_COMPATIBLE_SUBTYPES = ['http', 'ssl'];
 /**
  * Check if a test contains only HTTP-compatible steps
  */
-function hasOnlyHttpSteps(test: DatadogTest): boolean {
+export function hasOnlyHttpSteps(test: DatadogTest): boolean {
   const steps = test.config?.steps || [];
   for (const step of steps) {
     if (step.subtype && !HTTP_COMPATIBLE_SUBTYPES.includes(step.subtype)) {
@@ -339,7 +437,7 @@ function hasOnlyHttpSteps(test: DatadogTest): boolean {
 /**
  * Get incompatible step subtypes in a test
  */
-function getIncompatibleSubtypes(test: DatadogTest): string[] {
+export function getIncompatibleSubtypes(test: DatadogTest): string[] {
   const steps = test.config?.steps || [];
   const incompatible = new Set<string>();
   for (const step of steps) {
@@ -353,19 +451,22 @@ function getIncompatibleSubtypes(test: DatadogTest): string[] {
 /**
  * Generate a single step's code
  */
-function generateStepCode(step: DatadogStep, stepIndex: number, extractedVarNames: Set<string> = new Set()): string {
+export function generateStepCode(step: DatadogStep, stepIndex: number, extractedVarNames: Set<string> = new Set()): string {
   const { name, request, assertions, allowFailure } = step;
   const { code: requestCode, responseVar } = generateRequestCode(request, stepIndex, extractedVarNames);
   const bodyVar = `body${stepIndex}`;
   const jsonBodyVar = `jsonBody${stepIndex}`;
 
-  // Pre-process assertions to determine what we need
+  // Pre-process assertions to determine what we need. Soft-assertion emission is
+  // threaded through generateAssertionCode via softPrefix: an allowFailure step
+  // builds expect.soft(...) directly. Comment-only assertion codes never use
+  // expect, so they are unaffected by the prefix.
   const assertionResults = assertions.map(a => generateAssertionCode(
     a,
     responseVar,
     bodyVar,
     jsonBodyVar,
-    allowFailure ? '' : ''
+    allowFailure ? 'soft' : ''
   ));
 
   // Check if we need to read body (for body assertions)
@@ -385,16 +486,10 @@ function generateStepCode(step: DatadogStep, stepIndex: number, extractedVarName
 
   stepCode += '\n';
 
-  // Generate assertions
+  // Generate assertions. Soft prefixing is already baked into assertionCode by
+  // generateAssertionCode above, so no post-hoc string rewrite is needed here.
   for (const result of assertionResults) {
-    const { code: assertionCode } = result;
-
-    if (allowFailure && !assertionCode.startsWith('//')) {
-      // Replace expect with expect.soft for allowFailure steps
-      stepCode += `    ${assertionCode.replace('expect(', 'expect.soft(')}\n`;
-    } else {
-      stepCode += `    ${assertionCode}\n`;
-    }
+    stepCode += `    ${result.code}\n`;
   }
 
   // Generate extraction code for extractedValues (inter-step variable extraction)
@@ -420,7 +515,7 @@ function generateStepCode(step: DatadogStep, stepIndex: number, extractedVarName
 /**
  * Generate a complete spec file for a multi-step test
  */
-function generateSpecFile(test: DatadogTest): string {
+export function generateSpecFile(test: DatadogTest): string {
   const { name, config } = test;
   const steps = config?.steps || [];
 
@@ -471,7 +566,7 @@ test.describe("${describeName}", () => {
 /**
  * Generate specs for a list of tests into a directory
  */
-async function generateSpecsForTests(
+export async function generateSpecsForTests(
   tests: DatadogTest[],
   outputDir: string,
   label: string
@@ -648,7 +743,11 @@ async function main(): Promise<void> {
   console.log('Done!');
 }
 
-main().catch(err => {
-  console.error('Error:', (err as Error).message);
-  process.exit(1);
-});
+// ESM main-guard: only run if this file is the direct entry point
+const __filename = fileURLToPath(import.meta.url);
+if (typeof process.argv[1] === 'string' && path.resolve(__filename) === path.resolve(process.argv[1])) {
+  main().catch(err => {
+    console.error('Error:', (err as Error).message);
+    process.exit(1);
+  });
+}

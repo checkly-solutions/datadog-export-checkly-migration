@@ -1,0 +1,29 @@
+{
+  "public_id": "syn-101-abc",
+  "name": "Unit API Baseline",
+  "type": "api",
+  "subtype": "http",
+  "status": "live",
+  "tags": ["env:synthetic", "team:example"],
+  "locations": ["us-east-1"],
+  "privateLocations": [],
+  "originalLocations": ["aws:us-east-1"],
+  "config": {
+    "request": {
+      "url": "https://api.example.com/v1/status",
+      "method": "GET",
+      "headers": { "Accept": "application/json" }
+    },
+    "assertions": [
+      { "type": "statusCode", "operator": "is", "target": 200 },
+      { "type": "body", "operator": "contains", "target": "ok" }
+    ]
+  },
+  "options": {
+    "tick_every": 300,
+    "retry": { "count": 1, "interval": 300 },
+    "monitor_priority": 3
+  },
+  "message": "Unit baseline alert",
+  "monitor_id": 2101
+}

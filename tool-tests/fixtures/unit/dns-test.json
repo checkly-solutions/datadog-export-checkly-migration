@@ -1,0 +1,26 @@
+{
+  "public_id": "syn-104-jkl",
+  "name": "Unit DNS Monitor",
+  "type": "api",
+  "subtype": "dns",
+  "status": "live",
+  "tags": ["env:synthetic"],
+  "locations": ["us-east-1"],
+  "privateLocations": [],
+  "originalLocations": ["aws:us-east-1"],
+  "config": {
+    "request": {
+      "host": "mail.example.net"
+    },
+    "assertions": [
+      { "type": "responseTime", "operator": "lessThan", "target": 1000 },
+      { "type": "recordSome", "operator": "is", "property": "A", "target": "192.0.2.10" }
+    ]
+  },
+  "options": {
+    "tick_every": 900,
+    "retry": { "count": 0, "interval": 300 }
+  },
+  "message": "Unit dns alert",
+  "monitor_id": 2104
+}

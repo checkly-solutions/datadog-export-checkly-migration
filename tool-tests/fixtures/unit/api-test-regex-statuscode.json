@@ -1,0 +1,27 @@
+{
+  "public_id": "syn-reg-code-000",
+  "name": "Reg Code Promote",
+  "type": "api",
+  "subtype": "http",
+  "status": "live",
+  "tags": ["env:synthetic"],
+  "locations": ["us-east-1"],
+  "privateLocations": [],
+  "originalLocations": ["aws:us-east-1"],
+  "options": {
+    "tick_every": 300,
+    "retry": { "count": 0, "interval": 300 }
+  },
+  "config": {
+    "request": {
+      "method": "GET",
+      "url": "https://api.example.com/v1/health",
+      "headers": { "Accept": "application/json" }
+    },
+    "assertions": [
+      { "type": "statusCode", "operator": "matches", "target": "200" }
+    ]
+  },
+  "message": "Synthetic regex statusCode promotion fixture",
+  "monitor_id": 3302
+}

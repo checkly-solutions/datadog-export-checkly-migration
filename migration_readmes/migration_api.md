@@ -142,7 +142,7 @@ new ApiCheck("rcv-pv3-aen", {
 | `moreThan` | `.greaterThan()` |
 | `contains` | `.contains()` |
 | `doesNotContain` | `.notContains()` |
-| `matches` | `.matches()` |
+| `matches` / `doesNotMatch` | Promoted to a `MultiStepCheck` that replays the request and asserts with a native `RegExp` (`expect().toMatch` / `.not.toMatch`); never downgraded to a substring `contains`. |
 
 ## Frequency Mapping
 

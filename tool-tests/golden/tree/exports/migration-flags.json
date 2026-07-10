@@ -1,0 +1,21 @@
+{
+  "flags": [
+    {
+      "reason": "zero-assertion",
+      "publicId": "syn-206-tuv",
+      "stepIndex": null,
+      "message": "This spec contains no runtime assertion; the migrated check verifies nothing. Authoring a meaningful assertion is an intent judgment left to the developer (the tool never auto-invents one)."
+    },
+    {
+      "reason": "pwcs-engines-deduped",
+      "publicId": "syn-306-mbf",
+      "stepIndex": null,
+      "message": "Datadog declared 3 browser device profiles (chrome.laptop_large, firefox.laptop_large, edge.laptop_large); deduplicated to 2 distinct Playwright engine project(s) (chromium, firefox). Edge is Chromium-based and runs under the chromium project."
+    }
+  ],
+  "flaggedCheckIds": [
+    "syn-206-tuv",
+    "syn-306-mbf"
+  ],
+  "deactivatedCheckIds": []
+}

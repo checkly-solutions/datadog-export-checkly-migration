@@ -16,12 +16,29 @@ export interface DatadogTest {
   config?: Record<string, unknown> & {
     configVariables?: DatadogConfigVariable[];
   };
-  options?: Record<string, unknown>;
+  options?: Record<string, unknown> & {
+    /**
+     * Raw Datadog multi-browser device profiles (e.g. ["chrome.laptop_large",
+     * "firefox.laptop_large"]). Lives at options.device_ids, never config.device_ids.
+     * Carried untouched through step 01's transformTestLocations spread; read by
+     * src/07 generateSpecFile to derive the Playwright engine set
+     * (deriveEnginesFromDeviceIds) and by nothing else. Only the desktop
+     * browser.viewport syntax (chrome.laptop_large) is parsed; the mobile
+     * synthetics:mobile:device:* syntax is out of scope and lands in unmappedDeviceIds.
+     */
+    device_ids?: string[];
+  };
   message?: string;
   monitor_id?: number;
   created_at?: string;
   modified_at?: string;
   creator?: Record<string, unknown>;
+  /**
+   * Set by the promotion transform (promote-api-to-multistep.ts) to record why
+   * a test left the ApiCheck path (e.g. 'regex'). Consumed by step 06 to append
+   * the promotedFromApiCheck marker tag and by step 12's promotion report.
+   */
+  _promotionReason?: string;
 }
 
 /**
@@ -51,6 +68,17 @@ export interface BrowserTest {
       count?: number;
       interval?: number;
     };
+    ignoreServerCertificateError?: boolean;
+    /**
+     * Raw Datadog multi-browser device profiles (e.g. ["chrome.laptop_large",
+     * "firefox.laptop_large"]). Lives at options.device_ids, never config.device_ids.
+     * Carried untouched through step 01's transformTestLocations spread; read by
+     * src/07 generateSpecFile to derive the Playwright engine set
+     * (deriveEnginesFromDeviceIds) and by nothing else. Only the desktop
+     * browser.viewport syntax (chrome.laptop_large) is parsed; the mobile
+     * synthetics:mobile:device:* syntax is out of scope and lands in unmappedDeviceIds.
+     */
+    device_ids?: string[];
   };
   config?: {
     steps?: BrowserStep[];
@@ -125,6 +153,19 @@ export interface DatadogRequest {
   headers?: Record<string, string>;
   body?: string;
   certificate?: DatadogCertificate;
+  follow_redirects?: boolean;
+  allow_insecure?: boolean;
+  /**
+   * HTTP Basic auth credentials from the Datadog raw export (config.request.basicAuth).
+   * type 'web' indicates a form/browser login, not an Authorization: Basic header;
+   * downstream emission gates on type !== 'web'.
+   */
+  basicAuth?: { username?: string; password?: string; type?: string };
+  /**
+   * Query parameters from the Datadog raw export (config.request.query).
+   * Kept under the raw name 'query', not the step-02 intermediate 'queryParameters'.
+   */
+  query?: Record<string, string>;
 }
 
 /**

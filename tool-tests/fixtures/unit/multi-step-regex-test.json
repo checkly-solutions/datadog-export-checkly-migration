@@ -1,0 +1,34 @@
+{
+  "public_id": "syn-201-reg",
+  "name": "Unit Multi Regex Flow",
+  "type": "api",
+  "subtype": "multi",
+  "status": "live",
+  "tags": ["env:synthetic"],
+  "locations": ["us-east-1"],
+  "privateLocations": [],
+  "originalLocations": ["aws:us-east-1"],
+  "options": {
+    "tick_every": 900
+  },
+  "config": {
+    "steps": [
+      {
+        "name": "Check items",
+        "subtype": "http",
+        "request": {
+          "method": "GET",
+          "url": "https://api.example.com/v1/items"
+        },
+        "assertions": [
+          { "type": "statusCode", "operator": "matches", "target": "200" },
+          { "type": "body", "operator": "matches", "target": "\\d{3}-[a-z]+" },
+          { "type": "body", "operator": "doesNotMatch", "target": "ERR\\(\\d+\\)" }
+        ],
+        "allowFailure": false
+      }
+    ]
+  },
+  "message": "Unit multi regex alert",
+  "monitor_id": 2201
+}

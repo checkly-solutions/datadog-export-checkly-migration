@@ -11,7 +11,8 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import { sanitizeFilename, generateLogicalId, hasPrivateLocations, convertConfigVariables, escapeString, filterAndRemapTags, priorityTag } from './shared/utils.ts';
+import { fileURLToPath } from 'node:url';
+import { sanitizeFilename, uniqueLogicalId, hasPrivateLocations, convertConfigVariables, escapeString, filterAndRemapTags, priorityTag, normalizePublicChecklyLocations } from './shared/utils.ts';
 import { trackVariablesFromMultiple, loadExistingVariableUsage, writeVariableUsageReport, trackConfigVariableConversions } from './shared/variable-tracker.ts';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
 
@@ -45,6 +46,8 @@ interface ChecklyCheck {
       password: string;
     };
     queryParameters?: Record<string, string>;
+    followRedirects?: boolean;
+    skipSSL?: boolean;
     certificate?: {
       key?: { filename?: string };
       cert?: { filename?: string };
@@ -89,7 +92,7 @@ interface GeneratedFile {
 /**
  * Extract all content strings that might contain variables from an API check
  */
-function extractVariableContent(check: ChecklyCheck): string[] {
+export function extractVariableContent(check: ChecklyCheck): string[] {
   const content: string[] = [];
 
   // Request URL
@@ -126,17 +129,6 @@ function extractVariableContent(check: ChecklyCheck): string[] {
 }
 
 /**
- * Sanitize a string to be a valid TypeScript identifier
- */
-function sanitizeIdentifier(str: string): string {
-  return str
-    .replace(/[^a-zA-Z0-9_]/g, '_')
-    .replace(/^(\d)/, '_$1')
-    .replace(/_+/g, '_')
-    .replace(/^_|_$/g, '');
-}
-
-/**
  * Check if target is a JSON path object from Datadog conversion
  */
 interface JsonPathTarget {
@@ -145,7 +137,7 @@ interface JsonPathTarget {
   targetValue: string | number;
 }
 
-function isJsonPathTarget(target: unknown): target is JsonPathTarget {
+export function isJsonPathTarget(target: unknown): target is JsonPathTarget {
   return (
     typeof target === 'object' &&
     target !== null &&
@@ -164,7 +156,7 @@ interface XPathTarget {
   targetValue: string | number;
 }
 
-function isXPathTarget(target: unknown): target is XPathTarget {
+export function isXPathTarget(target: unknown): target is XPathTarget {
   return (
     typeof target === 'object' &&
     target !== null &&
@@ -178,7 +170,7 @@ function isXPathTarget(target: unknown): target is XPathTarget {
  * Generate AssertionBuilder code for an assertion
  * Returns null for unsupported assertion types
  */
-function generateAssertion(assertion: ChecklyAssertion): string | null {
+export function generateAssertion(assertion: ChecklyAssertion): string | null {
   const { source, comparison, target, property } = assertion;
 
   // Map source to AssertionBuilder method
@@ -215,7 +207,7 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
 
   // Skip incompatible source/comparison combinations
   if (numericSources.includes(source) && stringOnlyComparisons.includes(comparison)) {
-    return null; // Will be filtered out - regex/string comparisons don't work on status codes
+    return null; // Will be filtered out - string comparisons don't work on numeric sources
   }
 
   // Map comparison to AssertionBuilder comparison method
@@ -229,8 +221,6 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
     GREATER_THAN_OR_EQUAL: 'greaterThan', // Checkly doesn't have greaterThanOrEqual
     CONTAINS: 'contains',
     NOT_CONTAINS: 'notContains',
-    MATCHES: 'contains',      // Checkly doesn't have regex matches — downgrade to contains
-    NOT_MATCHES: 'notContains', // Checkly doesn't have regex notMatches — downgrade to notContains
     IS_EMPTY: 'isEmpty',
     IS_NOT_EMPTY: 'notEquals',  // Checkly has no isNotEmpty — use notEquals("")
     IS_NULL: 'isNull',
@@ -278,30 +268,8 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
   }
 
   const sourceMethod = sourceMethodMap[source] || 'statusCode';
-  let comparisonMethod = comparisonMethodMap[comparison] || 'equals';
-  let effectiveTarget: typeof target = target;
-
-  // MATCHES/NOT_MATCHES: Checkly has no regex support — strip regex syntax from target
-  // and downgrade to contains/notContains. Pure wildcard patterns like [\s\S]+ become isNotEmpty.
-  if ((comparison === 'MATCHES' || comparison === 'NOT_MATCHES') && typeof target === 'string') {
-    if (/^\[\\s\\S\]\+$|^\.\+$|^\.\*$/.test(target)) {
-      // Regex that just means "not empty" — use notEquals("")
-      comparisonMethod = 'notEquals';
-      effectiveTarget = '' as any;
-    } else {
-      // Strip common regex syntax, keep the literal text
-      effectiveTarget = target
-        .replace(/\\\\/g, '\\')       // unescape backslashes
-        .replace(/\\s\*/g, ' ')        // \s* → single space
-        .replace(/\\s\+/g, ' ')        // \s+ → single space
-        .replace(/\.\*/g, '')          // .* → nothing
-        .replace(/\.\+/g, '')          // .+ → nothing
-        .replace(/\[\^[^\]]*\]/g, '')  // [^...] → nothing
-        .replace(/[\[\](){}^$|?+]/g, '') // strip remaining regex metacharacters
-        .replace(/\s{2,}/g, ' ')       // collapse multiple spaces
-        .trim();
-    }
-  }
+  const comparisonMethod = comparisonMethodMap[comparison] || 'equals';
+  const effectiveTarget: typeof target = target;
 
   // Build the assertion chain
   let code = 'AssertionBuilder';
@@ -355,7 +323,7 @@ function generateAssertion(assertion: ChecklyAssertion): string | null {
 /**
  * Generate RetryStrategyBuilder code
  */
-function generateRetryStrategy(retryStrategy: ChecklyRetryStrategy): string {
+export function generateRetryStrategy(retryStrategy: ChecklyRetryStrategy): string {
   if (!retryStrategy || retryStrategy.type === 'NONE') {
     return 'RetryStrategyBuilder.noRetries()';
   }
@@ -402,7 +370,10 @@ export function generateApiCheckCode(check: ChecklyCheck): string {
   } = check;
 
   const datadogPublicId = _datadogMeta?.publicId || check.logicalId;
-  const logicalId = `api-${generateLogicalId(name)}`;
+  // D-03 reconciliation: the api emit site and its step-12 CSV row both call the
+  // one shared helper with the same resolved Datadog public_id, so a single name
+  // collision can no longer collapse two checks to one logical id (DEPLOY-01).
+  const logicalId = uniqueLogicalId('api', name, datadogPublicId);
 
   // Filter and remap Datadog-origin tags, then add migration traceability tag
   const processedTags = filterAndRemapTags(tags);
@@ -468,6 +439,18 @@ export function generateApiCheckCode(check: ChecklyCheck): string {
     }`);
   }
 
+  // Redirect fidelity (FID-01/FID-02, D-04): emit only for an explicit Datadog false;
+  // true or absent is omitted so Checkly's default (follow) applies.
+  if (request.followRedirects === false) {
+    requestLines.push(`followRedirects: false`);
+  }
+
+  // TLS-verification fidelity (FID-03, D-05): emit only for an explicit Datadog true;
+  // false or absent is omitted so Checkly's default (verify) applies.
+  if (request.skipSSL === true) {
+    requestLines.push(`skipSSL: true`);
+  }
+
   // Build assertions array - assertions go inside the request object
   // Filter out null values (unsupported assertions) and add comment if any were skipped
   const assertionResults = assertions.map(a => generateAssertion(a));
@@ -483,11 +466,10 @@ export function generateApiCheckCode(check: ChecklyCheck): string {
     ]`);
   }
 
-  // Filter out unsupported location formats (azure:*, gcp:* are not valid Checkly locations)
-  // Valid Checkly locations are AWS region codes like us-east-1, eu-west-2, etc.
-  const validLocations = locations.filter(loc => !loc.includes(':') || loc.startsWith('aws:'));
-  // Remove aws: prefix if present
-  const cleanLocations = validLocations.map(loc => loc.replace(/^aws:/, ''));
+  // Filter out unsupported location formats (azure:*, gcp:* are not valid Checkly
+  // locations) and strip any aws: prefix. Shared helper, also used by step 06,
+  // so the ApiCheck and MultiStepCheck location paths stay in sync (WR-03).
+  const cleanLocations = normalizePublicChecklyLocations(locations);
 
   // Convert configVariables to environmentVariables (D-05: inline, one entry per line)
   const envVars = convertConfigVariables(check.configVariables);
@@ -511,7 +493,7 @@ import {
 } from "checkly/constructs";
 
 new ApiCheck("${logicalId}", {
-  name: "${name.replace(/"/g, '\\"')}",
+  name: "${escapeString(name)}",
   tags: ${JSON.stringify(processedTags)},
   request: {
     ${requestLines.join(',\n    ')},
@@ -532,7 +514,7 @@ new ApiCheck("${logicalId}", {
 /**
  * Generate an index file that exports all checks
  */
-function generateIndexFile(generatedFiles: GeneratedFile[]): string {
+export function generateIndexFile(generatedFiles: GeneratedFile[]): string {
   const imports = generatedFiles.map(f => {
     // Use the already-generated filename (without .ts extension)
     const checkFilename = f.filename.replace('.ts', '');
@@ -730,7 +712,11 @@ async function main(): Promise<void> {
   console.log('\nDone!');
 }
 
-main().catch(err => {
-  console.error('Error:', (err as Error).message);
-  process.exit(1);
-});
+// ESM main-guard: only run if this file is the direct entry point
+const __filename = fileURLToPath(import.meta.url);
+if (typeof process.argv[1] === 'string' && path.resolve(__filename) === path.resolve(process.argv[1])) {
+  main().catch(err => {
+    console.error('Error:', (err as Error).message);
+    process.exit(1);
+  });
+}

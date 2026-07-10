@@ -1,0 +1,15 @@
+{
+  "exportedAt": "2026-01-01T00:00:00.000Z",
+  "site": "datadoghq.com",
+  "count": 1,
+  "locations": [
+    {
+      "datadogId": "pl:example-private-location-00000000",
+      "checklySlug": "example-private",
+      "name": "Example Private Location",
+      "usageCount": 1,
+      "source": "tests"
+    }
+  ],
+  "note": "Private locations with Checkly slugs. Create these private locations in Checkly using the checklySlug as the slug."
+}

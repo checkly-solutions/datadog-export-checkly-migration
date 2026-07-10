@@ -17,8 +17,11 @@
 import { readFile, writeFile, readdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import { getOutputRoot, getExportsDir } from './shared/output-config.ts';
-import { generateLogicalId, sanitizeFilename } from './shared/utils.ts';
+import { uniqueLogicalId, sanitizeFilename } from './shared/utils.ts';
+import { readJsonFileSafe } from './shared/fs-json.ts';
+import type { MigrationFlag, MigrationFlagsFile } from './shared/migration-flags.ts';
 
 let EXPORTS_DIR = '';
 let CHECKLY_DIR = '';
@@ -36,6 +39,7 @@ let FILES: {
   variableUsage: string;
   ddTestStatus: string;
   missingSecretsReport: string;
+  migrationFlags: string;
   browserManifestPublic: string;
   browserManifestPrivate: string;
   multiManifestPublic: string;
@@ -119,6 +123,7 @@ interface MultiStepTestsFile {
     originalLocations?: string[];
     tags?: string[];
     hasCertificate?: boolean;
+    _promotionReason?: string;
     config?: {
       steps?: Array<{
         request?: {
@@ -142,6 +147,10 @@ interface BrowserTestsFile {
     locations?: string[];
     privateLocations?: string[];
     originalLocations?: string[];
+    // options.device_ids (never config.device_ids; plan 10-01): the raw Datadog
+    // browser device profiles. Cross-referenced by public_id in main() to surface
+    // D-04's declared-vs-distinct browser count in the PWCS report section.
+    options?: { device_ids?: string[] };
   }>;
 }
 
@@ -183,7 +192,13 @@ interface Manifest {
   generatedAt: string;
   outputDir: string;
   locationType: string;
-  files: Array<{ logicalId: string; name: string; filename: string }>;
+  // hasMultiCandidate is written by src/07 (plan 08-03) when a browser spec
+  // resolved at least one step with two or more firstMatch candidates. Optional
+  // and null-tolerant: manifests predating the field behave as false.
+  // pwEngines is written by src/07 (plan 10-02), the deduped canonical-order
+  // Playwright engine list; length > 1 means this check emitted as a
+  // PlaywrightCheck (plan 10-03). Optional and null-tolerant, same as above.
+  files: Array<{ logicalId: string; name: string; filename: string; hasMultiCandidate?: boolean; pwEngines?: string[] }>;
   skipped?: Array<{ logicalId: string; name: string; reason?: string }>;
 }
 
@@ -222,6 +237,7 @@ interface DdTestStatusFile {
     monitorId: number | null;
     overallState: string;
     isDeactivated: boolean;
+    tag: string | null;
     locationType: 'public' | 'private';
     fetchedAt: string;
   }>;
@@ -285,6 +301,13 @@ interface MigrationReport {
       name: string;
       reason: string;
       locationType: string;
+      tag: string | null;
+    }>;
+    reviewTests: Array<{
+      publicId: string;
+      name: string;
+      tag: string;
+      locationType: string;
     }>;
   };
   missingSecrets?: {
@@ -310,29 +333,123 @@ interface MigrationReport {
       certFiles: { key?: string; cert?: string };
     }>;
   };
+  promotions?: Array<{
+    publicId: string;
+    name: string;
+    reason: string;
+    locationType: 'public' | 'private';
+  }>;
+  // Migration flags (FLAG-03): the shared MigrationFlag record from the 07-01
+  // cross-phase contract is the single source of truth, so the report surface and
+  // the emitter cannot drift. Present only when at least one flag exists.
+  migrationFlags?: MigrationFlag[];
+  // Self-healing locator chains (D-06): the browser checks whose specs emitted a
+  // multi-candidate firstMatch fallback chain (manifest hasMultiCandidate true).
+  // Derived from the browser manifests in main(); present only when the count is
+  // positive. Drives the Self-Healing Locator Chains report section.
+  multiSelector?: {
+    count: number;
+    checks: Array<{ publicId: string; name: string; locationType: 'public' | 'private' }>;
+  };
+  // Playwright Check Suites (PWCS-03): the browser checks whose manifests carry a
+  // multi-engine pwEngines list (length > 1), so src/08 emitted a PlaywrightCheck
+  // rather than a BrowserCheck. Derived from the browser manifests' pwEngines field
+  // in main(); present only when the count is positive. declaredBrowserCount and
+  // distinctEngineCount surface D-04's coverage-reduction visibility (how many
+  // Datadog browser device profiles collapsed to how many distinct Playwright
+  // engine projects); hasPrivateLocationCaveat marks a check needing the D-07
+  // Checkly Agent version verification. Drives the Playwright Check Suites
+  // (Multi-Browser) report section.
+  playwrightCheckSuites?: {
+    count: number;
+    checks: Array<{
+      publicId: string;
+      name: string;
+      locationType: 'public' | 'private';
+      declaredBrowserCount: number;
+      distinctEngineCount: number;
+      hasPrivateLocationCaveat: boolean;
+    }>;
+  };
   nextSteps: string[];
 }
 
+// The runtime exhaustion token emitted into generated specs by src/07
+// (LOCATOR_EXHAUSTION_TOKEN). Duplicated here as a documentation constant so the
+// report copy names the exact greppable string without importing the whole
+// src/07 spec generator. Keep the two in sync (both are fixed literals).
+const LOCATOR_EXHAUSTION_TOKEN = 'MIGRATION-LOCATOR-EXHAUSTION';
+
 /**
- * Safely read and parse a JSON file, returning null if it doesn't exist
+ * Safely read and parse a JSON file, returning null if it doesn't exist.
+ *
+ * Thin re-export of the shared canonical reader (src/shared/fs-json.ts), kept
+ * under the historical readJsonFile name so this step's many call sites and the
+ * exported surface stay byte-neutral (IN-01: one source of truth, two consumers).
  */
-async function readJsonFile<T>(filepath: string): Promise<T | null> {
-  if (!existsSync(filepath)) {
-    return null;
-  }
-  try {
-    const content = await readFile(filepath, 'utf-8');
-    return JSON.parse(content) as T;
-  } catch (err) {
-    console.warn(`  Warning: Could not parse ${filepath}: ${(err as Error).message}`);
-    return null;
-  }
+export const readJsonFile = readJsonFileSafe;
+
+/**
+ * Project the raw dd-test-status tests into the report's deactivated and review
+ * lists, keeping the two mutually exclusive.
+ *
+ * A No Data check with an absent/unknown config status is BOTH deactivated
+ * (activated: false) AND tagged reviewNoDataInDatadog (D-06). It must surface
+ * only in the deactivated list, never under "Checks Left Active for Review",
+ * which asserts the check is still running. The review list is therefore
+ * restricted to genuinely-active review checks (the STAT-01 live case) via the
+ * !isDeactivated guard; deactivated review-tagged checks fall through to the
+ * deactivated list, which carries the tag so it can be grouped by its true tag.
+ *
+ * @param tests - The dd-test-status.json tests array.
+ * @returns The deactivated and review projections used by the report.
+ */
+export function projectDatadogStatusTests(
+  tests: DdTestStatusFile['tests'],
+): {
+  deactivatedTests: Array<{
+    publicId: string;
+    name: string;
+    reason: string;
+    locationType: string;
+    tag: string | null;
+  }>;
+  reviewTests: Array<{
+    publicId: string;
+    name: string;
+    tag: string;
+    locationType: string;
+  }>;
+} {
+  return {
+    deactivatedTests: tests
+      .filter(t => t.isDeactivated)
+      .map(t => ({
+        publicId: t.publicId,
+        name: t.name,
+        reason: t.overallState,
+        locationType: t.locationType,
+        tag: t.tag,
+      })),
+    // Checks left active but flagged for human review (any review* tag). The
+    // !isDeactivated guard keeps deactivated absent-status No Data checks out of
+    // this list (D-06); grouping downstream is by the tag string itself, so
+    // future review tags (e.g. reviewAI in milestone 2) flow through unchanged.
+    reviewTests: tests
+      .filter(t => t.tag !== null && t.tag.startsWith('review') && !t.isDeactivated)
+      .map(t => ({
+        publicId: t.publicId,
+        name: t.name,
+        tag: t.tag as string,
+        locationType: t.locationType,
+      })),
+  };
 }
 
 /**
  * Generate the markdown report
  */
-function generateMarkdownReport(report: MigrationReport): string {
+export function generateMarkdownReport(report: MigrationReport): string {
   const lines: string[] = [];
 
   lines.push('# Datadog to Checkly Migration Report');
@@ -444,21 +561,195 @@ function generateMarkdownReport(report: MigrationReport): string {
       }
 
       if (noDataTests.length > 0) {
-        lines.push(`### No Data Tests (${noDataTests.length} — tagged \`noDataInDatadog\`)`);
-        lines.push('');
-        const display = noDataTests.slice(0, 25);
-        for (const test of display) {
-          lines.push(`- \`${test.publicId}\` [${test.locationType}] — ${test.name}`);
+        // Deactivated No Data checks carry two distinct tags: paused checks
+        // (noDataInDatadog, D-04 row 2) and absent-status checks
+        // (reviewNoDataInDatadog, D-06). Group by the actual tag so each bullet
+        // sits under its true tag and a grep by tag finds every check.
+        const noDataByTag = new Map<string, typeof noDataTests>();
+        for (const test of noDataTests) {
+          const key = test.tag ?? 'noDataInDatadog';
+          const bucket = noDataByTag.get(key) ?? [];
+          bucket.push(test);
+          noDataByTag.set(key, bucket);
         }
-        if (noDataTests.length > 25) {
-          lines.push(`- ... and ${noDataTests.length - 25} more (see dd-test-status.json)`);
+        for (const [tag, tagged] of noDataByTag) {
+          lines.push(`### No Data Tests (${tagged.length}, tagged \`${tag}\`)`);
+          lines.push('');
+          const display = tagged.slice(0, 25);
+          for (const test of display) {
+            lines.push(`- \`${test.publicId}\` [${test.locationType}]: ${test.name}`);
+          }
+          if (tagged.length > 25) {
+            lines.push(`- ... and ${tagged.length - 25} more (see dd-test-status.json)`);
+          }
+          lines.push('');
         }
-        lines.push('');
       }
 
       lines.push('> **Action:** Review deactivated checks. Fix failing tests or re-activate paused tests as needed.');
       lines.push('');
     }
+  }
+
+  // Checks Left Active for Review (D-09/D-10)
+  // Grouped by the review tag string itself, so any new review* tag auto-appears
+  // as its own subsection with no tag-to-heading map to maintain.
+  if (report.datadogStatus && report.datadogStatus.reviewTests.length > 0) {
+    const reviewTests = report.datadogStatus.reviewTests;
+    lines.push('## Checks Left Active for Review');
+    lines.push('');
+    lines.push(`**${reviewTests.length} check(s)** were left active but flagged for human review.`);
+    lines.push('These checks kept their Datadog activation and carry a `review*` tag so you can verify them.');
+    lines.push('');
+    for (const tag of new Set(reviewTests.map(t => t.tag))) {
+      const tagged = reviewTests.filter(t => t.tag === tag);
+      lines.push(`### ${tag} (${tagged.length})`);
+      lines.push('');
+      const display = tagged.slice(0, 25);
+      for (const test of display) {
+        lines.push(`- \`${test.publicId}\` [${test.locationType}]: ${test.name}`);
+      }
+      if (tagged.length > 25) {
+        lines.push(`- ... and ${tagged.length - 25} more (see dd-test-status.json)`);
+      }
+      lines.push('');
+    }
+    lines.push('> **Action:** These were live in Datadog but monitor/search reported No Data, so they were left active rather than deactivated. Verify recent run health in Datadog and remove the review tag once confirmed.');
+    lines.push('');
+  }
+
+  // Promoted Checks (REGX-09)
+  // Grouped by the promotion reason string itself, so any new reason auto-appears
+  // as its own subsection with no reason lookup map to maintain (mirrors the
+  // review section above). Sourced from the _promotionReason field, never .check.ts.
+  if (report.promotions && report.promotions.length > 0) {
+    const promotions = report.promotions;
+    lines.push('## Promoted Checks');
+    lines.push('');
+    lines.push(`**${promotions.length} check(s)** were promoted from an API Check to a MultiStepCheck to preserve assertions a plain API Check cannot express.`);
+    lines.push('These checks carry a `promotedFromApiCheck` tag and run as one-step Playwright specs.');
+    lines.push('');
+    for (const reason of new Set(promotions.map(p => p.reason))) {
+      const grouped = promotions.filter(p => p.reason === reason);
+      lines.push(`### ${reason} (${grouped.length})`);
+      lines.push('');
+      const display = grouped.slice(0, 25);
+      for (const p of display) {
+        lines.push(`- \`${p.publicId}\` [${p.locationType}]: ${p.name}`);
+      }
+      if (grouped.length > 25) {
+        lines.push(`- ... and ${grouped.length - 25} more (see multi-step-tests.json)`);
+      }
+      lines.push('');
+    }
+    lines.push('> **Action:** Regex assertions were promoted to MultiStepChecks so they assert with native RegExp. Verify each promoted spec replays the original request faithfully, then activate as usual.');
+    lines.push('');
+  }
+
+  // Migration Flags (FLAG-03)
+  // Sourced only from exports/migration-flags.json (via report.migrationFlags),
+  // never by re-scanning the generated .spec.ts files. Grouped by the reason
+  // string itself, so new FlagReason codes added by Phases 8/9/10 auto-appear as
+  // their own subsections with no lookup map to maintain (mirrors the Promoted
+  // Checks and review sections above).
+  if (report.migrationFlags && report.migrationFlags.length > 0) {
+    const flags = report.migrationFlags;
+    lines.push('## Migration Flags');
+    lines.push('');
+    lines.push(`**${flags.length} flag(s)** mark points where the generator could not close a gap deterministically.`);
+    lines.push('Each flagged check carries a `reviewMigrationFlag` tag; checks flagged `locator-unresolvable` are additionally deactivated (`activated: false`).');
+    lines.push('');
+    for (const reason of new Set(flags.map(f => f.reason))) {
+      const grouped = flags.filter(f => f.reason === reason);
+      lines.push(`### ${reason} (${grouped.length})`);
+      lines.push('');
+      const display = grouped.slice(0, 25);
+      for (const f of display) {
+        const stepSuffix = f.stepIndex === null ? '' : ` step ${f.stepIndex + 1}`;
+        lines.push(`- \`${f.publicId}\`${stepSuffix}: ${f.message}`);
+      }
+      if (grouped.length > 25) {
+        lines.push(`- ... and ${grouped.length - 25} more (see migration-flags.json)`);
+      }
+      lines.push('');
+    }
+    lines.push('> **Action:** Review each flagged step in its generated spec (grep `// MIGRATION-FLAG:`), fix or replace the flagged residue, then remove the `reviewMigrationFlag` tag and re-activate any deactivated checks.');
+    lines.push('');
+  }
+
+  // Self-Healing Locator Chains (D-06)
+  // Mirrors the Checks Left Active for Review idiom (heading, bold count sentence,
+  // per-check bullet list capped at 25, blockquoted Action line). Sourced from the
+  // browser manifests' hasMultiCandidate field via report.multiSelector. These
+  // checks stay ACTIVE and carry the reviewMultiSelector tag; the section documents
+  // the runtime MIGRATION-LOCATOR-EXHAUSTION token so a reviewer knows what to grep
+  // for in Checkly run results when every candidate misses at runtime.
+  if (report.multiSelector && report.multiSelector.count > 0) {
+    const ms = report.multiSelector;
+    lines.push('## Self-Healing Locator Chains');
+    lines.push('');
+    lines.push(`**${ms.count} check(s)** emitted a multi-candidate \`firstMatch()\` fallback chain and are left ACTIVE for review.`);
+    lines.push('Each carries a `reviewMultiSelector` tag. The chain tries an ordered list of candidate locators and resolves the first that matches, searching the main page and every iframe, so a check keeps working when one selector shifts.');
+    lines.push('');
+    lines.push(`When every candidate misses at runtime the spec prints the \`${LOCATOR_EXHAUSTION_TOKEN}\` token to the run log and error group, distinct from an ordinary selector timeout. Grep for it in Checkly run results to find a check whose locators all went stale.`);
+    lines.push('');
+    const display = ms.checks.slice(0, 25);
+    for (const c of display) {
+      lines.push(`- \`${c.publicId}\` [${c.locationType}]: ${c.name}`);
+    }
+    if (ms.checks.length > 25) {
+      lines.push(`- ... and ${ms.checks.length - 25} more (see the browser _manifest.json files)`);
+    }
+    lines.push('');
+    lines.push('> **Action:** For each check, verify the element the chain resolved is the one the original Datadog step targeted, then remove the `reviewMultiSelector` tag once confirmed.');
+    lines.push('');
+  }
+
+  // Playwright Check Suites, multi-browser (PWCS-03)
+  // Mirrors the Self-Healing Locator Chains idiom (heading, bold count sentence,
+  // per-check bullet capped at 25, blockquoted Action line). Sourced from the
+  // browser manifests' pwEngines field via report.playwrightCheckSuites: a check
+  // whose test declared more than one browser was emitted as a PlaywrightCheck
+  // (never a BrowserCheck) plus a companion playwright.config.ts (plan 10-03). The
+  // per-check bullet surfaces D-04's declared-vs-distinct visibility; the D-07
+  // caveat clause points to the Migration Flags section for the full text rather
+  // than duplicating the flag message (avoids stale-copy drift between surfaces).
+  // The two static notes below are gated on the same count > 0 condition so they
+  // render exactly once when at least one PlaywrightCheck exists, never per-check.
+  if (report.playwrightCheckSuites && report.playwrightCheckSuites.count > 0) {
+    const pwcs = report.playwrightCheckSuites;
+    lines.push('## Playwright Check Suites (Multi-Browser)');
+    lines.push('');
+    lines.push(`**${pwcs.count} check(s)** migrated to a Playwright Check Suite (PlaywrightCheck) because Datadog declared more than one browser.`);
+    lines.push('Each runs a companion `playwright.config.ts` with one project per distinct Playwright engine, so the migrated check exercises the same browser engines the original Datadog test did.');
+    lines.push('');
+    const display = pwcs.checks.slice(0, 25);
+    for (const c of display) {
+      const caveat = c.hasPrivateLocationCaveat
+        ? ' (private location: requires Checkly Agent 6.0.3 or newer, see the Migration Flags section)'
+        : '';
+      lines.push(`- \`${c.publicId}\` [${c.locationType}]: ${c.name} (${c.declaredBrowserCount} declared browser(s) -> ${c.distinctEngineCount} distinct Playwright engine(s))${caveat}`);
+    }
+    if (pwcs.checks.length > 25) {
+      lines.push(`- ... and ${pwcs.checks.length - 25} more (see the browser _manifest.json files)`);
+    }
+    lines.push('');
+    lines.push('> **Action:** After deploy, confirm each Playwright Check Suite runs the intended browser projects (the companion config lists them), then verify the migrated behavior matches the original Datadog browser test.');
+    lines.push('');
+
+    lines.push('### Playwright Check Suite entitlement');
+    lines.push('');
+    lines.push('A PlaywrightCheck requires the `PLAYWRIGHT_NATIVE` entitlement on your Checkly account.');
+    lines.push('');
+    lines.push('> **Action:** Confirm the entitlement is enabled (run `npx checkly account plan PLAYWRIGHT_NATIVE` or check the Checkly billing page) before deploying any Playwright Check Suite.');
+    lines.push('');
+
+    lines.push('### @playwright/test dependency');
+    lines.push('');
+    lines.push('The generated project declares `@playwright/test` (^1.61.1) as a devDependency because Checkly bundles each Playwright Check Suite from a locally resolvable copy of the package.');
+    lines.push('');
+    lines.push('> **Action:** Run `npm install` in the generated project directory before `npx checkly test` or `npx checkly deploy` so every Playwright Check Suite bundles successfully.');
+    lines.push('');
   }
 
   // Checks Deactivated Due to Missing Secrets
@@ -702,6 +993,8 @@ function generateMarkdownReport(report: MigrationReport): string {
   lines.push('- Multi-step test variable extraction between steps may need adjustment');
   lines.push('- Check groups are created but set to `activated: false` by default');
   lines.push('- Individual checks preserve their Datadog status: `paused` monitors become `activated: false`');
+  lines.push('- Redirect and TLS options are migrated only when they diverge from the Datadog defaults: `follow_redirects: false` becomes `followRedirects: false`, `allow_insecure: true` becomes `skipSSL: true`, and browser `ignoreServerCertificateError: true` becomes `ignoreHTTPSErrors: true`. Absent fields are omitted because the Checkly defaults (follow redirects, verify TLS) match the Datadog defaults, so omission preserves the original behavior.');
+  lines.push('- A validating partner with live Datadog access should verify the explicit false-redirect and skip-TLS cases (the ones that emit `followRedirects: false` or `skipSSL: true`), since the captured export did not exercise them.');
   lines.push('');
   lines.push('### Unsupported Features');
   lines.push('The following Datadog features cannot be automatically migrated:');
@@ -721,7 +1014,7 @@ function generateMarkdownReport(report: MigrationReport): string {
  * Escape a CSV field value. Wraps in double quotes if the value contains
  * commas, double quotes, or newlines. Internal double quotes are doubled.
  */
-function csvEscape(value: string): string {
+export function csvEscape(value: string): string {
   if (value.includes(',') || value.includes('"') || value.includes('\n')) {
     return `"${value.replace(/"/g, '""')}"`;
   }
@@ -738,7 +1031,7 @@ function csvEscape(value: string): string {
  * dd_locations: semicolon-separated original Datadog location strings.
  * checkly_locations: semicolon-separated Checkly public + private location slugs.
  */
-function generateMappingCsv(
+export function generateMappingCsv(
   apiChecks: ApiChecksFile | null,
   multiStepTests: MultiStepTestsFile | null,
   browserTests: BrowserTestsFile | null,
@@ -755,7 +1048,7 @@ function generateMappingCsv(
     for (const check of apiChecks.checks) {
       if (check._conversionError) continue;
       const publicId = check.logicalId; // In API checks JSON, logicalId IS the Datadog public_id
-      const checklyId = `api-${generateLogicalId(check.name)}`;
+      const checklyId = uniqueLogicalId('api', check.name, publicId);
       const filename = `${sanitizeFilename(check.name, publicId)}.check.ts`;
       const locationType = check.privateLocations && check.privateLocations.length > 0 ? 'private' : 'public';
       const ddLocs = csvEscape((check.originalLocations || []).join(';'));
@@ -767,7 +1060,7 @@ function generateMappingCsv(
   // Multi-step tests
   if (multiStepTests?.tests) {
     for (const test of multiStepTests.tests) {
-      const checklyId = `multi-${generateLogicalId(test.name)}`;
+      const checklyId = uniqueLogicalId('multi', test.name, test.public_id);
       const filename = `${sanitizeFilename(test.name, test.public_id)}.check.ts`;
       const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
       const ddLocs = csvEscape((test.originalLocations || []).join(';'));
@@ -779,7 +1072,7 @@ function generateMappingCsv(
   // Browser tests
   if (browserTests?.tests) {
     for (const test of browserTests.tests) {
-      const checklyId = `browser-${generateLogicalId(test.name)}`;
+      const checklyId = uniqueLogicalId('browser', test.name, test.public_id);
       const filename = `${sanitizeFilename(test.name, test.public_id)}.check.ts`;
       const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
       const ddLocs = csvEscape((test.originalLocations || []).join(';'));
@@ -797,7 +1090,7 @@ function generateMappingCsv(
       if (test.subtype !== 'tcp') continue;
       const filename = `${sanitizeFilename(test.name, test.public_id)}.check.ts`;
       if (!tcpFilenamesOnDisk.has(filename)) continue;
-      const checklyId = `tcp-${generateLogicalId(test.name)}`;
+      const checklyId = uniqueLogicalId('tcp', test.name, test.public_id);
       const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
       const ddLocs = csvEscape((test.originalLocations || []).join(';'));
       const checklyLocs = csvEscape([...(test.locations || []), ...(test.privateLocations || [])].join(';'));
@@ -812,7 +1105,7 @@ function generateMappingCsv(
       if (test.subtype !== 'dns') continue;
       const filename = `${sanitizeFilename(test.name, test.public_id)}.check.ts`;
       if (!dnsFilenamesOnDisk.has(filename)) continue;
-      const checklyId = `dns-${generateLogicalId(test.name)}`;
+      const checklyId = uniqueLogicalId('dns', test.name, test.public_id);
       const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
       const ddLocs = csvEscape((test.originalLocations || []).join(';'));
       const checklyLocs = csvEscape([...(test.locations || []), ...(test.privateLocations || [])].join(';'));
@@ -844,6 +1137,7 @@ async function main(): Promise<void> {
     variableUsage: path.join(EXPORTS_DIR, 'variable-usage.json'),
     ddTestStatus: path.join(EXPORTS_DIR, 'dd-test-status.json'),
     missingSecretsReport: path.join(EXPORTS_DIR, 'missing-secrets-report.json'),
+    migrationFlags: path.join(EXPORTS_DIR, 'migration-flags.json'),
     browserManifestPublic: path.join(CHECKLY_DIR, 'tests', 'browser', 'public', '_manifest.json'),
     browserManifestPrivate: path.join(CHECKLY_DIR, 'tests', 'browser', 'private', '_manifest.json'),
     multiManifestPublic: path.join(CHECKLY_DIR, 'tests', 'multi', 'public', '_manifest.json'),
@@ -875,6 +1169,7 @@ async function main(): Promise<void> {
   const multiManifestPrivate = await readJsonFile<Manifest>(FILES.multiManifestPrivate);
   const ddTestStatus = await readJsonFile<DdTestStatusFile>(FILES.ddTestStatus);
   const missingSecretsReport = await readJsonFile<MissingSecretsReportFile>(FILES.missingSecretsReport);
+  const migrationFlagsFile = await readJsonFile<MigrationFlagsFile>(FILES.migrationFlags);
 
   if (!exportSummary) {
     console.error('\nError: export-summary.json not found. Run the export first.');
@@ -892,6 +1187,7 @@ async function main(): Promise<void> {
   console.log(`  - variable-usage.json: ${variableUsage ? 'found' : 'not found'}`);
   console.log(`  - dd-test-status.json: ${ddTestStatus ? 'found' : 'not found'}`);
   console.log(`  - missing-secrets-report.json: ${missingSecretsReport ? 'found' : 'not found'}`);
+  console.log(`  - migration-flags.json: ${migrationFlagsFile ? 'found' : 'not found'}`);
 
   // Calculate counts
   const apiPublicCount = apiChecks?.checks.filter(c =>
@@ -1047,6 +1343,76 @@ async function main(): Promise<void> {
     }
   }
 
+  // Promoted checks (REGX-09): sourced only from the _promotionReason field on
+  // multi-step-tests.json, never by re-scanning generated .check.ts files.
+  const promotions = (multiStepTests?.tests || [])
+    .filter(t => Boolean(t._promotionReason))
+    .map(t => ({
+      publicId: t.public_id,
+      name: t.name,
+      reason: t._promotionReason as string,
+      locationType: (t.privateLocations && t.privateLocations.length > 0 ? 'private' : 'public') as 'public' | 'private',
+    }));
+
+  // Migration flags (FLAG-03): sourced only from exports/migration-flags.json,
+  // never by re-scanning generated .spec.ts files. Null-tolerant: an absent file
+  // (readJsonFile returns null) or an absent flags member yields an empty array,
+  // so step 12 completes and renders no section when there are no flags.
+  const migrationFlags = migrationFlagsFile?.flags || [];
+
+  // Self-healing locator chains (D-06): derive the multi-candidate review list
+  // from the already-loaded browser manifests' hasMultiCandidate field. Null-
+  // tolerant for manifests predating the field. Public and private are merged;
+  // each check records its location type from which manifest it came from.
+  const multiSelectorChecks: Array<{ publicId: string; name: string; locationType: 'public' | 'private' }> = [];
+  for (const file of browserManifestPublic?.files || []) {
+    if (file.hasMultiCandidate) {
+      multiSelectorChecks.push({ publicId: file.logicalId, name: file.name, locationType: 'public' });
+    }
+  }
+  for (const file of browserManifestPrivate?.files || []) {
+    if (file.hasMultiCandidate) {
+      multiSelectorChecks.push({ publicId: file.logicalId, name: file.name, locationType: 'private' });
+    }
+  }
+
+  // Playwright Check Suites (PWCS-03): derive the multi-engine review list from the
+  // already-loaded browser manifests' pwEngines field, mirroring the multiSelector
+  // loop above (file.logicalId is the Datadog public_id; src/07 writes it). A file
+  // whose pwEngines has length > 1 was emitted as a PlaywrightCheck by src/08.
+  // The manifest carries only the deduped engine list, so declaredBrowserCount and
+  // hasPrivateLocationCaveat cross-reference the already-loaded browserTests by
+  // public_id: options.device_ids length for the declared count (falling back to
+  // the engine count so the field is never undefined) and any privateLocations for
+  // the D-07 Agent-version caveat.
+  const playwrightCheckSuiteEntries: Array<{
+    publicId: string;
+    name: string;
+    locationType: 'public' | 'private';
+    declaredBrowserCount: number;
+    distinctEngineCount: number;
+    hasPrivateLocationCaveat: boolean;
+  }> = [];
+  const derivePwcsEntry = (
+    file: { logicalId: string; name: string; pwEngines?: string[] },
+    locationType: 'public' | 'private',
+  ) => {
+    const engines = file.pwEngines || [];
+    if (engines.length <= 1) return;
+    const test = browserTests?.tests.find(t => t.public_id === file.logicalId);
+    const deviceCount = test?.options?.device_ids?.length ?? 0;
+    playwrightCheckSuiteEntries.push({
+      publicId: file.logicalId,
+      name: file.name,
+      locationType,
+      declaredBrowserCount: deviceCount > 0 ? deviceCount : engines.length,
+      distinctEngineCount: engines.length,
+      hasPrivateLocationCaveat: (test?.privateLocations?.length ?? 0) > 0,
+    });
+  };
+  for (const file of browserManifestPublic?.files || []) derivePwcsEntry(file, 'public');
+  for (const file of browserManifestPrivate?.files || []) derivePwcsEntry(file, 'private');
+
   // Build the report
   const report: MigrationReport = {
     generatedAt: new Date().toISOString(),
@@ -1122,14 +1488,7 @@ async function main(): Promise<void> {
       summary: ddTestStatus.summary,
       publicSummary: ddTestStatus.publicSummary,
       privateSummary: ddTestStatus.privateSummary,
-      deactivatedTests: ddTestStatus.tests
-        .filter(t => t.isDeactivated)
-        .map(t => ({
-          publicId: t.publicId,
-          name: t.name,
-          reason: t.overallState,
-          locationType: t.locationType,
-        })),
+      ...projectDatadogStatusTests(ddTestStatus.tests),
     } : undefined,
     missingSecrets: missingSecretsReport && missingSecretsReport.checksAffected > 0 ? {
       checkedAt: missingSecretsReport.generatedAt,
@@ -1146,6 +1505,14 @@ async function main(): Promise<void> {
       totalChecks: certChecks.length,
       checks: certChecks,
     } : undefined,
+    promotions: promotions.length > 0 ? promotions : undefined,
+    migrationFlags: migrationFlags.length > 0 ? migrationFlags : undefined,
+    multiSelector: multiSelectorChecks.length > 0
+      ? { count: multiSelectorChecks.length, checks: multiSelectorChecks }
+      : undefined,
+    playwrightCheckSuites: playwrightCheckSuiteEntries.length > 0
+      ? { count: playwrightCheckSuiteEntries.length, checks: playwrightCheckSuiteEntries }
+      : undefined,
     nextSteps: [
       privateLocationsFile && privateLocationsFile.locations.length > 0
         ? `Create ${privateLocationsFile.locations.length} private location(s) in Checkly with the slugs shown in the report`
@@ -1154,7 +1521,7 @@ async function main(): Promise<void> {
         ? `Fill in values for ${secrets.length} secret variable(s) in ${CHECKLY_DIR}/variables/secrets.json`
         : null,
       ddTestStatus && ddTestStatus.summary.deactivated > 0
-        ? `Review ${ddTestStatus.summary.deactivated} deactivated check(s) tagged "failingInDatadog" or "noDataInDatadog"`
+        ? `Review ${ddTestStatus.summary.deactivated} deactivated check(s) tagged "failingInDatadog", "noDataInDatadog", or "reviewNoDataInDatadog"`
         : null,
       missingSecretsReport && missingSecretsReport.checksAffected > 0
         ? `Fill in secret values in ${CHECKLY_DIR}/variables/secrets.json and remove "missingSecretsFromDatadog" tag from ${missingSecretsReport.checksAffected} deactivated check(s)`
@@ -1164,6 +1531,12 @@ async function main(): Promise<void> {
         : null,
       certChecks.length > 0
         ? `Upload client certificates for ${certChecks.length} check(s) tagged "requiresClientCertificate", configure mTLS on each check, then remove the tag and set activated: true`
+        : null,
+      migrationFlags.length > 0
+        ? `Review ${migrationFlags.length} migration flag(s) in the "Migration Flags" report section (grep "// MIGRATION-FLAG:" in generated specs), then remove the "reviewMigrationFlag" tag and re-activate any deactivated checks`
+        : null,
+      multiSelectorChecks.length > 0
+        ? `Verify ${multiSelectorChecks.length} check(s) tagged "reviewMultiSelector" in the "Self-Healing Locator Chains" report section (grep "${LOCATOR_EXHAUSTION_TOKEN}" in run logs when a chain misses), then remove the tag once the resolved element is confirmed`
         : null,
       `Review checks tagged "datadogBasicAuthWeb" — these used web/form-based auth in Datadog and may need converting to browser or multi-step checks`,
       `Run "cd ${CHECKLY_DIR} && npm run create-variables" to import variables to Checkly`,
@@ -1237,7 +1610,11 @@ async function main(): Promise<void> {
   console.log('\nDone!');
 }
 
-main().catch(err => {
-  console.error('Error:', (err as Error).message);
-  process.exit(1);
-});
+// ESM main-guard: only run if this file is the direct entry point
+const __filename = fileURLToPath(import.meta.url);
+if (typeof process.argv[1] === 'string' && path.resolve(__filename) === path.resolve(process.argv[1])) {
+  main().catch(err => {
+    console.error('Error:', (err as Error).message);
+    process.exit(1);
+  });
+}

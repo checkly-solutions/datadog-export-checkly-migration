@@ -1,0 +1,14 @@
+{
+  "generatedAt": "NORMALIZED",
+  "outputDir": "./checkly-migrated/golden/tests/multi/public",
+  "locationType": "public",
+  "files": [
+    {
+      "logicalId": "syn-005-mno",
+      "name": "Synthetic Login Flow",
+      "filename": "synthetic-login-flow-syn-005-mno.spec.ts",
+      "stepCount": 2
+    }
+  ],
+  "skipped": []
+}

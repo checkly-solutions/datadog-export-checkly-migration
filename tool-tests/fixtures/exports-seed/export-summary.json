@@ -1,0 +1,13 @@
+{
+  "exportedAt": "2026-01-01T00:00:00.000Z",
+  "site": "datadoghq.com",
+  "summary": {
+    "apiTests": 5,
+    "browserTests": 1,
+    "browserSubtests": 0,
+    "globalVariables": 0,
+    "privateLocations": 1,
+    "publicLocations": 1,
+    "unmappedLocations": 0
+  }
+}

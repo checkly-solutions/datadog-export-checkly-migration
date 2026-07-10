@@ -1,0 +1,51 @@
+{
+  "public_id": "syn-106-pqr",
+  "name": "Unit Browser Flow",
+  "type": "browser",
+  "status": "live",
+  "tags": ["env:synthetic"],
+  "locations": ["us-east-1"],
+  "privateLocations": [],
+  "originalLocations": ["aws:us-east-1"],
+  "options": {
+    "tick_every": 900,
+    "retry": { "count": 0, "interval": 300 }
+  },
+  "config": {
+    "request": {
+      "url": "https://app.example.com/login"
+    }
+  },
+  "steps": [
+    {
+      "name": "Open login page",
+      "type": "goToUrl",
+      "params": { "value": "https://app.example.com/login" }
+    },
+    {
+      "name": "Type username",
+      "type": "typeText",
+      "params": {
+        "value": "user@example.com",
+        "element": {
+          "targetOuterHTML": "<input id=\"username\" type=\"text\">"
+        }
+      }
+    },
+    {
+      "name": "Click sign in",
+      "type": "click",
+      "params": {
+        "element": {
+          "targetOuterHTML": "<button id=\"submit\">Sign in</button>"
+        }
+      }
+    },
+    {
+      "name": "Assert welcome text",
+      "type": "assertPageContains",
+      "params": { "value": "Welcome" },
+      "allowFailure": false
+    }
+  ]
+}
