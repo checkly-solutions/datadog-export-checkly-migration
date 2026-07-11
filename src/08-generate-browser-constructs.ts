@@ -54,19 +54,19 @@ interface ManifestFile {
   name: string;
   filename: string;
   hasIframes?: boolean;
-  // hasMultiCandidate: written by src/07 (plan 08-03) when a spec resolved at
-  // least one step with two or more firstMatch candidates. Optional and
-  // null-tolerant: older manifests without the field behave as false. Drives
-  // the reviewMultiSelector construct tag (D-06), mirroring hasIframes exactly.
+  // hasMultiCandidate: written by src/07 when a spec resolved at least one step with
+  // two or more firstMatch candidates. Optional and null-tolerant: older manifests
+  // without the field behave as false. Drives the reviewMultiSelector construct tag,
+  // mirroring hasIframes exactly.
   hasMultiCandidate?: boolean;
-  // secretKeys: written by src/07 (plan 09-05, SEC-01 routing) as the step-order
-  // list of env-var key names a spec routed its type="password" fills to (each a
-  // uppercase, valid, non-digit-leading identifier). Optional and null-tolerant:
-  // older manifests without the field behave as an empty array. Drives the
-  // construct-side environmentVariables secret declaration (SEC-02 / D-02),
-  // mirroring hasMultiCandidate transport exactly.
+  // secretKeys: written by src/07 (password-field routing) as the step-order list of
+  // env-var key names a spec routed its type="password" fills to (each a uppercase,
+  // valid, non-digit-leading identifier). Optional and null-tolerant: older manifests
+  // without the field behave as an empty array. Drives the construct-side
+  // environmentVariables secret declaration, mirroring hasMultiCandidate transport
+  // exactly.
   secretKeys?: string[];
-  // pwEngines: written by src/07 (plan 10-02, PWCS-03) as the deduped, canonical
+  // pwEngines: written by src/07 as the deduped, canonical
   // PLAYWRIGHT_ENGINE_ORDER-ordered Playwright engine set derived from the test's
   // options.device_ids. Optional and null-tolerant: older manifests without the
   // field behave as an empty array. Drives the PlaywrightCheck-vs-BrowserCheck
@@ -97,10 +97,9 @@ interface GenerationResult {
 /**
  * The two public_id sets the MIGRATION-FLAG system needs at construct time.
  *
- * flaggedIds drives the reviewMigrationFlag tag (D-04); deactivatedIds drives
- * the strictly-one-way activated:false override for the FLAG-04 zero-signal
- * subset only (D-05, bounded by D-06). Both are plain string Sets so membership
- * checks in generateBrowserCheckCode stay O(1).
+ * flaggedIds drives the reviewMigrationFlag tag; deactivatedIds drives the
+ * strictly-one-way activated:false override for the zero-signal subset only. Both
+ * are plain string Sets so membership checks in generateBrowserCheckCode stay O(1).
  */
 export interface MigrationFlagState {
   flaggedIds: Set<string>;
@@ -110,14 +109,13 @@ export interface MigrationFlagState {
 /**
  * Derive the flagged and deactivated public_id sets from a MigrationFlagsFile.
  *
- * Pure and total: it never throws on a malformed shape (RESEARCH A4). The
- * always-valid base derivation is the flags records array, defaulting to an
- * empty array when absent or not an array: flaggedIds collects every record
- * whose publicId is a non-empty string (anything else is skipped), and
- * deactivatedIds collects the publicIds of records whose deactivates field is
- * strictly true. The precomputed flaggedCheckIds / deactivatedCheckIds arrays
- * that plan 07-01 also ships are unioned in defensively, never required, so
- * step 08 works against any writer variant and against older exports.
+ * Pure and total: it never throws on a malformed shape. The always-valid base
+ * derivation is the flags records array, defaulting to an empty array when absent or
+ * not an array: flaggedIds collects every record whose publicId is a non-empty string
+ * (anything else is skipped), and deactivatedIds collects the publicIds of records
+ * whose deactivates field is strictly true. The precomputed flaggedCheckIds /
+ * deactivatedCheckIds arrays the writer also ships are unioned in defensively, never
+ * required, so step 08 works against any writer variant and against older exports.
  */
 export function deriveFlagState(file: MigrationFlagsFile | null | undefined): MigrationFlagState {
   const flaggedIds = new Set<string>();
@@ -156,9 +154,9 @@ export function deriveFlagState(file: MigrationFlagsFile | null | undefined): Mi
  * Performs IO only when called (no top-level side effects, so the import-guard
  * test stays green). When the file is absent, logs one informational line and
  * degrades to empty sets, keeping step 08 runnable against older exports
- * directories that predate the artifact (RESEARCH A4). Any read or parse error
- * is caught, logged via console.warn, and degrades to empty sets: a malformed,
- * truncated, or missing artifact never crashes construct generation (T-07-41).
+ * directories that predate the artifact. Any read or parse error is caught, logged
+ * via console.warn, and degrades to empty sets: a malformed, truncated, or missing
+ * artifact never crashes construct generation.
  */
 export async function readMigrationFlagState(exportsDir: string): Promise<MigrationFlagState> {
   const flagsPath = path.join(exportsDir, 'migration-flags.json');
@@ -210,9 +208,9 @@ interface BrowserCheckLevelProps {
 
 /**
  * Compute the check-level properties shared by BrowserCheck and PlaywrightCheck
- * emission, making the two constructs' parity structural rather than assumed
- * (D-02). Both generateBrowserCheckCode and generatePlaywrightCheckCode call
- * this and destructure only the fields their template needs, so a future tag or
+ * emission, making the two constructs' parity structural rather than assumed. Both
+ * generateBrowserCheckCode and generatePlaywrightCheckCode call this and destructure
+ * only the fields their template needs, so a future tag or
  * activation change touches ONE place and can never silently drift between the
  * two emitters.
  *
@@ -233,16 +231,16 @@ function computeBrowserCheckLevelProps(
 
   const logicalId = uniqueLogicalId('browser', name, public_id);
   const frequency = convertFrequency(options?.tick_every);
-  // Preserves paused status from Datadog. FLAG-04 (D-05) may later force this to
-  // false for a zero-signal deactivated check; the override is strictly one-way.
+  // Preserves paused status from Datadog. A zero-signal deactivation may later force
+  // this to false; the override is strictly one-way.
   let activated = test.status === 'live';
 
   // Filter and remap Datadog-origin tags, then add migration traceability tag
   const allTags = filterAndRemapTags(tags || []);
   allTags.push(`migration_check_id:${public_id}`);
 
-  // MIGRATION-FLAG review tag (D-04): a check whose spec generation hit a flag is
-  // greppable at the construct level and folds into the step-12 review grouping.
+  // MIGRATION-FLAG review tag: a check whose spec generation hit a flag is greppable
+  // at the construct level and folds into the step-12 review grouping.
   // Pushed in the same post-filter slot as migration_check_id so DD_TAGS_EXCLUDE,
   // DD_TAGS_EXCLUDE_ALL, and DD_TAGS_REMAP cannot strip it. publicId values from
   // the flags file are used only for Set membership, never interpolated here.
@@ -253,9 +251,9 @@ function computeBrowserCheckLevelProps(
     allTags.push('reviewMigrationFlag');
   }
 
-  // FLAG-04 deactivation (D-05, D-06): only the zero-signal deactivated subset is
-  // forced off. The override may only replace the computed value with false and
-  // can never activate a check, preserving safe-by-default activation.
+  // Deactivation: only the zero-signal deactivated subset is forced off. The override
+  // may only replace the computed value with false and can never activate a check,
+  // preserving safe-by-default activation.
   if (flagState?.deactivatedIds.has(public_id)) {
     activated = false;
   }
@@ -269,27 +267,27 @@ function computeBrowserCheckLevelProps(
     allTags.push('iframe');
   }
 
-  // Multi-selector review tag (D-06): a check whose spec emitted a multi-candidate
+  // Multi-selector review tag: a check whose spec emitted a multi-candidate
   // firstMatch() self-healing chain is greppable at the construct level for a
   // per-check verification pass. The whole multi-candidate class is tagged because
   // generation time cannot know which candidate resolves at runtime. Pushed in the
   // same post-filter slot as the iframe tag so DD_TAGS_EXCLUDE, DD_TAGS_EXCLUDE_ALL,
   // and DD_TAGS_REMAP cannot strip it. The tag is a fixed literal set in this
-  // generated .check.ts code, never applied via API (D-08: the next MaC deploy would
+  // generated .check.ts code, never applied via API (the next MaC deploy would
   // overwrite an API-applied tag). It NEVER touches the activated value: the class
-  // stays ACTIVE (deactivation is exclusively the FLAG-04 zero-candidate slice).
+  // stays ACTIVE (deactivation is exclusively the zero-candidate slice).
   if (hasMultiCandidate && !allTags.includes('reviewMultiSelector')) {
     allTags.push('reviewMultiSelector');
   }
 
   // Convert configVariables to environmentVariables, then union in the routed
-  // browser-step secrets (SEC-02 / D-02). Each routed key is declared name-only
-  // as { key, value: "", secret: true } reusing the EXISTING config-variable
-  // secret shape VERBATIM (D-02: Datadog never exports secret values, so the
-  // empty-string value is the established convention). A routed key that already
-  // exists as a config-variable env key is skipped (existing entry wins); the
-  // upstream used-set seeding makes this rare, so this dedup is belt-and-suspenders
-  // against duplicate env-var keys in one construct (T-09-06-03).
+  // browser-step secrets. Each routed key is declared name-only as
+  // { key, value: "", secret: true } reusing the EXISTING config-variable secret
+  // shape VERBATIM (Datadog never exports secret values, so the empty-string value is
+  // the established convention). A routed key that already exists as a config-variable
+  // env key is skipped (existing entry wins); the upstream used-set seeding makes this
+  // rare, so this dedup is belt-and-suspenders against duplicate env-var keys in one
+  // construct.
   const envVars = convertConfigVariables(test.config?.configVariables);
   const existingKeys = new Set(envVars.map(v => v.key));
   for (const key of secretKeys) {
@@ -363,7 +361,7 @@ const ENGINE_TO_DEVICE_PRESET: Readonly<Record<string, string>> = {
 
 /**
  * Generate a companion playwright.config.ts body declaring one Playwright project
- * per distinct engine (plan 10-03, PWCS-02; testDir/testMatch fix plan 10-06, CR-01).
+ * per distinct engine.
  *
  * The input engines are sorted into canonical PLAYWRIGHT_ENGINE_ORDER order
  * before emission, so the config never trusts caller-supplied ordering and the
@@ -379,7 +377,7 @@ const ENGINE_TO_DEVICE_PRESET: Readonly<Record<string, string>> = {
  * (src/07 writes there; the BrowserCheck path encodes the same distance as
  * SPECS_RELATIVE_PATH). Playwright/Checkly default testDir to the config file's
  * OWN directory, which holds zero specs, so without testDir the migrated
- * PlaywrightCheck bundles nothing and runs zero tests (CR-01). testDir is emitted
+ * PlaywrightCheck bundles nothing and runs zero tests. testDir is emitted
  * as SPECS_RELATIVE_PATH + '/' + locationType so it resolves (via path.resolve in
  * checkly's PlaywrightConfig, verified against checkly@8.13.0) to the spec dir,
  * mirroring the BrowserCheck entrypoint exactly. testMatch is the bare spec
@@ -424,14 +422,14 @@ ${projects},
 }
 
 /**
- * Generate a PlaywrightCheck construct for a multi-engine browser test (plan
- * 10-03, PWCS-02). Sibling of generateBrowserCheckCode: it shares the exact
- * check-level computation (logical id, frequency, tag sequence, activation, env
- * var / secret union) and differs only in the construct type and its two
- * Playwright-specific properties (playwrightConfigPath, pwProjects).
+ * Generate a PlaywrightCheck construct for a multi-engine browser test. Sibling of
+ * generateBrowserCheckCode: it shares the exact check-level computation (logical id,
+ * frequency, tag sequence, activation, env var / secret union) and differs only in
+ * the construct type and its two Playwright-specific properties
+ * (playwrightConfigPath, pwProjects).
  *
- * Per CONTEXT.md D-10 this construct deliberately sets neither engine nor
- * runtimeId: engine selects the JavaScript runtime and is omitted so Checkly's
+ * This construct deliberately sets neither engine nor runtimeId: engine selects the
+ * JavaScript runtime and is omitted so Checkly's
  * CLI auto-detects it, and runtimeId is not a Playwright Check Suite concept.
  * retryStrategy and doubleCheck are Omit'd from PlaywrightCheckProps and are not
  * emitted; RetryStrategyBuilder is never imported.
@@ -527,8 +525,8 @@ export async function generateConstructsForLocationType(
 
       let code: string;
       if (engines.length > 1) {
-        // Multi-engine (PWCS-02): emit a PlaywrightCheck plus a companion
-        // playwright.config.ts that declares one project per engine. Both the
+        // Multi-engine: emit a PlaywrightCheck plus a companion playwright.config.ts
+        // that declares one project per engine. Both the
         // check's pwProjects and the config's project names come from the SAME
         // engines array, so they can never drift. The two files share the base
         // name so they pair visually in a directory listing.
@@ -544,7 +542,7 @@ export async function generateConstructsForLocationType(
       }
 
       await writeFile(filepath, code, 'utf-8');
-      // Track configVariable conversions (D-10)
+      // Track configVariable conversions
       trackConfigVariableConversions(test.name, test.config?.configVariables);
       successCount++;
       generatedFiles.push({
@@ -587,7 +585,7 @@ async function main(): Promise<void> {
   await loadExistingVariableUsage();
 
   // Read the MIGRATION-FLAG state once (null-tolerant); both location passes
-  // share it so the public and private construct paths stay in sync (D-04, D-05).
+  // share it so the public and private construct paths stay in sync.
   const flagState = await readMigrationFlagState(exportsDir);
 
   // Check input file exists
@@ -699,7 +697,7 @@ async function main(): Promise<void> {
   // Write variable usage report
   await writeVariableUsageReport();
 
-  // Write check-level secrets for downstream step 09 (D-06, D-08)
+  // Write check-level secrets for downstream step 09
   const checkLevelSecrets: Array<{ checkName: string; key: string; value: string; locked: boolean }> = [];
   for (const test of tests) {
     const envVars = convertConfigVariables(test.config?.configVariables);

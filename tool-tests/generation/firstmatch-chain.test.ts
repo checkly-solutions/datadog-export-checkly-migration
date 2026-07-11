@@ -1,11 +1,11 @@
 /**
- * Generation tests for the firstMatch() runtime spine (Phase 8, plan 08-03).
+ * Generation tests for the firstMatch() runtime spine.
  *
  * Three concerns are locked here, all offline, no subprocess, no file writes
  * (Testing SOP): (1) the emitted helpers-module source constant
  * SHARED_HELPERS_SOURCE contains the bounded, priority-preserving, frames-aware
- * firstMatch plus the greppable D-02 exhaustion signal (Task 1, string
- * assertions over the constant); (2) chain-aware withLocator routes single,
+ * firstMatch plus the greppable exhaustion signal (Task 1, string assertions over
+ * the constant); (2) chain-aware withLocator routes single,
  * multi, weak, sd, and zero-candidate cases correctly through the one emit seam
  * and activates the seeded weak-fallback-chain and shadow-dom-locator flags
  * (Task 2); (3) generateSpecFile gates the helpers import and records
@@ -57,7 +57,7 @@ function mkCtx(overrides: Partial<StepFlagContext> = {}): StepFlagContext {
 /**
  * DD_TAGS_* are read by nothing here, but the emit path shares the module with
  * generators that do; snapshot/clear/restore to keep the suite hermetic and
- * order-independent alongside browser.test.ts (threat T-01-14).
+ * order-independent alongside browser.test.ts.
  */
 const DD_TAG_VARS = ['DD_TAGS_EXCLUDE', 'DD_TAGS_EXCLUDE_ALL', 'DD_TAGS_REMAP'] as const;
 let savedTagEnv: Record<string, string | undefined> = {};
@@ -76,10 +76,10 @@ after(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Task 1: SHARED_HELPERS_SOURCE — firstMatch, frames rung, D-02 exhaustion signal
+// Task 1: SHARED_HELPERS_SOURCE: firstMatch, frames rung, exhaustion signal
 // ---------------------------------------------------------------------------
 
-describe('Task 1 SHARED_HELPERS_SOURCE: emitted firstMatch helper source (LOC-02, IFR-01, D-02/D-08)', () => {
+describe('Task 1 SHARED_HELPERS_SOURCE: emitted firstMatch helper source', () => {
   const src = SHARED_HELPERS_SOURCE;
 
   it('imports test plus the Page, Frame, and Locator types from @playwright/test', () => {
@@ -96,7 +96,7 @@ describe('Task 1 SHARED_HELPERS_SOURCE: emitted firstMatch helper source (LOC-02
 
   it('probes candidates with an instant count()-gated loop over the main page first, then every page.frames() frame', () => {
     assert.ok(/\.count\(\)/.test(src), 'must gate on count()');
-    assert.ok(/page\.frames\(\)/.test(src), 'must enumerate page.frames() for the iframe rung (IFR-01)');
+    assert.ok(/page\.frames\(\)/.test(src), 'must enumerate page.frames() for the iframe rung');
     assert.ok(/mainFrame\(\)/.test(src), 'must skip the main frame in the frames loop');
     // Assert ordering over EXECUTABLE code only: strip // line comments and block
     // comments so prose that mentions page.frames() before the main-page loop
@@ -115,10 +115,10 @@ describe('Task 1 SHARED_HELPERS_SOURCE: emitted firstMatch helper source (LOC-02
   it('contains the greppable MIGRATION-LOCATOR-EXHAUSTION token exported as LOCATOR_EXHAUSTION_TOKEN', () => {
     assert.ok(src.includes('MIGRATION-LOCATOR-EXHAUSTION'), 'the greppable exhaustion token must be present verbatim');
     assert.ok(/export\s+const\s+LOCATOR_EXHAUSTION_TOKEN\s*=/.test(src),
-      'the token must be an exported const named LOCATOR_EXHAUSTION_TOKEN for reuse by plan 08-05');
+      'the token must be an exported const named LOCATOR_EXHAUSTION_TOKEN for reuse by the assertion helper');
   });
 
-  it('emits the D-02 signal as a boxed test.step plus a console.error breadcrumb', () => {
+  it('emits the exhaustion signal as a boxed test.step plus a console.error breadcrumb', () => {
     assert.ok(/test\.step\s*\(/.test(src), 'the exhaustion signal must use test.step');
     assert.ok(/box\s*:\s*true/.test(src), 'the exhaustion test.step must carry the box: true option');
     assert.ok(/console\.error\s*\(/.test(src), 'a console.error breadcrumb must be baked in (belt-and-suspenders log asset)');
@@ -126,17 +126,17 @@ describe('Task 1 SHARED_HELPERS_SOURCE: emitted firstMatch helper source (LOC-02
 
   it('on exhaustion returns the PRIMARY main-page candidate, makeCandidates(page)[0].first()', () => {
     assert.ok(/makeCandidates\(page\)\[0\]\.first\(\)/.test(src),
-      'exhaustion must return the primary main-page candidate (D-01: real native error names the intended selector)');
+      'exhaustion must return the primary main-page candidate (real native error names the intended selector)');
     // .first() is the strict-safe terminal on every successful probe return, too.
     assert.ok(/\.first\(\)/.test(src), 'successful probes must return .first() (strict-safe terminal)');
   });
 
-  it('carries the named rescan budget constants EXHAUSTION_RESCAN_BUDGET_MS (FID-03 Datadog-parity default) and RESCAN_INTERVALS_MS', () => {
-    // FID-03 (D-03): the const is now the Datadog-parity default 60000 (element
+  it('carries the named rescan budget constants EXHAUSTION_RESCAN_BUDGET_MS (Datadog-parity default) and RESCAN_INTERVALS_MS', () => {
+    // the const is now the Datadog-parity default 60000 (element
     // retry 60s default per docs.datadoghq.com), not the old fixed 2500ms; a
     // timeout-bearing step overrides it via the third firstMatch argument.
     assert.ok(/EXHAUSTION_RESCAN_BUDGET_MS\s*=\s*(60000|60_000)\b/.test(src), 'budget const must be the Datadog-parity default 60000');
-    assert.ok(!/EXHAUSTION_RESCAN_BUDGET_MS\s*=\s*2500\b/.test(src), 'the old fixed 2500 budget value must be gone (FID-03)');
+    assert.ok(!/EXHAUSTION_RESCAN_BUDGET_MS\s*=\s*2500\b/.test(src), 'the old fixed 2500 budget value must be gone');
     assert.ok(/RESCAN_INTERVALS_MS\s*=\s*\[\s*100\s*,\s*250\s*,\s*500\s*,\s*1000\s*\]/.test(src),
       'RESCAN_INTERVALS_MS must be [100, 250, 500, 1000]');
     assert.ok(/page\.waitForTimeout\(/.test(src), 'the settle-loop wait is page.waitForTimeout');
@@ -145,16 +145,16 @@ describe('Task 1 SHARED_HELPERS_SOURCE: emitted firstMatch helper source (LOC-02
   it('every timeout mentioned in the helper source is an explicit numeric literal (no defaulted wait)', () => {
     // No bare waitForTimeout() with an empty or non-numeric arg.
     assert.doesNotMatch(src, /waitForTimeout\(\s*\)/, 'waitForTimeout must never be called with no argument');
-    // FID-03: the const default and the defensive cap are explicit numeric literals;
+    // the const default and the defensive cap are explicit numeric literals;
     // the ladder intervals remain literals too.
     assert.ok(/60000|60_000/.test(src) && /1000/.test(src) && /240000/.test(src),
       'explicit numeric timeout literals must be present (60000 default, 1000 interval, 240000 cap)');
   });
 
-  it('contains NO locator-union .or( call and NO toPass call; the only waitFor is the bounded FID-03 attach-race', () => {
-    assert.ok(!/\.or\s*\(/.test(src), '.or() is set-union in document order and discards priority; forbidden (D-01)');
-    assert.ok(!/toPass\s*\(/.test(src), 'toPass defaults to infinite timeout and is forbidden in emitted code (T-8-04)');
-    // FID-03 (arch-review C2): the scan ladder is still instant-count()-only, but the
+  it('contains NO locator-union .or( call and NO toPass call; the only waitFor is the bounded attach-race', () => {
+    assert.ok(!/\.or\s*\(/.test(src), '.or() is set-union in document order and discards priority; forbidden');
+    assert.ok(!/toPass\s*\(/.test(src), 'toPass defaults to infinite timeout and is forbidden in emitted code');
+    // The scan ladder is still instant-count()-only, but the
     // exhaustion fallback now races candidates for first-attached via a BOUNDED
     // waitFor (state: 'attached' with an explicit remaining-budget timeout). Every
     // waitFor in the helper must carry a numeric timeout, so no wait is unbounded.
@@ -166,11 +166,11 @@ describe('Task 1 SHARED_HELPERS_SOURCE: emitted firstMatch helper source (LOC-02
     }
   });
 
-  it('no longer exports the legacy findInFrame helper (plan 08-04 retired it; firstMatch is the sole mechanism)', () => {
+  it('no longer exports the legacy findInFrame helper (firstMatch is the sole mechanism)', () => {
     assert.ok(!/findInFrame/.test(src),
-      'findInFrame must be gone from the helpers source once the iframe path is folded into firstMatch (plan 08-04)');
+      'findInFrame must be gone from the helpers source once the iframe path is folded into firstMatch');
     assert.ok(!/frameLocator/.test(src),
-      'no auto-waiting frameLocator call may remain in the helpers source (IFR-01, T-8-04)');
+      'no auto-waiting frameLocator call may remain in the helpers source');
     assert.ok(/export\s+async\s+function\s+firstMatch\s*\(/.test(src),
       'firstMatch must be the one exported locator mechanism');
   });
@@ -184,7 +184,7 @@ describe('Task 1 SHARED_HELPERS_SOURCE: emitted firstMatch helper source (LOC-02
 // Task 2: classifyChainStrength, buildCandidateFactoryExpr, withLocator routing
 // ---------------------------------------------------------------------------
 
-describe('Task 2 classifyChainStrength: weak-lead classifier (LOC-06 / FLAG-05 weak clause)', () => {
+describe('Task 2 classifyChainStrength: weak-lead classifier', () => {
   it('returns weak when the first candidate source is one of id, class, clt, at, ab', () => {
     for (const source of ['id', 'class', 'clt', 'at', 'ab'] as const) {
       const candidates: Candidate[] = [{ type: 'id', value: '#x', source }];
@@ -295,7 +295,7 @@ describe('Task 2 hoisted-const collision dedupe (uniqueVarName threading via ctx
   });
 });
 
-describe('Task 2 withLocator routing: single / multi / weak / sd / zero (D-06 boundary)', () => {
+describe('Task 2 withLocator routing: single / multi / weak / sd / zero', () => {
   // role + text + id => three candidates, role-led => a STRONG multi-candidate
   // chain (used where multi-ness matters but weakness is not asserted).
   const twoCandidateEl = {
@@ -313,7 +313,7 @@ describe('Task 2 withLocator routing: single / multi / weak / sd / zero (D-06 bo
   it('a multi-candidate click hoists a CandidateFactory const and references it by name in an awaited firstMatch chain', () => {
     const step: Step07 = { name: 'Click go', type: 'click', params: { element: twoCandidateEl } };
     const out = generateClick(step, mkCtx());
-    // The factory is hoisted into a named const (readability Option C), and the
+    // The factory is hoisted into a named const (readability), and the
     // action line references that const, not an inline arrow.
     assert.ok(/const\s+step1ClickGo:\s*CandidateFactory\s*=\s*\(root\)\s*=>\s*\[/.test(out),
       'multi-candidate emission must hoist a CandidateFactory const for the step');
@@ -335,19 +335,19 @@ describe('Task 2 withLocator routing: single / multi / weak / sd / zero (D-06 bo
     assert.ok(!out.includes('firstMatch'), 'a single candidate must never emit a firstMatch call (import-gate invariant)');
   });
 
-  it('a zero-candidate step keeps the FLAG-04 deactivate path byte-identical', () => {
+  it('a zero-candidate step keeps the locator-unresolvable deactivate path byte-identical', () => {
     const step: Step07 = { name: 'Click ghost', type: 'click', params: { element: { targetOuterHTML: '<div>plain</div>' } } };
     const ctx = mkCtx({ publicId: 'syn-401-aaa', stepIndex: 3 });
     const out = generateClick(step, ctx);
-    assert.ok(out.includes('// MIGRATION-FLAG: locator-unresolvable'), 'the loud FLAG-04 marker must be present');
+    assert.ok(out.includes('// MIGRATION-FLAG: locator-unresolvable'), 'the loud locator-unresolvable marker must be present');
     assert.ok(out.includes('// DD original: click \\"Click ghost\\"'), 'the preserved DD step must appear');
     // The commented-out action sits at 4-space body depth; no line may be a runnable
     // 4-space `await` statement (re-pointed from the pre-fix 2-space prefix so the
     // assertion keeps teeth under the corrected indentation).
     assert.ok(!out.split('\n').some(l => l.startsWith('    await')), 'no runnable await statement in the null path');
-    assert.equal(ctx.collector.flags.length, 1, 'exactly one FLAG-04 flag');
+    assert.equal(ctx.collector.flags.length, 1, 'exactly one locator-unresolvable flag');
     assert.equal(ctx.collector.flags[0].reason, 'locator-unresolvable');
-    assert.equal(ctx.collector.flags[0].deactivates, true, 'FLAG-04 deactivates');
+    assert.equal(ctx.collector.flags[0].deactivates, true, 'deactivates');
   });
 
   it('a weak-led chain emits exactly one non-deactivating weak-fallback-chain flag naming the leading rung', () => {
@@ -356,7 +356,7 @@ describe('Task 2 withLocator routing: single / multi / weak / sd / zero (D-06 bo
     generateClick(step, ctx);
     const weak = ctx.collector.flags.filter(f => f.reason === 'weak-fallback-chain');
     assert.equal(weak.length, 1, 'exactly one weak-fallback-chain flag for an id-led chain');
-    assert.ok(!weak[0].deactivates, 'weak-fallback-chain must NOT deactivate (D-06: degraded stays ACTIVE)');
+    assert.ok(!weak[0].deactivates, 'weak-fallback-chain must NOT deactivate (degraded stays ACTIVE)');
     assert.ok(/\bid\b/.test(weak[0].message), 'the message must name the leading rung source');
     assert.equal(weak[0].publicId, 'syn-450-www');
     assert.equal(weak[0].stepIndex, 2);
@@ -375,12 +375,12 @@ describe('Task 2 withLocator routing: single / multi / weak / sd / zero (D-06 bo
       'a role-led (strong) chain must emit no weak-fallback-chain flag');
   });
 
-  // FID-06 (D-06): the shadow-dom-locator flag message is now variant-aware and
+  // the shadow-dom-locator flag message is now variant-aware and
   // states the VERIFIED Playwright capability (checked against current Playwright
   // docs: user-facing and CSS locators pierce OPEN shadow roots automatically at
   // runtime, XPath does not, closed roots are unsupported by every locator). The
   // retired "out of scope / never attempted" wording must appear nowhere.
-  it('FID-06 variant A: an sd step with a non-xpath live candidate emits the open-root-piercing capability message (role/text/testId/CSS pierce, XPath does not, closed unsupported)', () => {
+  it('variant A: an sd step with a non-xpath live candidate emits the open-root-piercing capability message (role/text/testId/CSS pierce, XPath does not, closed unsupported)', () => {
     const el = {
       targetOuterHTML: '<button id="go">Sign in</button>',
       multiLocator: {
@@ -393,7 +393,7 @@ describe('Task 2 withLocator routing: single / multi / weak / sd / zero (D-06 bo
     const out = generateClick(step, ctx);
     const sd = ctx.collector.flags.filter(f => f.reason === 'shadow-dom-locator');
     assert.equal(sd.length, 1, 'exactly one shadow-dom-locator flag');
-    assert.ok(!sd[0].deactivates, 'shadow-dom-locator must NOT deactivate (D-06)');
+    assert.ok(!sd[0].deactivates, 'shadow-dom-locator must NOT deactivate');
     assert.ok(/shadow/i.test(sd[0].message), 'the message must mention shadow-DOM');
     // Variant A capability statement: piercing IS attempted for open roots.
     assert.ok(/pierce open shadow roots automatically/i.test(sd[0].message),
@@ -408,7 +408,7 @@ describe('Task 2 withLocator routing: single / multi / weak / sd / zero (D-06 bo
       'the sd-bearing step must still emit its normal locator statement');
   });
 
-  it('FID-06 variant B: an sd step whose ONLY live candidates are xpath emits the stronger honest message (no emitted candidate can pierce, open or closed, until a CSS or user-facing locator is added)', () => {
+  it('variant B: an sd step whose ONLY live candidates are xpath emits the stronger honest message (no emitted candidate can pierce, open or closed, until a CSS or user-facing locator is added)', () => {
     // multiLocator carries ONLY stale xpath sources (clt + at-with-@ + ab) and NO
     // targetOuterHTML id/class and no co/role source, so extractLocator's marking
     // pass leaves every candidate live as a last resort (nothing stabler to demote
@@ -427,7 +427,7 @@ describe('Task 2 withLocator routing: single / multi / weak / sd / zero (D-06 bo
     const out = generateClick(step, ctx);
     const sd = ctx.collector.flags.filter(f => f.reason === 'shadow-dom-locator');
     assert.equal(sd.length, 1, 'exactly one shadow-dom-locator flag');
-    assert.ok(!sd[0].deactivates, 'shadow-dom-locator must NOT deactivate (D-06)');
+    assert.ok(!sd[0].deactivates, 'shadow-dom-locator must NOT deactivate');
     // Variant B is the stronger honest surface: no emitted candidate can pierce.
     assert.ok(/every emitted candidate is xpath/i.test(sd[0].message),
       'variant B must state that every emitted candidate is XPath');
@@ -442,7 +442,7 @@ describe('Task 2 withLocator routing: single / multi / weak / sd / zero (D-06 bo
       'the xpath-only sd step must still emit its chain, never be dropped');
   });
 
-  it('a hostile-value candidate is escaped through generateLocatorCode inside the factory (T-8-01)', () => {
+  it('a hostile-value candidate is escaped through generateLocatorCode inside the factory', () => {
     const el = {
       // A userLocator selector carrying a quote metacharacter, plus a text rung, so
       // the chain is multi-candidate and routes through buildCandidateFactoryExpr.
@@ -462,7 +462,7 @@ describe('Task 2 withLocator routing: single / multi / weak / sd / zero (D-06 bo
     const out = generateAssertElementPresent(step, mkCtx());
     assert.ok(/const\s+step1Go:\s*CandidateFactory\s*=/.test(out), 'the assertion must hoist a CandidateFactory const');
     assert.ok(/assertOnFirstMatch\(page, step1Go,/.test(out), 'the assertion must self-heal via assertOnFirstMatch by const name');
-    assert.ok(out.includes('.toBeAttached({ timeout })'), 'the attached-state matcher forwards the per-candidate timeout (ASRT-06)');
+    assert.ok(out.includes('.toBeAttached({ timeout })'), 'the attached-state matcher forwards the per-candidate timeout');
   });
 
   it('a multi-candidate assertElementContent contains self-heals via assertOnFirstMatch (08-05 polarity seam)', () => {
@@ -482,7 +482,7 @@ describe('Task 2 withLocator routing: single / multi / weak / sd / zero (D-06 bo
 // Task 3: generateSpecFile helpers import + hasMultiCandidate manifest field
 // ---------------------------------------------------------------------------
 
-describe('Task 3 generateSpecFile: helpers import gate + hasMultiCandidate (D-06 transport)', () => {
+describe('Task 3 generateSpecFile: helpers import gate + hasMultiCandidate transport', () => {
   function mkTest(publicId: string, steps: unknown[]): Parameters<typeof generateBrowserSpec>[0] {
     return {
       public_id: publicId,
@@ -540,16 +540,15 @@ describe('Task 3 generateSpecFile: helpers import gate + hasMultiCandidate (D-06
 });
 
 // ---------------------------------------------------------------------------
-// FID-04 (Phase 9.5, plan 09.5-02): the getByText text rung retains its anchored
-// case-insensitive regex byte-for-byte, and the rationale comment is corrected
-// from the case-only justification to the settled whole-string finding (D-04,
-// gated on FID-07b which confirmed co is whole-string equality, normalized, and
-// case-folded: 154/154 acct1 + 33/33 acct2 ro text() xpaths use = "..." equality,
-// zero contains). The anchor is FAITHFUL and RETAINED; only the comment changes.
+// The getByText text rung retains its anchored case-insensitive regex
+// byte-for-byte, and the rationale comment states the settled whole-string finding:
+// co is whole-string equality, normalized, and case-folded (ro text() xpaths use
+// = "..." equality, never contains). The anchor is FAITHFUL and RETAINED; only the
+// comment changes.
 // ---------------------------------------------------------------------------
 
-describe('FID-04 getByText text rung: retained anchored case-insensitive regex + corrected whole-string rationale', () => {
-  it('FID-04 emits getByText(new RegExp(...)) with a caret-anchored, dollar-terminated pattern for a text candidate (retained code)', () => {
+describe('getByText text rung: retained anchored case-insensitive regex + corrected whole-string rationale', () => {
+  it('emits getByText(new RegExp(...)) with a caret-anchored, dollar-terminated pattern for a text candidate (retained code)', () => {
     const out = generateLocatorCode({ type: 'text', value: 'Sign in', source: 'text' } as any, mkCtx());
     // The emitted code is the anchored case-insensitive regex form: getByText over a
     // new RegExp whose stringified pattern begins with ^ and ends with $ (whole-string).
@@ -559,21 +558,21 @@ describe('FID-04 getByText text rung: retained anchored case-insensitive regex +
     assert.match(out, /new RegExp\("\^[^"]*\$",/, 'the stringified pattern must begin with ^ and end with $ (whole-string anchor)');
   });
 
-  it('FID-04 source rationale states the settled whole-string finding proven by the census equality form', () => {
+  it('source rationale states the settled whole-string finding proven by the equality form', () => {
     const src = readFileSync(SRC07_PATH, 'utf-8');
     // Collapse the JSDoc line-continuation ( * ) so a phrase split across comment lines
     // is matched as one string (the retired claim and the corrected one both span lines).
     const flat = src.replace(/\n\s*\*\s?/g, ' ');
     // The corrected rationale describes co as a whole-string comparison that Playwright
-    // reproduces by anchoring and normalizing whitespace (the census equality proof).
+    // reproduces by anchoring and normalizing whitespace (the equality proof).
     assert.ok(/whole-string/.test(flat), 'the src/07 text-rung rationale must state the whole-string finding');
     assert.ok(/normalize/i.test(flat), 'the src/07 text-rung rationale must state whitespace normalization');
-    // The settled justification cites the census equality proof (equality, never contains),
+    // The settled justification cites the equality proof (equality, never contains),
     // NOT the retired case-only "lowercases the live DOM" claim.
-    assert.ok(/never contains|equality/i.test(flat), 'the rationale must cite the census equality proof (equality, never contains)');
+    assert.ok(/never contains|equality/i.test(flat), 'the rationale must cite the equality proof (equality, never contains)');
   });
 
-  it('FID-04 source no longer justifies the anchor by the retired case-only "lowercases the live DOM" claim', () => {
+  it('source no longer justifies the anchor by the retired case-only "lowercases the live DOM" claim', () => {
     const src = readFileSync(SRC07_PATH, 'utf-8');
     const flat = src.replace(/\n\s*\*\s?/g, ' ');
     // The retired justification claimed the anchor is whole-string BECAUSE Datadog
@@ -583,7 +582,7 @@ describe('FID-04 getByText text rung: retained anchored case-insensitive regex +
 });
 
 // ---------------------------------------------------------------------------
-// FID-05 (Phase 9.5, plan 09.5-04): provenance emission (D-05, D-07d).
+// Provenance emission.
 //
 // When at least one stabler candidate exists, ab/at/clt sourced xpath rungs are
 // demoted out of the LIVE firstMatch chain and re-emitted as single-line // comment
@@ -594,7 +593,7 @@ describe('FID-04 getByText text rung: retained anchored case-insensitive regex +
 // which routes through withLocator per the suite idiom.
 // ---------------------------------------------------------------------------
 
-describe('FID-05: provenance emission in withLocator (D-05, D-07d)', () => {
+describe('provenance emission in withLocator', () => {
   it('Emission 1 (no live stale rung): a role+text+ab step emits a factory with NO ab xpath= expression, plus an ab provenance comment', () => {
     // role (from targetOuterHTML) + text (from co) are two stable live candidates;
     // ab is stale and must be demoted.
@@ -688,14 +687,14 @@ describe('FID-05: provenance emission in withLocator (D-05, D-07d)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// FID-01 (Phase 9.5, plan 09.5-05): userLocator pin authority (D-01, D-07d).
+// userLocator pin authority.
 //
 // A step whose export sets userLocator.failTestOnCannotLocate to true honors the
 // Datadog "If user specified locator fails, fail test" checkbox: the pinned locator
 // is emitted ALONE (no firstMatch call, no CandidateFactory const, no fallback
 // candidate expressions), so a pin miss fails the step natively instead of self-
 // healing to a fallback element. The gate is TYPE-INDEPENDENT (a css pin and an
-// xpath pin both emit pin-only, D-07d) and keys on the parsed boolean plus the live
+// xpath pin both emit pin-only) and keys on the parsed boolean plus the live
 // primary's userLocator source, never on the candidate type. When the flag is true
 // but the pin cannot be derived (empty value, or a lone bare standard tag that
 // rewriteUserLocatorValue rejects), the self-healing chain is KEPT and the gap is
@@ -705,7 +704,7 @@ describe('FID-05: provenance emission in withLocator (D-05, D-07d)', () => {
 // which routes through withLocator per the suite idiom.
 // ---------------------------------------------------------------------------
 
-describe('FID-01: userLocator pin authority (D-01, D-07d)', () => {
+describe('userLocator pin authority', () => {
   // A rich multiLocator so the WITHOUT-pin baseline is multi-candidate (role from
   // targetOuterHTML + text from co): this is what the pin must suppress.
   const richMulti = {
@@ -734,7 +733,7 @@ describe('FID-01: userLocator pin authority (D-01, D-07d)', () => {
     // No expression derived from any non-pin candidate (the role/text rungs must not appear).
     assert.ok(!out.includes('getByRole'), 'the role candidate must not be emitted for a pinned step');
     assert.ok(!out.includes('getByText'), 'the text candidate must not be emitted for a pinned step');
-    // Datadog itself ignores the stored strategies in this mode, so no FID-05 provenance
+    // Datadog itself ignores the stored strategies in this mode, so no provenance
     // comment lines for the (suppressed) chain either.
     assert.ok(!/provenance only/i.test(out), 'no provenance comment lines for a pin-only step');
     // No pin-unresolvable flag: the pin WAS derivable.
@@ -843,7 +842,7 @@ describe('FID-01: userLocator pin authority (D-01, D-07d)', () => {
     // Exactly one pin-unresolvable flag fired.
     const pinFlags = ctx.collector.flags.filter((f) => f.reason === 'user-locator-pin-unresolvable');
     assert.equal(pinFlags.length, 1, 'exactly one user-locator-pin-unresolvable flag for an underivable pin');
-    assert.ok(!pinFlags[0].deactivates, 'the pin-unresolvable flag never deactivates (D-06, chain stays live)');
+    assert.ok(!pinFlags[0].deactivates, 'the pin-unresolvable flag never deactivates (chain stays live)');
     assert.equal(pinFlags[0].publicId, 'syn-706-fff');
     assert.equal(pinFlags[0].stepIndex, 2);
 
@@ -851,7 +850,7 @@ describe('FID-01: userLocator pin authority (D-01, D-07d)', () => {
     assert.ok(out.includes('// MIGRATION-FLAG: user-locator-pin-unresolvable'),
       'the pin-unresolvable marker must appear inline in the emitted output');
 
-    // Value-free message discipline (threat T-9.5-05 / T-07-02): the message names the
+    // Value-free message discipline (threat T-9.5-05 /): the message names the
     // condition, never the raw selector value string.
     assert.ok(!pinFlags[0].message.includes('button'),
       'the flag message must NOT embed the raw selector value (value-free discipline, T-9.5-05)');
@@ -879,19 +878,19 @@ describe('FID-01: userLocator pin authority (D-01, D-07d)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// FID-03 (Phase 9.5, plan 09.5-06): derived settle budget (D-03).
+// Derived settle budget.
 //
 // The fixed 2500ms exhaustion settle budget is replaced by a budget derived from
 // the export's Datadog timeout: the per-step step.timeout (seconds) when present,
 // else the test's options.initialNavigationTimeout (seconds), else a Datadog-parity
 // default (60000ms, living in the emitted helper const so timeout-less call sites
 // stay byte-stable). A Datadog value of 0/undefined/negative means "use default"
-// (Pitfall 2: 0 is not zero-ms), so it is treated as absent and never emits a zero
+// (0 is not zero-ms), so it is treated as absent and never emits a zero
 // or near-zero budget. The derived value is clamped to a 2500ms floor and Checkly's
 // 240000ms cap. Only timeout-bearing steps emit a third firstMatch argument; a
 // timeout-less step in a timeout-less test emits the same two-argument call as
 // before. On exhaustion the emitted helper races ALL candidates for first-attached
-// (arch-review C2) rather than always returning the primary.
+// rather than always returning the primary.
 //
 // The multi-candidate fixtures below drive emission through generateClick, which
 // routes through withLocator; the per-step budget derives from step.timeout and the
@@ -900,7 +899,7 @@ describe('FID-01: userLocator pin authority (D-01, D-07d)', () => {
 // construction).
 // ---------------------------------------------------------------------------
 
-describe('FID-03: derived settle budget (D-03)', () => {
+describe('derived settle budget', () => {
   // A role+text multiLocator so the emission is multi-candidate (a firstMatch call
   // is emitted, which is where the third budget argument attaches).
   const richMulti = {
@@ -908,47 +907,47 @@ describe('FID-03: derived settle budget (D-03)', () => {
     multiLocator: { co: JSON.stringify([{ text: 'Sign in', textType: 'directText' }]) },
   };
 
-  describe('FID-03 deriveSettleBudgetMs derivation table (seconds in, ms out, 0=absent, floor 2500, cap 240000)', () => {
-    it('FID-03 (undefined, undefined) is null (no export timeout, so no third argument)', () => {
+  describe('deriveSettleBudgetMs derivation table (seconds in, ms out, 0=absent, floor 2500, cap 240000)', () => {
+    it('(undefined, undefined) is null (no export timeout, so no third argument)', () => {
       assert.equal(deriveSettleBudgetMs(undefined, undefined), null);
     });
-    it('FID-03 (0, undefined) is null (a zero step timeout means use-default, treated as absent)', () => {
+    it('(0, undefined) is null (a zero step timeout means use-default, treated as absent)', () => {
       assert.equal(deriveSettleBudgetMs(0, undefined), null);
     });
-    it('FID-03 (-5, undefined) is null (a negative step timeout is treated as absent)', () => {
+    it('(-5, undefined) is null (a negative step timeout is treated as absent)', () => {
       assert.equal(deriveSettleBudgetMs(-5, undefined), null);
     });
-    it('FID-03 (10, undefined) is 10000 (seconds converted to ms)', () => {
+    it('(10, undefined) is 10000 (seconds converted to ms)', () => {
       assert.equal(deriveSettleBudgetMs(10, undefined), 10000);
     });
-    it('FID-03 (undefined, 120) is 120000 (nav timeout used when step timeout absent)', () => {
+    it('(undefined, 120) is 120000 (nav timeout used when step timeout absent)', () => {
       assert.equal(deriveSettleBudgetMs(undefined, 120), 120000);
     });
-    it('FID-03 (10, 120) is 10000 (step timeout wins over nav timeout)', () => {
+    it('(10, 120) is 10000 (step timeout wins over nav timeout)', () => {
       assert.equal(deriveSettleBudgetMs(10, 120), 10000);
     });
-    it('FID-03 (0, 120) is 120000 (a zero step timeout falls through to the nav timeout)', () => {
+    it('(0, 120) is 120000 (a zero step timeout falls through to the nav timeout)', () => {
       assert.equal(deriveSettleBudgetMs(0, 120), 120000);
     });
-    it('FID-03 (1, undefined) is 2500 (1000ms is clamped up to the 2500ms floor)', () => {
+    it('(1, undefined) is 2500 (1000ms is clamped up to the 2500ms floor)', () => {
       assert.equal(deriveSettleBudgetMs(1, undefined), 2500);
     });
-    it('FID-03 (500, undefined) is 240000 (500000ms is clamped down to the 240000ms cap)', () => {
+    it('(500, undefined) is 240000 (500000ms is clamped down to the 240000ms cap)', () => {
       assert.equal(deriveSettleBudgetMs(500, undefined), 240000);
     });
   });
 
-  describe('FID-03 helper-source structure: budget-parameterized firstMatch with attach-race exhaustion', () => {
+  describe('helper-source structure: budget-parameterized firstMatch with attach-race exhaustion', () => {
     const src = SHARED_HELPERS_SOURCE;
 
-    it('FID-03 firstMatch signature accepts a third budgetMs parameter defaulting to the budget const', () => {
+    it('firstMatch signature accepts a third budgetMs parameter defaulting to the budget const', () => {
       assert.ok(
         /export\s+async\s+function\s+firstMatch\s*\(\s*page\s*:\s*Page\s*,\s*makeCandidates\s*:[^,]*,\s*budgetMs\s*:\s*number\s*=\s*EXHAUSTION_RESCAN_BUDGET_MS\s*\)/.test(src),
         'firstMatch must take a third budgetMs: number = EXHAUSTION_RESCAN_BUDGET_MS parameter',
       );
     });
 
-    it('FID-03 the budget const value is the Datadog-parity default 60000', () => {
+    it('the budget const value is the Datadog-parity default 60000', () => {
       assert.ok(
         /EXHAUSTION_RESCAN_BUDGET_MS\s*=\s*(60000|60_000)\b/.test(src),
         'the budget const must be the Datadog-parity default 60000',
@@ -956,7 +955,7 @@ describe('FID-03: derived settle budget (D-03)', () => {
       assert.ok(!/EXHAUSTION_RESCAN_BUDGET_MS\s*=\s*2500\b/.test(src), 'the old 2500 const value must be gone');
     });
 
-    it('FID-03 the body applies a defensive Math.min cap against 240000', () => {
+    it('the body applies a defensive Math.min cap against 240000', () => {
       assert.ok(
         /Math\.min\s*\(\s*[A-Za-z0-9_]*budgetMs[^)]*240000|Math\.min\s*\([^)]*240_?000[^)]*budgetMs/i.test(src) ||
           /Math\.min\s*\(\s*budgetMs\s*,\s*240_?000\s*\)/.test(src),
@@ -964,7 +963,7 @@ describe('FID-03: derived settle budget (D-03)', () => {
       );
     });
 
-    it('FID-03 the body contains an attach-race phase over candidate waitFor state attached before the exhaustion token', () => {
+    it('the body contains an attach-race phase over candidate waitFor state attached before the exhaustion token', () => {
       assert.ok(/Promise\.any/.test(src), 'the exhaustion fallback must race candidates via Promise.any');
       assert.ok(/state\s*:\s*['"]attached['"]/.test(src), 'the race must await candidate waitFor state attached');
       // The attach-race must precede the exhaustion token in source order.
@@ -974,29 +973,29 @@ describe('FID-03: derived settle budget (D-03)', () => {
         'the attach-race phase must appear before the true-exhaustion token emission');
     });
 
-    it('FID-03 the LOCATOR_EXHAUSTION_TOKEN and the primary-candidate final return remain present', () => {
+    it('the LOCATOR_EXHAUSTION_TOKEN and the primary-candidate final return remain present', () => {
       assert.ok(/LOCATOR_EXHAUSTION_TOKEN/.test(src), 'the exhaustion token must remain');
       assert.ok(/return\s+makeCandidates\(page\)\[0\]\.first\(\)/.test(src),
         'the primary-candidate final return must remain as the last-resort fallback');
     });
   });
 
-  describe('FID-03 emission: third firstMatch argument gated on a derived budget', () => {
-    it('FID-03 Emission 1: a multi-candidate step whose step.timeout is 10 emits a third argument of 10000', () => {
+  describe('emission: third firstMatch argument gated on a derived budget', () => {
+    it('Emission 1: a multi-candidate step whose step.timeout is 10 emits a third argument of 10000', () => {
       const step: Step07 = { name: 'Click go', type: 'click', params: { element: richMulti }, timeout: 10 } as Step07;
       const out = generateClick(step, mkCtx({ publicId: 'syn-611-aaa', stepIndex: 0 }));
       assert.ok(/await\s*\(await firstMatch\(page,\s*step\d+\w*,\s*10000\)\)/.test(out),
         'a step.timeout of 10 must emit the third firstMatch argument 10000');
     });
 
-    it('FID-03 Emission 2: a timeout-less multi step in a test whose initialNavigationTimeout is 120 emits a third argument of 120000', () => {
+    it('Emission 2: a timeout-less multi step in a test whose initialNavigationTimeout is 120 emits a third argument of 120000', () => {
       const step: Step07 = { name: 'Click go', type: 'click', params: { element: richMulti } };
       const out = generateClick(step, mkCtx({ publicId: 'syn-612-bbb', stepIndex: 0, navTimeoutSec: 120 }));
       assert.ok(/await\s*\(await firstMatch\(page,\s*step\d+\w*,\s*120000\)\)/.test(out),
         'a timeout-less step under initialNavigationTimeout 120 must emit the third firstMatch argument 120000');
     });
 
-    it('FID-03 Emission 3: a timeout-less multi step in a timeout-less test emits the two-argument firstMatch call with NO third argument', () => {
+    it('Emission 3: a timeout-less multi step in a timeout-less test emits the two-argument firstMatch call with NO third argument', () => {
       const step: Step07 = { name: 'Click go', type: 'click', params: { element: richMulti } };
       const out = generateClick(step, mkCtx({ publicId: 'syn-613-ccc', stepIndex: 0 }));
       assert.ok(/await\s*\(await firstMatch\(page,\s*step\d+\w*\)\)/.test(out),
@@ -1005,7 +1004,7 @@ describe('FID-03: derived settle budget (D-03)', () => {
         'a timeout-less step must emit NO third firstMatch argument (call-site bytes stable)');
     });
 
-    it('FID-03 Emission 4 (zero guard): step.timeout of 0 in a timeout-less test emits the two-argument form, never a zero argument', () => {
+    it('Emission 4 (zero guard): step.timeout of 0 in a timeout-less test emits the two-argument form, never a zero argument', () => {
       const step: Step07 = { name: 'Click go', type: 'click', params: { element: richMulti }, timeout: 0 } as Step07;
       const out = generateClick(step, mkCtx({ publicId: 'syn-614-ddd', stepIndex: 0 }));
       assert.ok(/await\s*\(await firstMatch\(page,\s*step\d+\w*\)\)/.test(out),

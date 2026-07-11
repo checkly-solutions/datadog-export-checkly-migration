@@ -1,6 +1,6 @@
 /**
- * Unit tests for the Phase 8 ordered-candidate locator layer (LOC-01, LOC-03,
- * LOC-04, LOC-05, LOC-06, LOC-07) in src/07-generate-browser-specs.ts.
+ * Unit tests for the ordered-candidate locator layer in
+ * src/07-generate-browser-specs.ts.
  *
  * This suite pins the pure extraction and per-candidate derivation contract:
  * the six new derivation helpers (Task 1), the ordered extractLocator candidate
@@ -11,8 +11,8 @@
  * in src/07 (not exported as named types), so parameter shapes are derived via
  * Parameters<typeof ...> where a named type is unavailable.
  *
- * The candidate ORDER encoded here is a census-grounded engineering decision
- * (08-RESEARCH §4.2), never a claim about a documented Datadog ordering.
+ * The candidate ORDER encoded here is an engineering decision, never a claim about
+ * a documented Datadog ordering.
  */
 process.env.CHECKLY_ACCOUNT_NAME ??= 'tool-tests';
 
@@ -53,7 +53,7 @@ describe('DYNAMIC_ID_PATTERNS: extensible denylist const', () => {
   });
 });
 
-describe('isDynamicId (LOC-06 denylist): rejects dynamic ids, keeps semantic ids', () => {
+describe('isDynamicId (denylist): rejects dynamic ids, keeps semantic ids', () => {
   it('rejects an Okta input-digit id', () => {
     assert.equal(isDynamicId('input92'), true);
   });
@@ -80,7 +80,7 @@ describe('isDynamicId (LOC-06 denylist): rejects dynamic ids, keeps semantic ids
   });
 });
 
-describe('deriveRoleCandidate (LOC-05): role only from targetOuterHTML, name required', () => {
+describe('deriveRoleCandidate: role only from targetOuterHTML, name required', () => {
   it('explicit role plus aria-label yields role and name', () => {
     const html = '<div role="tab" aria-label="Reports Tab">x</div>';
     assert.deepEqual(deriveRoleCandidate(html), { role: 'tab', name: 'Reports Tab' });
@@ -120,7 +120,7 @@ describe('deriveStableAttrCandidates (LOC): name, href, non-empty aria-label', (
     assert.ok(cands.some((c) => c.value === '[aria-label="Close panel"]'), 'must include aria-label selector');
   });
 
-  it('an empty aria-label yields no aria-label candidate (32 empties in the census)', () => {
+  it('an empty aria-label yields no aria-label candidate (32 empties in the)', () => {
     const cands = deriveStableAttrCandidates('<div aria-label="">x</div>');
     assert.ok(!cands.some((c) => c.value.startsWith('[aria-label=')), 'empty aria-label must not emit');
   });
@@ -137,7 +137,7 @@ describe('deriveStableAttrCandidates (LOC): name, href, non-empty aria-label', (
   });
 });
 
-describe('rewriteUserLocatorValue (D-03): class-list join, bare-tag skip, verbatim passthrough', () => {
+describe('rewriteUserLocatorValue: class-list join, bare-tag skip, verbatim passthrough', () => {
   it('a multi-token bare class list becomes a dotted class selector', () => {
     assert.equal(rewriteUserLocatorValue('btn primary large'), '.btn.primary.large');
   });
@@ -155,7 +155,7 @@ describe('rewriteUserLocatorValue (D-03): class-list join, bare-tag skip, verbat
   });
 });
 
-describe('pickContentText (LOC-04 input): textType preference and trimming', () => {
+describe('pickContentText: textType preference and trimming', () => {
   it('prefers directText over innerText', () => {
     const entries = [
       { text: 'inner blob', textType: 'innerText' },
@@ -192,7 +192,7 @@ describe('pickContentText (LOC-04 input): textType preference and trimming', () 
 // Task 2: ordered extractLocator candidate list
 // ---------------------------------------------------------------------------
 
-describe('extractLocator (LOC-01): returns an ordered Locator[]', () => {
+describe('extractLocator: returns an ordered Locator[]', () => {
   it('returns [] for an undefined element', () => {
     assert.deepEqual(extractLocator(undefined), []);
   });
@@ -202,7 +202,7 @@ describe('extractLocator (LOC-01): returns an ordered Locator[]', () => {
     assert.deepEqual(extractLocator(el), []);
   });
 
-  it('userLocator is index 0 and trusted (D-03) even when a dynamic-id shape appears in it', () => {
+  it('userLocator is index 0 and trusted even when a dynamic-id shape appears in it', () => {
     const el: Element = {
       targetOuterHTML: '<div id="input92">x</div>',
       userLocator: { values: [{ type: 'css', value: '#input92' }] },
@@ -227,7 +227,7 @@ describe('extractLocator (LOC-01): returns an ordered Locator[]', () => {
     assert.ok(cands.length > 0, 'the chain must still self-heal to a derived candidate');
   });
 
-  it('a data-testid-only element yields exactly one candidate, source testId, no id (LOC-07)', () => {
+  it('a data-testid-only element yields exactly one candidate, source testId, no id', () => {
     const el: Element = { targetOuterHTML: '<div data-testid="save-btn">x</div>', multiLocator: {} };
     const cands = extractLocator(el);
     assert.equal(cands.length, 1, 'exactly one candidate');
@@ -235,7 +235,7 @@ describe('extractLocator (LOC-01): returns an ordered Locator[]', () => {
     assert.ok(!cands.some((c) => c.source === 'id'), 'no id candidate may leak from data-testid');
   });
 
-  it('testId is ordered before a raw id extraction (LOC-07)', () => {
+  it('testId is ordered before a raw id extraction', () => {
     const el: Element = { targetOuterHTML: '<div data-testid="save" id="wrap">x</div>', multiLocator: {} };
     const cands = extractLocator(el);
     const testIdx = cands.findIndex((c) => c.source === 'testId');
@@ -271,7 +271,7 @@ describe('extractLocator (LOC-01): returns an ordered Locator[]', () => {
     assert.equal(text!.value, 'no account?', 'raw text preserved; escaping is generateLocatorCode job');
   });
 
-  it('a dynamic id with a semantic co text yields the text candidate and NO id candidate (LOC-06)', () => {
+  it('a dynamic id with a semantic co text yields the text candidate and NO id candidate', () => {
     const el: Element = {
       targetOuterHTML: '<div id="input92">x</div>',
       multiLocator: { co: JSON.stringify([{ text: 'submit', textType: 'directText' }]) },
@@ -376,7 +376,7 @@ describe('extractLocator (LOC-01): returns an ordered Locator[]', () => {
 // Task 3: widened generateLocatorCode builders
 // ---------------------------------------------------------------------------
 
-describe('generateLocatorCode (LOC-04, LOC-05): per-candidate builders', () => {
+describe('generateLocatorCode: per-candidate builders', () => {
   it('role case emits getByRole with a name option and no exact-match token', () => {
     const loc: Locator = { type: 'role', value: 'button', source: 'role', name: 'Sign In' };
     const out = generateLocatorCode(loc, mkCtx());
@@ -407,7 +407,7 @@ describe('generateLocatorCode (LOC-04, LOC-05): per-candidate builders', () => {
     assert.ok(!out.includes('exact'), 'a case-sensitive exact-match option must never appear');
   });
 
-  it('a hostile metacharacter-bearing text value cannot break out of the emitted string (T-8-01)', () => {
+  it('a hostile metacharacter-bearing text value cannot break out of the emitted string', () => {
     const loc: Locator = { type: 'text', value: 'a") || alert(1) //', source: 'text' };
     const out = generateLocatorCode(loc, mkCtx());
     // The whole payload lives inside a JSON string literal produced by JSON.stringify,
@@ -443,12 +443,12 @@ describe('generateLocatorCode (LOC-04, LOC-05): per-candidate builders', () => {
     assert.equal(generateLocatorCode(loc, mkCtx(), 'frame'), 'frame.locator("#username")');
   });
 
-  it('a census-shaped id-anchored multiLocator.ro emits no getByRole (LOC-05)', () => {
-    // LOC-05 pins role derivation to targetOuterHTML for a NON-role ro shape. The
-    // census ro is always an xpath; an id-anchored ro (//*[@id=...]) is not a role,
-    // so no getByRole may derive from it. (The FID-02 defensive rung fires ONLY on a
+  it('an id-anchored multiLocator.ro emits no getByRole', () => {
+    // pins role derivation to targetOuterHTML for a NON-role ro shape. The
+    // ro is always an xpath; an id-anchored ro (//*[@id=...]) is not a role,
+    // so no getByRole may derive from it. (The defensive ro rung fires ONLY on a
     // genuinely role-bearing ro (bare token or a local-name() predicate); that fire
-    // path is covered in the "FID-02: defensive ro role rung" block below.)
+    // path is covered in the "defensive ro role rung" block below.)
     const el: Element = {
       targetOuterHTML: '<div>x</div>',
       multiLocator: {
@@ -465,79 +465,79 @@ describe('generateLocatorCode (LOC-04, LOC-05): per-candidate builders', () => {
 });
 
 // ---------------------------------------------------------------------------
-// FID-02 (D-02, gated by D-07c): the defensive ro role rung
+// The defensive ro role rung
 //
 // Census fact (09.5-RESEARCH (c)): multiLocator.ro is NEVER a bare ARIA role in
-// either captured account (0/348 acct1, 0/73 acct2); it is always an xpath in one
+// either captured account (0/348, 0/73); it is always an xpath in one
 // of three shapes (id-anchored, class-anchored, text-anchored), often carrying a
 // local-name()="tag" predicate. The Phase-8 "role from targetOuterHTML only"
 // decision is CONFIRMED, not overfit. This block pins the defensive rung: it FIRES
 // only when ro genuinely encodes a real role (a bare role token, or a local-name()
-// predicate whose tag maps to an implicit role), and stays SILENT on every census
+// predicate whose tag maps to an implicit role), and stays SILENT on every
 // shape. On today's data and the golden seed it emits nothing (emission-neutral).
 //
 // All fixtures are authored synthetic (invented values only, example.com family,
 // syn- ids, names 25 chars or fewer); no customer value appears.
 // ---------------------------------------------------------------------------
 
-describe('deriveRoRoleCandidate (FID-02): defensive parse of multiLocator.ro', () => {
-  it('FID-02 returns null for undefined input', () => {
+describe('deriveRoRoleCandidate: defensive parse of multiLocator.ro', () => {
+  it('returns null for undefined input', () => {
     assert.equal(deriveRoRoleCandidate(undefined), null);
   });
 
-  it('FID-02 returns null for empty-string input', () => {
+  it('returns null for empty-string input', () => {
     assert.equal(deriveRoRoleCandidate(''), null);
   });
 
-  it('FID-02 fires on a bare role token (hypothetical third account)', () => {
+  it('fires on a bare role token (hypothetical third account)', () => {
     // A third account whose ro genuinely stores a bare ARIA role must not be dropped.
     assert.deepEqual(deriveRoRoleCandidate('button'), { role: 'button' });
   });
 
-  it('FID-02 bare-token match is a member of the known-role set (combobox), no name', () => {
+  it('bare-token match is a member of the known-role set (combobox), no name', () => {
     assert.deepEqual(deriveRoRoleCandidate('combobox'), { role: 'combobox' });
   });
 
-  it('FID-02 rejects a bare token that is not a known ARIA role', () => {
+  it('rejects a bare token that is not a known ARIA role', () => {
     assert.equal(deriveRoRoleCandidate('notarealrole'), null);
   });
 
-  it('FID-02 fires on a local-name() predicate, mapping the tag to its implicit role', () => {
+  it('fires on a local-name() predicate, mapping the tag to its implicit role', () => {
     const ro = '//*[local-name()="button"]';
     assert.deepEqual(deriveRoRoleCandidate(ro), { role: 'button' });
   });
 
-  it('FID-02 surfaces the text() equality predicate as the accessible name', () => {
+  it('surfaces the text() equality predicate as the accessible name', () => {
     const ro =
       '//*[local-name()="button"][text()[normalize-space(translate(., \'SIGN IN\', \'sign in\')) = "sign in"]]';
     assert.deepEqual(deriveRoRoleCandidate(ro), { role: 'button', name: 'sign in' });
   });
 
-  it('FID-02 accepts a single-quoted local-name() tag', () => {
+  it('accepts a single-quoted local-name() tag', () => {
     const ro = "//*[local-name()='select']";
     assert.deepEqual(deriveRoRoleCandidate(ro), { role: 'combobox' });
   });
 
-  it('FID-02 returns null when the local-name() tag has no implicit-role mapping', () => {
+  it('returns null when the local-name() tag has no implicit-role mapping', () => {
     // div has no implicit role in IMPLICIT_ROLE_BY_TAG, so no role derives.
     assert.equal(deriveRoRoleCandidate('//*[local-name()="div"]'), null);
   });
 
-  it('FID-02 stays silent on the id-anchored census shape', () => {
+  it('stays silent on the id-anchored ro shape', () => {
     assert.equal(deriveRoRoleCandidate('//*[@id="login-button"]'), null);
   });
 
-  it('FID-02 stays silent on the class-anchored census shape', () => {
+  it('stays silent on the class-anchored ro shape', () => {
     const ro = '//*[contains(concat(\' \', normalize-space(@class), \' \'), " btn-primary ")]';
     assert.equal(deriveRoRoleCandidate(ro), null);
   });
 
-  it('FID-02 stays silent on a text-anchored census shape with no local-name predicate', () => {
+  it('stays silent on a text-anchored ro shape with no local-name predicate', () => {
     const ro = '//*[text()[normalize-space(translate(., \'SIGN IN\', \'sign in\')) = "sign in"]]';
     assert.equal(deriveRoRoleCandidate(ro), null);
   });
 
-  it('FID-02 never returns a role value or name carrying xpath syntax', () => {
+  it('never returns a role value or name carrying xpath syntax', () => {
     const shapes = [
       '//*[@id="login-button"]',
       '//*[contains(concat(\' \', normalize-space(@class), \' \'), " btn-primary ")]',
@@ -558,8 +558,8 @@ describe('deriveRoRoleCandidate (FID-02): defensive parse of multiLocator.ro', (
   });
 });
 
-describe('FID-02: defensive ro role rung inside extractLocator', () => {
-  it('FID-02 fire case 1: a bare-role ro with no HTML role adds one role-typed candidate', () => {
+describe('defensive ro role rung inside extractLocator', () => {
+  it('fire case 1: a bare-role ro with no HTML role adds one role-typed candidate', () => {
     const el: Element = {
       targetOuterHTML: '<span>x</span>',
       multiLocator: { ro: 'button' },
@@ -572,7 +572,7 @@ describe('FID-02: defensive ro role rung inside extractLocator', () => {
     assert.equal(roleCands[0].name, undefined, 'a bare-token ro carries no accessible name');
   });
 
-  it('FID-02 fire case 2: a local-name() ro with a text() predicate carries the name', () => {
+  it('fire case 2: a local-name() ro with a text() predicate carries the name', () => {
     const el: Element = {
       targetOuterHTML: '<span>x</span>',
       multiLocator: {
@@ -589,7 +589,7 @@ describe('FID-02: defensive ro role rung inside extractLocator', () => {
     assert.equal(emitted, 'page.getByRole("button", { name: "sign in" })');
   });
 
-  it('FID-02 silent case 1: an id-anchored ro derives no role candidate', () => {
+  it('silent case 1: an id-anchored ro derives no role candidate', () => {
     const el: Element = {
       targetOuterHTML: '<div>x</div>',
       multiLocator: { ro: '//*[@id="login-button"]' },
@@ -604,7 +604,7 @@ describe('FID-02: defensive ro role rung inside extractLocator', () => {
     );
   });
 
-  it('FID-02 silent case 2: a class-anchored ro derives no role candidate', () => {
+  it('silent case 2: a class-anchored ro derives no role candidate', () => {
     const el: Element = {
       targetOuterHTML: '<div>x</div>',
       multiLocator: {
@@ -615,7 +615,7 @@ describe('FID-02: defensive ro role rung inside extractLocator', () => {
     assert.ok(!cands.some((c) => c.type === 'role'), 'no role candidate from a class-anchored ro');
   });
 
-  it('FID-02 silent case 3: a text-anchored ro with no local-name predicate derives no role', () => {
+  it('silent case 3: a text-anchored ro with no local-name predicate derives no role', () => {
     const el: Element = {
       targetOuterHTML: '<div>x</div>',
       multiLocator: {
@@ -626,7 +626,7 @@ describe('FID-02: defensive ro role rung inside extractLocator', () => {
     assert.ok(!cands.some((c) => c.type === 'role'), 'no role candidate from a bare text-anchored ro');
   });
 
-  it('FID-02 dedupe: an HTML-derived role button and an ro-derived role button collapse to one', () => {
+  it('dedupe: an HTML-derived role button and an ro-derived role button collapse to one', () => {
     const el: Element = {
       targetOuterHTML: '<button>Sign In</button>',
       multiLocator: { ro: '//*[local-name()="button"]' },
@@ -636,7 +636,7 @@ describe('FID-02: defensive ro role rung inside extractLocator', () => {
     assert.equal(roleCands.length, 1, 'the type-and-value dedupe collapses the two role buttons');
   });
 
-  it('FID-02 garbage guard: no role candidate in the suite carries xpath syntax', () => {
+  it('garbage guard: no role candidate in the suite carries xpath syntax', () => {
     const fixtures: Element[] = [
       { targetOuterHTML: '<span>x</span>', multiLocator: { ro: 'button' } },
       {
@@ -664,7 +664,7 @@ describe('FID-02: defensive ro role rung inside extractLocator', () => {
 });
 
 // ---------------------------------------------------------------------------
-// FID-05 (Phase 9.5, plan 09.5-04): stale-xpath demotion (D-05, D-07d).
+// Stale-xpath demotion.
 //
 // The ab/at/clt sourced xpath rungs are Datadog-recorded breadcrumbs, not live
 // pass-if-any candidates. When at least one STABLER candidate (source OUTSIDE the
@@ -673,11 +673,11 @@ describe('FID-02: defensive ro role rung inside extractLocator', () => {
 // breadcrumb). When the ONLY derivable candidates are ab/at/clt, NONE is marked
 // (last resort keeps the step live, never regressing to the zero-candidate
 // deactivate path). Demotion keys STRICTLY on source membership in {ab, at, clt},
-// never on type === 'xpath', so a user-pinned userLocator xpath (FID-01 authority)
-// is untouched. Order is NEVER changed: candidates[0] is live by construction.
+// never on type === 'xpath', so a user-pinned userLocator xpath is untouched.
+// Order is NEVER changed: candidates[0] is live by construction.
 // ---------------------------------------------------------------------------
 
-describe('FID-05: stale-xpath demotion in extractLocator (D-05, D-07d)', () => {
+describe('stale-xpath demotion in extractLocator', () => {
   it('Extraction 1 (marking): with a stable rung present, every ab/at/clt candidate is provenanceOnly, order unchanged', () => {
     // A role from targetOuterHTML (stable) plus ab, an @-predicated at, and a clt.
     const el: Element = {

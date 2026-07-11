@@ -1,12 +1,12 @@
 /**
- * Generation tests for the step-12 `## Migration Flags` report section (FLAG-03).
+ * Generation tests for the step-12 `## Migration Flags` report section.
  *
  * Pins that generateMarkdownReport renders a `## Migration Flags` section grouped
  * by reason code (mirroring the `## Promoted Checks` idiom) when the report's
  * migrationFlags array is populated, renders no heading when it is empty or
  * absent (null-tolerant), numbers steps one-based for humans, omits the step
  * suffix for spec-level flags (stepIndex null), caps display at 25 with an
- * overflow line, and carries the D-04 reviewMigrationFlag tag copy plus the
+ * overflow line, and carries the reviewMigrationFlag tag copy plus the
  * greppable `// MIGRATION-FLAG:` action literal.
  *
  * The migrationFlags records are typed from the 07-01 cross-phase contract
@@ -129,8 +129,8 @@ describe('step 12 Migration Flags section: reason-grouped, sourced from migratio
     const md = generateMarkdownReport(makeReport([
       { reason: 'unsupported-step-type', publicId: 'syn-flag-020', stepIndex: 3, message: 'unrecognized step type' },
     ]));
-    assert.ok(md.includes('reviewMigrationFlag'), 'the section copy names the reviewMigrationFlag tag (D-04)');
-    assert.ok(md.includes('// MIGRATION-FLAG:'), 'the action copy names the greppable inline marker literal (D-03)');
+    assert.ok(md.includes('reviewMigrationFlag'), 'the section copy names the reviewMigrationFlag tag');
+    assert.ok(md.includes('// MIGRATION-FLAG:'), 'the action copy names the greppable inline marker literal');
   });
 
   it('renders a weak-fallback-chain flag as its own Migration Flags subsection through the existing grouping (no src/12 change)', () => {
@@ -138,12 +138,12 @@ describe('step 12 Migration Flags section: reason-grouped, sourced from migratio
       { reason: 'weak-fallback-chain', publicId: 'syn-flag-030', stepIndex: 1, message: 'only structural fallbacks available' },
     ]));
     assert.ok(md.includes('## Migration Flags'), 'the Migration Flags section renders');
-    assert.ok(md.includes('### weak-fallback-chain (1)'), 'a new Phase 8 reason code auto-appears as its own subsection with count');
+    assert.ok(md.includes('### weak-fallback-chain (1)'), 'a new reason code auto-appears as its own subsection with count');
     assert.ok(md.includes('syn-flag-030'), 'the flagged publicId appears under its reason subsection');
   });
 });
 
-describe('step 12 Self-Healing Locator Chains section: D-06 multi-selector review surface', () => {
+describe('step 12 Self-Healing Locator Chains section: multi-selector review surface', () => {
   it('renders the section with the affected count, the reviewMultiSelector tag, and the MIGRATION-LOCATOR-EXHAUSTION token when checks carry the field', () => {
     const md = generateMarkdownReport(makeReport(undefined, {
       count: 2,
@@ -154,7 +154,7 @@ describe('step 12 Self-Healing Locator Chains section: D-06 multi-selector revie
     }));
     assert.ok(md.includes('## Self-Healing Locator Chains'), 'the section heading must appear');
     assert.ok(md.includes('**2 check(s)**'), 'the bold affected-count sentence must appear');
-    assert.ok(md.includes('reviewMultiSelector'), 'the section names the reviewMultiSelector tag (D-06)');
+    assert.ok(md.includes('reviewMultiSelector'), 'the section names the reviewMultiSelector tag');
     assert.ok(md.includes('MIGRATION-LOCATOR-EXHAUSTION'), 'the section names the runtime exhaustion token');
     assert.ok(md.includes('syn-ms-001'), 'the first affected publicId must appear');
     assert.ok(md.includes('syn-ms-002'), 'the second affected publicId must appear');

@@ -131,8 +131,8 @@ export async function updateCheckFile(filepath: string, checkType: string, locat
   // Find the check constructor and add the properties before the closing });
 
   // Pattern to find the check definition - matches ApiCheck, BrowserCheck, MultiStepCheck.
-  // PlaywrightCheck is the PWCS construct introduced by plan 10-03 (PWCS-02); it
-  // shares the __checks__/browser/{public,private}/ directory with BrowserCheck
+  // PlaywrightCheck is the multi-browser construct; it shares the
+  // __checks__/browser/{public,private}/ directory with BrowserCheck
   // files, so without this entry a PWCS check would never get alertChannels,
   // group, or the location-type tag. The closing-pattern and tag-injection logic
   // below are construct-agnostic and work unchanged once checkFound can be true.
@@ -543,7 +543,7 @@ main().catch(err => {
  * files[] entry whose pwEngines array (read defensively, tolerating an absent
  * field) has length > 1, the SAME threshold src/08's construct branch uses, so
  * detection here and emission there can never disagree. Degrades to false on any
- * missing or malformed manifest (T-10-08), never crashing project-file generation.
+ * missing or malformed manifest, never crashing project-file generation.
  *
  * This gates the conditional @playwright/test devDependency: Checkly's bundler
  * require.resolve()s @playwright/test and throws hard when it is absent, so a
@@ -574,9 +574,9 @@ export async function detectPlaywrightCheckSuites(outputRoot: string): Promise<b
 /**
  * Generate checkly config files and package.json inside the account directory.
  *
- * Exported so the generated package.json devDependency pins (WR-01: unconditional
- * checkly ^8.13.0; conditional @playwright/test) can be asserted offline against a
- * scratch directory without running the whole step.
+ * Exported so the generated package.json devDependency pins (unconditional checkly
+ * ^8.13.0; conditional @playwright/test) can be asserted offline against a scratch
+ * directory without running the whole step.
  */
 export async function generateProjectFiles(outputRoot: string, accountName: string, needsPlaywright: boolean): Promise<void> {
   console.log('\nGenerating project files...');
@@ -655,13 +655,13 @@ export default config;
 
   // package.json
   //
-  // checkly is pinned to ^8.13.0 UNCONDITIONALLY (every generated project, PWCS
-  // or not), matching the version this tool develops against
-  // (node_modules/checkly/package.json). Phase 10 emits PlaywrightCheck, a Checkly
-  // CLI v8+ construct: a project resolving a 7.x checkly may not export
-  // PlaywrightCheck from checkly/constructs at all, so the earlier ^7.11.0 pin was
-  // incompatible with PWCS output (WR-01). Bumping all projects to ^8.13.0 keeps a
-  // single generated-project baseline rather than two divergent ones.
+  // checkly is pinned to ^8.13.0 UNCONDITIONALLY (every generated project, whether or
+  // not it emits a PlaywrightCheck), matching the version this tool develops against
+  // (node_modules/checkly/package.json). The tool emits PlaywrightCheck, a Checkly CLI
+  // v8+ construct: a project resolving a 7.x checkly may not export PlaywrightCheck
+  // from checkly/constructs at all, so an older ^7.11.0 pin is incompatible with
+  // multi-browser output. Bumping all projects to ^8.13.0 keeps a single
+  // generated-project baseline rather than two divergent ones.
   //
   // @playwright/test is added ONLY when the migration emitted a Playwright Check
   // Suite (needsPlaywright). Checkly's bundler require.resolve()s

@@ -1,11 +1,11 @@
 /**
- * FLAG-04 construct-side tool tests (plan 07-04, VAL-09).
+ * construct-side tool tests.
  *
  * Pins the src/08 half of the MIGRATION-FLAG system: the null-tolerant read of
  * exports/migration-flags.json (RESEARCH A4), the constant reviewMigrationFlag
  * tag appended AFTER filterAndRemapTags in the same diagnostic slot as
- * migration_check_id (D-04), and the strictly-one-way activated:false override
- * for the FLAG-04 zero-signal deactivated subset only (D-05, bounded by D-06).
+ * migration_check_id, and the strictly-one-way activated:false override
+ * for the zero-signal deactivated subset only.
  *
  * Driven entirely by synthetic in-memory data plus one committed malformed
  * fixture. No network, no wall-clock, no randomness, no file writes at runtime.
@@ -128,7 +128,7 @@ describe('deriveFlagState: shape tolerance (RESEARCH A4)', () => {
   });
 });
 
-describe('readMigrationFlagState: null-tolerant IO (RESEARCH A4, T-07-41)', () => {
+describe('readMigrationFlagState: null-tolerant IO (RESEARCH A4)', () => {
   it('Test 3: a deterministic nonexistent directory resolves to empty sets without throwing (missing-file path)', async () => {
     const missingDir = join(__dirname, 'syn-directory-that-never-exists');
     const state = await readMigrationFlagState(missingDir);
@@ -144,7 +144,7 @@ describe('readMigrationFlagState: null-tolerant IO (RESEARCH A4, T-07-41)', () =
   });
 });
 
-describe('generateBrowserCheckCode: FLAG-04 deactivation + tag (D-04, D-05)', () => {
+describe('generateBrowserCheckCode: deactivation + tag', () => {
   it('Test 5: a deactivated public_id emits activated: false and the reviewMigrationFlag tag even for a live check, for both public and private locationType', () => {
     const flagState = {
       flaggedIds: new Set(['syn-aaa-111']),
@@ -153,9 +153,9 @@ describe('generateBrowserCheckCode: FLAG-04 deactivation + tag (D-04, D-05)', ()
 
     const publicTest = mkTest({ public_id: 'syn-aaa-111', status: 'live', privateLocations: [] });
     const publicOut = generateBrowserCheckCode(publicTest, SPEC_FILENAME, 'public', false, flagState);
-    assert.ok(publicOut.includes('activated: false'), 'a deactivated check must emit activated: false even when live (D-05)');
+    assert.ok(publicOut.includes('activated: false'), 'a deactivated check must emit activated: false even when live');
     assert.ok(!publicOut.includes('activated: true'), 'the deactivated live check must not remain active');
-    assert.ok(publicOut.includes('reviewMigrationFlag'), 'a deactivated check must carry the reviewMigrationFlag tag (D-04)');
+    assert.ok(publicOut.includes('reviewMigrationFlag'), 'a deactivated check must carry the reviewMigrationFlag tag');
 
     const privateTest = mkTest({
       public_id: 'syn-aaa-111',
@@ -169,7 +169,7 @@ describe('generateBrowserCheckCode: FLAG-04 deactivation + tag (D-04, D-05)', ()
     assert.ok(privateOut.includes('privateLocations:'), 'the private variant must emit a privateLocations line');
   });
 
-  it('Test 6: a flagged-but-not-deactivated live check emits the tag and preserves activated: true (D-06)', () => {
+  it('Test 6: a flagged-but-not-deactivated live check emits the tag and preserves activated: true', () => {
     const flagState = {
       flaggedIds: new Set(['syn-bbb-222']),
       deactivatedIds: new Set<string>(),
@@ -177,7 +177,7 @@ describe('generateBrowserCheckCode: FLAG-04 deactivation + tag (D-04, D-05)', ()
     const test = mkTest({ public_id: 'syn-bbb-222', status: 'live' });
     const out = generateBrowserCheckCode(test, SPEC_FILENAME, 'public', false, flagState);
     assert.ok(out.includes('reviewMigrationFlag'), 'a flagged check must carry the reviewMigrationFlag tag');
-    assert.ok(out.includes('activated: true'), 'a non-deactivating flag must leave a live check active (D-06)');
+    assert.ok(out.includes('activated: true'), 'a non-deactivating flag must leave a live check active');
     assert.ok(!out.includes('activated: false'), 'a non-deactivating flag must not force the check off');
   });
 
@@ -191,7 +191,7 @@ describe('generateBrowserCheckCode: FLAG-04 deactivation + tag (D-04, D-05)', ()
     assert.ok(pausedOut.includes('activated: false'), 'a paused check with no flagState maps to activated: false');
   });
 
-  it('Test 8: DD_TAGS_EXCLUDE_ALL=true cannot strip reviewMigrationFlag or migration_check_id (D-04)', () => {
+  it('Test 8: DD_TAGS_EXCLUDE_ALL=true cannot strip reviewMigrationFlag or migration_check_id', () => {
     const prior = process.env.DD_TAGS_EXCLUDE_ALL;
     process.env.DD_TAGS_EXCLUDE_ALL = 'true';
     try {
@@ -200,7 +200,7 @@ describe('generateBrowserCheckCode: FLAG-04 deactivation + tag (D-04, D-05)', ()
         deactivatedIds: new Set(['syn-aaa-111']),
       };
       const out = generateBrowserCheckCode(mkTest({ public_id: 'syn-aaa-111' }), SPEC_FILENAME, 'public', false, flagState);
-      assert.ok(out.includes('reviewMigrationFlag'), 'the review tag is appended after filterAndRemapTags and survives exclude-all (D-04)');
+      assert.ok(out.includes('reviewMigrationFlag'), 'the review tag is appended after filterAndRemapTags and survives exclude-all');
       assert.ok(out.includes('migration_check_id:syn-aaa-111'), 'the traceability tag survives exclude-all alongside it');
     } finally {
       if (prior === undefined) {

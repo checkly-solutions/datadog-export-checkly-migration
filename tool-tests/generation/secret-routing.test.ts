@@ -1,29 +1,27 @@
 /**
- * Generation tests for type="password" secret routing (Phase 9, plan 09-05,
- * SEC-01 / SEC-03 / D-01 / D-09 / D-10). All offline, no subprocess, no file
- * writes (Testing SOP). The concerns locked here:
+ * Generation tests for type="password" secret routing. All offline, no subprocess,
+ * no file writes (Testing SOP). The concerns locked here:
  *
  *   (1) Routed fill: a type=password typeText step emits a fill referencing
  *       process.env.<DERIVED_KEY>; the synthetic plaintext value appears NOWHERE
  *       in the emitted output (not in the fill, not in a comment, not in a flag).
- *   (2) SEC-03: every routed secret records exactly one secret-value-required
+ *   (2) Secret flag: every routed secret records exactly one secret-value-required
  *       flag naming the derived key and NEVER the plaintext value.
- *   (3) D-01 ladder: data-testid beats name beats id (tier-1); a same-name
+ *   (3) Key-derivation ladder: data-testid beats name beats id (tier-1); a same-name
  *       collision within one check falls to a deterministic step-indexed key
  *       (tier-2); a field with no usable identifier gets a BROWSER_SECRET-prefixed
  *       step-indexed key (tier-3); every key is a valid, deterministic identifier.
  *   (4) Variable-branch guard: a password value that already references a Datadog
  *       double-brace variable keeps the EXISTING convertVariables emission
  *       byte-identically and records NO secret flags (no double-routing).
- *   (5) D-09 strictness: a type=text field with a secret-looking value is NEVER
- *       routed (fill unchanged, no secret-value-required flag).
- *   (6) D-10 advisory: a non-password field with secret-like identifying
- *       attributes (name/id/autocomplete) records exactly one
- *       possible-plaintext-secret flag, fill UNCHANGED, message names the field
- *       identifier and never the typed value.
+ *   (5) Strictness: a type=text field with a secret-looking value is NEVER routed
+ *       (fill unchanged, no secret-value-required flag).
+ *   (6) Advisory: a non-password field with secret-like identifying attributes
+ *       (name/id/autocomplete) records exactly one possible-plaintext-secret flag,
+ *       fill UNCHANGED, message names the field identifier and never the typed value.
  *   (7) Neutral field: a username/email field records zero flags and emits
  *       byte-identically to the pre-routing fill.
- *   (8) Zero-candidate password step: the FLAG-04 commented-out fill carries the
+ *   (8) Zero-candidate password step: the commented-out fill carries the
  *       process.env reference, never the plaintext (route-before-withLocator).
  *   (9) Manifest handoff (Task 2): generateSpecFile returns secretKeys, seeds the
  *       used-set with config-variable names so a routed key never rebinds an
@@ -83,7 +81,7 @@ function passwordStep(overrides: {
 }
 
 // Snapshot/clear/restore DD_TAGS_* so the suite stays hermetic and
-// order-independent alongside the sibling generation suites (threat T-01-14).
+// order-independent alongside the sibling generation suites.
 const DD_TAG_VARS = ['DD_TAGS_EXCLUDE', 'DD_TAGS_EXCLUDE_ALL', 'DD_TAGS_REMAP'] as const;
 let savedTagEnv: Record<string, string | undefined> = {};
 before(() => {
@@ -101,10 +99,10 @@ after(() => {
 });
 
 // ---------------------------------------------------------------------------
-// derivePasswordEnvKey (D-01 ladder, pure helper)
+// derivePasswordEnvKey (derivation ladder, pure helper)
 // ---------------------------------------------------------------------------
 
-describe('derivePasswordEnvKey ladder (D-01)', () => {
+describe('derivePasswordEnvKey ladder', () => {
   it('tier-1: data-testid beats name beats id', () => {
     const used = new Set<string>();
     const html =
@@ -149,10 +147,10 @@ describe('derivePasswordEnvKey ladder (D-01)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// generateTypeText routing (SEC-01 / SEC-03 / D-09 / D-10)
+// generateTypeText routing
 // ---------------------------------------------------------------------------
 
-describe('generateTypeText password routing (SEC-01 / SEC-03)', () => {
+describe('generateTypeText password routing', () => {
   it('routes a password fill to process.env.<KEY> and never emits the plaintext', () => {
     const out = generateTypeText(passwordStep(), mkCtx());
     assert.match(out, /process\.env\.CREDENTIALS_PASSCODE/);
@@ -207,8 +205,8 @@ describe('generateTypeText password routing (SEC-01 / SEC-03)', () => {
   });
 });
 
-describe('generateTypeText D-09 strictness and D-10 advisory', () => {
-  it('D-09: a type=text field with a secret-looking value is NOT routed', () => {
+describe('generateTypeText strictness and advisory', () => {
+  it('a type=text field with a secret-looking value is NOT routed', () => {
     const ctx = mkCtx();
     const html = '<input type="text" name="notes">';
     const out = generateTypeText(passwordStep({ html }), ctx);
@@ -218,7 +216,7 @@ describe('generateTypeText D-09 strictness and D-10 advisory', () => {
     assert.equal(secretFlags.length, 0);
   });
 
-  it('D-10: a text field named api_token records possible-plaintext-secret once, fill unchanged', () => {
+  it('a text field named api_token records possible-plaintext-secret once, fill unchanged', () => {
     const ctx = mkCtx();
     const html = '<input type="text" name="api_token">';
     const out = generateTypeText(passwordStep({ html }), ctx);
@@ -226,13 +224,13 @@ describe('generateTypeText D-09 strictness and D-10 advisory', () => {
     assert.equal(advisories.length, 1);
     assert.match(advisories[0].message, /api_token/);
     assert.ok(!advisories[0].message.includes(SECRET_VALUE), 'advisory must not quote the typed value');
-    // Fill is UNCHANGED (D-10 never rewrites): the plaintext value stays in the
+    // Fill is UNCHANGED (advisory never rewrites): the plaintext value stays in the
     // fill and no process.env reference is introduced. The fill line for the SAME
     // field emitted WITHOUT the advisory (i.e. through the neutral branch-4 path,
     // simulated by a neutral field name) is byte-identical modulo the field name,
     // proving the advisory branch does not touch the fill emission.
     const fillLine = (s: string) => s.split('\n').find((l) => l.includes('.fill('))!;
-    assert.ok(fillLine(out).includes(SECRET_VALUE), 'plaintext value stays in the fill (D-10 never rewrites)');
+    assert.ok(fillLine(out).includes(SECRET_VALUE), 'plaintext value stays in the fill (advisory never rewrites)');
     assert.ok(!fillLine(out).includes('process.env.'), 'advisory branch never routes to process.env');
     const neutral = generateTypeText(
       { type: 'typeText', name: 'Type password', params: { value: SECRET_VALUE, element: { targetOuterHTML: '<input type="text" name="api_token">' } } } as Step07,
@@ -243,7 +241,7 @@ describe('generateTypeText D-09 strictness and D-10 advisory', () => {
     assert.equal(fillLine(out), fillLine(neutral));
   });
 
-  it('D-10 / A4: autocomplete current-password on a NON-password field advises, never routes', () => {
+  it('autocomplete current-password on a NON-password field advises, never routes', () => {
     const ctx = mkCtx();
     const html = '<input type="text" autocomplete="current-password" name="loginish">';
     const out = generateTypeText(passwordStep({ html }), ctx);
@@ -267,7 +265,7 @@ describe('generateTypeText D-09 strictness and D-10 advisory', () => {
   });
 });
 
-describe('generateTypeText zero-candidate password step (FLAG-04, route-before-withLocator)', () => {
+describe('generateTypeText zero-candidate password step (route-before-withLocator)', () => {
   it('the commented-out fill carries process.env, never the plaintext', () => {
     // An element with no derivable locator candidate (no id/name/testid/role/text
     // usable by extractLocator): a bare password input with only type=password.
@@ -281,7 +279,7 @@ describe('generateTypeText zero-candidate password step (FLAG-04, route-before-w
     // The routed key is derived and referenced even on the commented-out path.
     assert.match(out, /process\.env\.BROWSER_SECRET_STEP5/);
     assert.ok(!out.includes(SECRET_VALUE), 'plaintext must never reach even a commented-out fill');
-    // It is a FLAG-04 locator-unresolvable path (deactivating), commented out.
+    // It is a locator-unresolvable path (deactivating), commented out.
     const locFlags = ctx.collector.flags.filter((f) => f.reason === 'locator-unresolvable');
     assert.equal(locFlags.length, 1);
   });
@@ -360,14 +358,14 @@ describe('generateSpecFile secretKeys handoff (Task 2)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Construct-side secret declaration (SEC-02 / D-02) -- plan 09-06, Task 1
+// Construct-side secret declaration (Task 1)
 //
-// The routed keys the manifest carries (files[].secretKeys, produced by 09-05)
-// must be declared construct-side in the BrowserCheck's environmentVariables as
+// The routed keys the manifest carries (files[].secretKeys) must be declared
+// construct-side in the BrowserCheck's environmentVariables as
 // { key, value: "", secret: true }, reusing the EXISTING config-variable secret
-// shape VERBATIM (D-02: the empty-string value is the established convention;
+// shape VERBATIM (the empty-string value is the established convention;
 // Datadog never exports secret values, so the customer populates them per the
-// SEC-03 flags). generateBrowserCheckCode takes a trailing `secretKeys` array
+// flags). generateBrowserCheckCode takes a trailing `secretKeys` array
 // (after hasMultiCandidate) so existing call sites stay byte-compatible.
 //
 // BrowserTest is file-local to src/08; the input shape is derived from the
@@ -399,7 +397,7 @@ function mkBrowserTest(overrides: Partial<BrowserTestInput> = {}): BrowserTestIn
 }
 
 // The full trailing-argument call: (test, specFilename, locationType, hasIframes,
-// flagState, hasMultiCandidate, secretKeys). secretKeys is the new 09-06 param.
+// flagState, hasMultiCandidate, secretKeys). secretKeys is the trailing param.
 function emitWithSecretKeys(
   test: BrowserTestInput,
   secretKeys: string[],
@@ -410,17 +408,17 @@ function emitWithSecretKeys(
   ) => string)(test, SEC02_SPEC_FILENAME, locationType, false, undefined, false, secretKeys);
 }
 
-describe('generateBrowserCheckCode: routed secret declaration (SEC-02 / D-02)', () => {
-  it('routed key emits the verbatim D-02 secret entry { key, value: "", secret: true }', () => {
+describe('generateBrowserCheckCode: routed secret declaration', () => {
+  it('routed key emits the verbatim secret entry { key, value: "", secret: true }', () => {
     const out = emitWithSecretKeys(mkBrowserTest(), ['LOGIN_PASSWORD']);
     assert.ok(out.includes('environmentVariables: ['), 'a routed secret must open an environmentVariables block');
     assert.ok(
       out.includes('{ key: "LOGIN_PASSWORD", value: "", secret: true }'),
-      'the routed key must declare in the exact existing config-variable secret shape (D-02)',
+      'the routed key must declare in the exact existing config-variable secret shape',
     );
   });
 
-  it('routed value is always the empty string (T-09-06-01: no secret VALUE ever reaches the construct)', () => {
+  it('routed value is always the empty string (no secret VALUE ever reaches the construct)', () => {
     // Even if a caller somehow smuggled a value into the key string, the emission
     // is name-only. Assert no non-empty value= sits on the routed secret entry.
     const out = emitWithSecretKeys(mkBrowserTest(), ['LOGIN_PASSWORD']);
@@ -435,7 +433,7 @@ describe('generateBrowserCheckCode: routed secret declaration (SEC-02 / D-02)', 
       },
     } as Partial<BrowserTestInput>);
     const out = emitWithSecretKeys(test, ['LOGIN_PASSWORD']);
-    // Exactly one environmentVariables block, carrying both entries in the D-02 style.
+    // Exactly one environmentVariables block, carrying both entries in the same style.
     assert.equal(out.split('environmentVariables: [').length - 1, 1, 'exactly one environmentVariables block');
     assert.ok(out.includes('{ key: "EXISTING_SECRET", value: "", secret: true }'), 'the config secret entry is present');
     assert.ok(out.includes('{ key: "LOGIN_PASSWORD", value: "", secret: true }'), 'the routed secret entry is present in the same style');
@@ -449,7 +447,7 @@ describe('generateBrowserCheckCode: routed secret declaration (SEC-02 / D-02)', 
     } as Partial<BrowserTestInput>);
     const out = emitWithSecretKeys(test, ['LOGIN_PASSWORD']);
     const occurrences = out.split('LOGIN_PASSWORD').length - 1;
-    assert.equal(occurrences, 1, 'a duplicated key must appear exactly once in the emitted construct (T-09-06-03)');
+    assert.equal(occurrences, 1, 'a duplicated key must appear exactly once in the emitted construct');
   });
 
   it('dedup keeps the non-secret existing entry (existing config entry wins over a routed key)', () => {
@@ -482,11 +480,11 @@ describe('generateBrowserCheckCode: routed secret declaration (SEC-02 / D-02)', 
     assert.ok(out.includes('privateLocations:'), 'the private variant emits a privateLocations line');
     assert.ok(
       out.includes('{ key: "LOGIN_PASSWORD", value: "", secret: true }'),
-      'the private branch must also carry the routed secret declaration (T-09-06-04)',
+      'the private branch must also carry the routed secret declaration',
     );
   });
 
-  it('keys pass through escapeString: a hostile key with a quote cannot break the construct string (T-09-06-02)', () => {
+  it('keys pass through escapeString: a hostile key with a quote cannot break the construct string', () => {
     // Keys are sanitizeIdentifier-derived upstream, but the emission choke point
     // stays: a quote in the key must be escaped, never terminate the string literal.
     const out = emitWithSecretKeys(mkBrowserTest(), ['EVIL"KEY']);
@@ -507,20 +505,20 @@ describe('generateBrowserCheckCode: routed secret declaration (SEC-02 / D-02)', 
 });
 
 // ---------------------------------------------------------------------------
-// main() manifest plumbing (SEC-02) -- plan 09-06, Task 2
+// main() manifest plumbing (Task 2)
 //
 // generateConstructsForLocationType writes files to disk (filesystem I/O), so the
-// per-location plumbing is not drivable offline without mocking the FS. Per the
-// 09-06 plan's sanctioned fallback (the golden-tree-contract readFileSync idiom),
-// the plumbing is locked with source-level assertions: the src/08 text must build
-// a secretKeysMap from file.secretKeys in BOTH the public and private manifest
-// blocks, thread it through generateConstructsForLocationType, and read it per test
-// at the generateBrowserCheckCode call site. This also pins the deliberate
-// exclusion: the check-level-secrets.json block must NOT be widened with routed
-// keys (SEC-02's requirement is the construct-side declaration alone).
+// per-location plumbing is not drivable offline without mocking the FS. Using the
+// sanctioned fallback (the golden-tree-contract readFileSync idiom), the plumbing is
+// locked with source-level assertions: the src/08 text must build a secretKeysMap
+// from file.secretKeys in BOTH the public and private manifest blocks, thread it
+// through generateConstructsForLocationType, and read it per test at the
+// generateBrowserCheckCode call site. This also pins the deliberate exclusion: the
+// check-level-secrets.json block must NOT be widened with routed keys (the
+// requirement is the construct-side declaration alone).
 // ---------------------------------------------------------------------------
 
-describe('src/08 main() secretKeys plumbing (SEC-02, source-level)', () => {
+describe('src/08 main() secretKeys plumbing (source-level)', () => {
   const src08Path = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', '08-generate-browser-constructs.ts');
   const src08 = readFileSync(src08Path, 'utf-8');
 
@@ -562,7 +560,7 @@ describe('src/08 main() secretKeys plumbing (SEC-02, source-level)', () => {
     const blockEnd = src08.indexOf('check-level secret entries', blockStart);
     assert.ok(blockEnd > blockStart, 'the check-level-secrets block end marker is present');
     const block = src08.slice(blockStart, blockEnd);
-    assert.ok(!/secretKeysMap/i.test(block), 'the check-level-secrets block must not read any secretKeysMap (SEC-02 exclusion)');
+    assert.ok(!/secretKeysMap/i.test(block), 'the check-level-secrets block must not read any secretKeysMap (deliberate exclusion)');
     assert.ok(/convertConfigVariables/.test(block), 'the block still sources from convertConfigVariables only');
   });
 });

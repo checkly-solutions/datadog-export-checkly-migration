@@ -1,5 +1,5 @@
 /**
- * Step-10 tests for the PWCS completeness fixes (PWCS-02, plan 10-03 Task 3).
+ * Step-10 tests for the PWCS completeness fixes.
  *
  * Two step-10 gaps a naive construct branch silently leaves open:
  *   1. updateCheckFile's checkPatterns whitelist (ApiCheck/BrowserCheck/
@@ -194,10 +194,10 @@ describe('step 10 detectPlaywrightCheckSuites', () => {
 });
 
 /**
- * Generated-project devDependency pins (WR-01, plan 10-06).
+ * Generated-project devDependency pins.
  *
- * checkly is pinned ^8.13.0 UNCONDITIONALLY: Phase 10 emits PlaywrightCheck (a
- * Checkly CLI v8+ construct), so the earlier ^7.11.0 pin could resolve a checkly
+ * checkly is pinned ^8.13.0 UNCONDITIONALLY: the tool emits PlaywrightCheck (a
+ * Checkly CLI v8+ construct), so an older ^7.11.0 pin could resolve a checkly
  * that never exports PlaywrightCheck. Every generated project (PWCS or not) now
  * gets the same v8 baseline. @playwright/test stays gated on needsPlaywright (its
  * bundler require.resolve()s the package and throws hard when absent, but a
@@ -207,7 +207,7 @@ describe('step 10 detectPlaywrightCheckSuites', () => {
  * like the updateCheckFile block above); read the emitted package.json back and
  * assert the pins. Offline, deterministic, cleaned up in after().
  */
-describe('step 10 generated package.json devDependency pins (WR-01)', () => {
+describe('step 10 generated package.json devDependency pins', () => {
   let root: string;
 
   before(async () => {

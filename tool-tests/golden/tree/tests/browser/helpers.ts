@@ -1,10 +1,10 @@
 import { test, type Page, type Frame, type Locator } from "@playwright/test";
 
 /**
- * The front-loaded, greppable locator-exhaustion marker (D-02, D-08). Baked into
- * generated source so it surfaces in run logs, traces, and to Checkly Rocky AI
- * without any runtime tagging capability. Plan 08-05's assertion helper reuses
- * this identical string, so it lives here as the one source of truth.
+ * The front-loaded, greppable locator-exhaustion marker. Baked into generated
+ * source so it surfaces in run logs, traces, and to Checkly Rocky AI without any
+ * runtime tagging capability. The assertion helper (assertOnFirstMatch) reuses this
+ * identical string, so it lives here as the one source of truth.
  */
 export const LOCATOR_EXHAUSTION_TOKEN = "MIGRATION-LOCATOR-EXHAUSTION";
 
@@ -22,15 +22,13 @@ export type CandidateFactory = (root: Page | Frame) => Locator[];
 /**
  * Datadog-parity default settle budget for the bounded exhaustion rescan, in
  * milliseconds, used when a step carries no per-step or navigation timeout in the
- * export (FID-03, D-03). Datadog retries locating a step's element for 60 seconds
- * by default, adjustable up to 300 seconds (docs.datadoghq.com synthetics
- * browser_tests advanced_options, checked 2026-07-10), so 60000 matches that heal
- * window instead of the old fixed 2500ms (40x smaller). firstMatch takes the
- * budget as a parameter defaulting to this const; a timeout-bearing step passes a
- * value derived from its export timeout, a timeout-less step inherits this default.
- * This is the ONLY wait firstMatch ever spends, and it is explicit and numeric: a
- * defaulted retry-until-pass helper would mean an INFINITE timeout, reintroducing
- * the unbounded-wait hang this design exists to remove.
+ * export. Datadog retries locating a step's element for 60 seconds by default,
+ * adjustable up to 300 seconds, so 60000 matches that heal window. firstMatch takes
+ * the budget as a parameter defaulting to this const; a timeout-bearing step passes
+ * a value derived from its export timeout, a timeout-less step inherits this
+ * default. This is the ONLY wait firstMatch ever spends, and it is explicit and
+ * numeric: a defaulted retry-until-pass helper would mean an INFINITE timeout,
+ * reintroducing the unbounded-wait hang this design exists to remove.
  */
 const EXHAUSTION_RESCAN_BUDGET_MS = 60000;
 
@@ -47,17 +45,17 @@ const RESCAN_INTERVALS_MS = [100, 250, 500, 1000];
  * @param makeCandidates - A factory that, given a root (the page or a frame),
  *   returns the ordered Locator[] to probe against that root, highest priority
  *   first.
- * @param budgetMs - The total settle budget in milliseconds (FID-03). Defaults to
- *   the Datadog-parity const; a timeout-bearing step passes a value derived from
- *   its export timeout. Defensively capped at 240000 (Checkly's hard limit) inside
- *   the body so a hostile or absurd value can never produce an unbounded wait.
+ * @param budgetMs - The total settle budget in milliseconds. Defaults to the
+ *   Datadog-parity const; a timeout-bearing step passes a value derived from its
+ *   export timeout. Defensively capped at 240000 (Checkly's hard limit) inside the
+ *   body so a hostile or absurd value can never produce an unbounded wait.
  * @returns The first matching locator (strict-safe via .first()); on exhaustion the
  *   candidate that attaches first within the remaining budget (the candidate
  *   likeliest to resolve), or the primary main-page candidate when nothing attaches.
  */
 export async function firstMatch(page: Page, makeCandidates: (root: Page | Frame) => Locator[], budgetMs: number = EXHAUSTION_RESCAN_BUDGET_MS): Promise<Locator> {
-  // Defensive cap (FID-03): the budget is a derived-from-export number, so bound it
-  // at Checkly's hard 240000ms browser-check limit before spending any of it. This
+  // Defensive cap: the budget is a derived-from-export number, so bound it at
+  // Checkly's hard 240000ms browser-check limit before spending any of it. This
   // keeps every wait bounded and numeric even for an absurd export timeout.
   const cappedBudgetMs = Math.min(budgetMs, 240000);
   const tried: string[] = [];
@@ -84,7 +82,7 @@ export async function firstMatch(page: Page, makeCandidates: (root: Page | Frame
   if (first) return first;
 
   // Bounded settle loop: give late-rendering frames and DOM a chance, within the
-  // capped numeric budget. This is the D-01/FID-03 bounded budget.
+  // capped numeric budget.
   let spent = 0;
   for (const interval of RESCAN_INTERVALS_MS) {
     if (spent >= cappedBudgetMs) break;
@@ -94,8 +92,8 @@ export async function firstMatch(page: Page, makeCandidates: (root: Page | Frame
     if (hit) return hit;
   }
 
-  // Attach-race phase (FID-03, arch-review C2): the instant-count ladder found
-  // nothing, but a candidate may simply be slow to attach. Spend the REMAINING
+  // Attach-race phase: the instant-count ladder found nothing, but a candidate may
+  // simply be slow to attach. Spend the REMAINING
   // budget racing ALL candidates (main page first, then every current frame) for
   // first-attached and return the winner, the candidate likeliest to resolve. This
   // fixes the false-fail where a slow element matchable only by a NON-primary
@@ -128,11 +126,11 @@ export async function firstMatch(page: Page, makeCandidates: (root: Page | Frame
     }
   }
 
-  // True exhaustion (D-02): emit the greppable signal as a boxed test.step plus a
+  // True exhaustion: emit the greppable signal as a boxed test.step plus a
   // console.error breadcrumb, then return the PRIMARY main-page candidate so the
   // caller's action produces a real native TimeoutError naming the intended
-  // selector (D-01). The helper never throws here: a late-appearing element can
-  // still succeed via the terminal action's own auto-wait.
+  // selector. The helper never throws here: a late-appearing element can still
+  // succeed via the terminal action's own auto-wait.
   const summary = `${LOCATOR_EXHAUSTION_TOKEN}: no locator matched after ${tried.length} candidate probe(s)`;
   await test.step(summary, async () => {
     console.error(`[${LOCATOR_EXHAUSTION_TOKEN}] tried candidates: ${tried.join(" | ")}`);
@@ -142,17 +140,17 @@ export async function firstMatch(page: Page, makeCandidates: (root: Page | Frame
 
 /**
  * Per-attempt bound for a positive multi-candidate assertion probe, in
- * milliseconds. Explicit and numeric for the same reason firstMatch's budget is
- * (D-01): a defaulted expect timeout on a probe attempt would be Playwright's
- * global default, and a defaulted toPass would be infinite. Every non-final probe
- * carries this bound; only the final attempt runs uncaught with no override so the
- * native assertion error surfaces intact.
+ * milliseconds. Explicit and numeric for the same reason firstMatch's budget is: a
+ * defaulted expect timeout on a probe attempt would be Playwright's global default,
+ * and a defaulted toPass would be infinite. Every non-final probe carries this
+ * bound; only the final attempt runs uncaught with no override so the native
+ * assertion error surfaces intact.
  */
 const PROBE_ASSERT_TIMEOUT_MS = 2500;
 
 /**
- * Positive multi-candidate assertion self-healing (LOC-08 D-04). Datadog's
- * multiLocator is N ways to find the SAME element, so a positive assertion is
+ * Positive multi-candidate assertion self-healing. Datadog's multiLocator is N
+ * ways to find the SAME element, so a positive assertion is
  * faithfully reproduced by trying each resolving candidate in priority order and
  * passing on the FIRST that satisfies the assertion. This is the assertion-level
  * analogue of firstMatch and it REPLACES the silent narrow-to-first weakening: a

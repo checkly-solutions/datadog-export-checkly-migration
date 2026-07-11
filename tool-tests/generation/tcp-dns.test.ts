@@ -1,10 +1,10 @@
 /**
- * Generation tests for the TCP and DNS monitor generators (VAL-01, D-04).
+ * Generation tests for the TCP and DNS monitor generators.
  *
  * Calls generateTcpMonitorCode (step 04b) and generateDnsMonitorCode
  * (step 04c) directly with inline-mode options ({ withAlertChannels: false })
  * and asserts structurally on the returned strings. No subprocess, no file
- * writes (D-04); structural assertions only, never snapshots (D-03).
+ * writes; structural assertions only, never snapshots.
  */
 process.env.CHECKLY_ACCOUNT_NAME ??= 'tool-tests';
 
@@ -31,7 +31,7 @@ const dnsFixture = loadFixture('dns-test.json');
 /**
  * Both generators call filterAndRemapTags, which reads DD_TAGS_EXCLUDE,
  * DD_TAGS_EXCLUDE_ALL, and DD_TAGS_REMAP at call time. Snapshot and clear all
- * three before the tests and restore them exactly afterwards (threat T-01-14).
+ * three before the tests and restore them exactly afterwards.
  */
 const DD_TAG_VARS = ['DD_TAGS_EXCLUDE', 'DD_TAGS_EXCLUDE_ALL', 'DD_TAGS_REMAP'] as const;
 let savedTagEnv: Record<string, string | undefined> = {};
@@ -117,16 +117,16 @@ describe('generateDnsMonitorCode: inline mode baseline', () => {
 });
 
 /**
- * DEPLOY-01 (D-05): tcp/dns logical IDs must carry the Datadog public_id tail so
- * two same-name monitors never collapse to one ID. DEPLOY-06 (D-06): tcp/dns must
+ * tcp/dns logical IDs must carry the Datadog public_id tail so
+ * two same-name monitors never collapse to one ID. tcp/dns must
  * route public locations through the shared normalizePublicChecklyLocations and
  * therefore inherit its Set dedup; the local cleanPublicLocations forks are gone.
- * D-02: the standalone tcp/dns mapping CSVs must carry the same uniqueLogicalId as
+ * the standalone tcp/dns mapping CSVs must carry the same uniqueLogicalId as
  * the emit site, so the CSV and the construct can never drift. Variant inputs are
  * in-test spread-clones with synthetic-only overrides; no fixture JSON is edited
- * (VAL-09).
+ *.
  */
-describe('step 04b DEPLOY-01/06 + CSV parity (tcp)', () => {
+describe('step 04b logical-id and CSV parity (tcp)', () => {
   it('derives the logical id from the shared helper (prefix, name slug, public_id)', () => {
     const output = generateTcpMonitorCode(tcpFixture, { withAlertChannels: false });
     const expected = uniqueLogicalId('tcp', tcpFixture.name, tcpFixture.public_id);
@@ -134,7 +134,7 @@ describe('step 04b DEPLOY-01/06 + CSV parity (tcp)', () => {
     assert.ok(output.includes(`new TcpMonitor("${expected}", {`), 'emitted id must equal the shared-helper output');
   });
 
-  it('same-name tcp tests differing only in public_id emit distinct logical ids (DEPLOY-01)', () => {
+  it('same-name tcp tests differing only in public_id emit distinct logical ids', () => {
     const a = structuredClone(tcpFixture);
     const b = structuredClone(tcpFixture);
     a.public_id = 'syn-303-aaa';
@@ -145,14 +145,14 @@ describe('step 04b DEPLOY-01/06 + CSV parity (tcp)', () => {
     assert.notEqual(idA, idB, 'same-name tcp monitors must not collapse to one logical id');
   });
 
-  it('dedups public locations through the shared normalizer (DEPLOY-06)', () => {
+  it('dedups public locations through the shared normalizer', () => {
     const fixture = structuredClone(tcpFixture);
     fixture.locations = ['aws:us-east-1', 'us-east-1'];
     const output = generateTcpMonitorCode(fixture, { withAlertChannels: false });
     assert.ok(output.includes('locations: ["us-east-1"]'), 'aws:us-east-1 and us-east-1 must dedup to a single entry');
   });
 
-  it('standalone tcp mapping CSV logical id equals the emit-site uniqueLogicalId (D-02)', () => {
+  it('standalone tcp mapping CSV logical id equals the emit-site uniqueLogicalId', () => {
     const csv = buildMappingCsvForTcp([tcpFixture]);
     const row = csv.trim().split('\n')[1];
     const checklyLogicalId = row.split(',')[2];
@@ -161,7 +161,7 @@ describe('step 04b DEPLOY-01/06 + CSV parity (tcp)', () => {
   });
 });
 
-describe('step 04c DEPLOY-01/06 + CSV parity (dns)', () => {
+describe('step 04c logical-id and CSV parity (dns)', () => {
   it('derives the logical id from the shared helper (prefix, name slug, public_id)', () => {
     const output = generateDnsMonitorCode(dnsFixture, { withAlertChannels: false });
     const expected = uniqueLogicalId('dns', dnsFixture.name, dnsFixture.public_id);
@@ -169,7 +169,7 @@ describe('step 04c DEPLOY-01/06 + CSV parity (dns)', () => {
     assert.ok(output.includes(`new DnsMonitor("${expected}", {`), 'emitted id must equal the shared-helper output');
   });
 
-  it('same-name dns tests differing only in public_id emit distinct logical ids (DEPLOY-01)', () => {
+  it('same-name dns tests differing only in public_id emit distinct logical ids', () => {
     const a = structuredClone(dnsFixture);
     const b = structuredClone(dnsFixture);
     a.public_id = 'syn-304-aaa';
@@ -180,14 +180,14 @@ describe('step 04c DEPLOY-01/06 + CSV parity (dns)', () => {
     assert.notEqual(idA, idB, 'same-name dns monitors must not collapse to one logical id');
   });
 
-  it('dedups public locations through the shared normalizer (DEPLOY-06)', () => {
+  it('dedups public locations through the shared normalizer', () => {
     const fixture = structuredClone(dnsFixture);
     fixture.locations = ['aws:us-east-1', 'us-east-1'];
     const output = generateDnsMonitorCode(fixture, { withAlertChannels: false });
     assert.ok(output.includes('locations: ["us-east-1"]'), 'aws:us-east-1 and us-east-1 must dedup to a single entry');
   });
 
-  it('standalone dns mapping CSV logical id equals the emit-site uniqueLogicalId (D-02)', () => {
+  it('standalone dns mapping CSV logical id equals the emit-site uniqueLogicalId', () => {
     const csv = buildMappingCsvForDns([dnsFixture]);
     const row = csv.trim().split('\n')[1];
     const checklyLogicalId = row.split(',')[2];

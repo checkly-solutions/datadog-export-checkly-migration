@@ -1,13 +1,13 @@
 /**
- * Routing test for the step 03 promotion seam (REGX-06, REGX-07).
+ * Routing test for the step 03 promotion seam.
  *
  * Exercises the exported pure partitionForPromotion from step 03 over a mixed
- * array of single-step API tests: two regex-bearing fixtures (from plan 05-01)
+ * array of single-step API tests: two regex-bearing fixtures (from)
  * and one plain no-regex test. Asserts that the regex tests land in `promoted`
  * as one-step multi-step tests with a _promotionReason, that the plain test
  * stays in `keptApi`, that a promoted test's public/private location routing is
- * preserved verbatim (REGX-07), and that no promoted public_id survives in
- * keptApi (T-05-09: no duplicate ApiCheck). Structural assertions only, no file
+ * preserved verbatim, and that no promoted public_id survives in
+ * keptApi (no duplicate ApiCheck). Structural assertions only, no file
  * writes, no subprocess.
  *
  * partitionForPromotion routes on shouldPromote / promoteApiTestToMultiStep,
@@ -90,12 +90,12 @@ describe('step 03 partitionForPromotion: regex tests promote, plain tests stay',
       const config = record.config as Record<string, unknown>;
       const steps = config.steps as unknown[];
       assert.ok(Array.isArray(steps), 'promoted test must carry a config.steps array');
-      assert.equal(steps.length, 1, 'promotion produces exactly one step (REGX-06: one unit)');
+      assert.equal(steps.length, 1, 'promotion produces exactly one step (one unit)');
       assert.equal(record._promotionReason, 'regex', '_promotionReason must record the regex reason');
     }
   });
 
-  it('preserves a promoted test public/private location routing verbatim (REGX-07)', () => {
+  it('preserves a promoted test public/private location routing verbatim', () => {
     const { promoted } = partitionForPromotion([regexBodyTest] as never);
     const promotedTest = promoted[0] as Record<string, unknown>;
 
@@ -111,7 +111,7 @@ describe('step 03 partitionForPromotion: regex tests promote, plain tests stay',
     );
   });
 
-  it('leaves no promoted public_id in keptApi (T-05-09: no duplicate ApiCheck)', () => {
+  it('leaves no promoted public_id in keptApi (no duplicate ApiCheck)', () => {
     const { promoted, keptApi } = partitionForPromotion([
       regexBodyTest,
       plainApiTest,

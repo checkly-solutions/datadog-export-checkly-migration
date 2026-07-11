@@ -147,9 +147,9 @@ interface BrowserTestsFile {
     locations?: string[];
     privateLocations?: string[];
     originalLocations?: string[];
-    // options.device_ids (never config.device_ids; plan 10-01): the raw Datadog
-    // browser device profiles. Cross-referenced by public_id in main() to surface
-    // D-04's declared-vs-distinct browser count in the PWCS report section.
+    // options.device_ids (never config.device_ids): the raw Datadog browser device
+    // profiles. Cross-referenced by public_id in main() to surface the
+    // declared-vs-distinct browser count in the PWCS report section.
     options?: { device_ids?: string[] };
   }>;
 }
@@ -192,12 +192,12 @@ interface Manifest {
   generatedAt: string;
   outputDir: string;
   locationType: string;
-  // hasMultiCandidate is written by src/07 (plan 08-03) when a browser spec
-  // resolved at least one step with two or more firstMatch candidates. Optional
-  // and null-tolerant: manifests predating the field behave as false.
-  // pwEngines is written by src/07 (plan 10-02), the deduped canonical-order
-  // Playwright engine list; length > 1 means this check emitted as a
-  // PlaywrightCheck (plan 10-03). Optional and null-tolerant, same as above.
+  // hasMultiCandidate is written by src/07 when a browser spec resolved at least one
+  // step with two or more firstMatch candidates. Optional and null-tolerant:
+  // manifests predating the field behave as false.
+  // pwEngines is written by src/07, the deduped canonical-order Playwright engine
+  // list; length > 1 means this check emitted as a PlaywrightCheck. Optional and
+  // null-tolerant, same as above.
   files: Array<{ logicalId: string; name: string; filename: string; hasMultiCandidate?: boolean; pwEngines?: string[] }>;
   skipped?: Array<{ logicalId: string; name: string; reason?: string }>;
 }
@@ -339,11 +339,11 @@ interface MigrationReport {
     reason: string;
     locationType: 'public' | 'private';
   }>;
-  // Migration flags (FLAG-03): the shared MigrationFlag record from the 07-01
-  // cross-phase contract is the single source of truth, so the report surface and
-  // the emitter cannot drift. Present only when at least one flag exists.
+  // Migration flags: the shared MigrationFlag record from the cross-phase contract is
+  // the single source of truth, so the report surface and the emitter cannot drift.
+  // Present only when at least one flag exists.
   migrationFlags?: MigrationFlag[];
-  // Self-healing locator chains (D-06): the browser checks whose specs emitted a
+  // Self-healing locator chains: the browser checks whose specs emitted a
   // multi-candidate firstMatch fallback chain (manifest hasMultiCandidate true).
   // Derived from the browser manifests in main(); present only when the count is
   // positive. Drives the Self-Healing Locator Chains report section.
@@ -351,15 +351,14 @@ interface MigrationReport {
     count: number;
     checks: Array<{ publicId: string; name: string; locationType: 'public' | 'private' }>;
   };
-  // Playwright Check Suites (PWCS-03): the browser checks whose manifests carry a
-  // multi-engine pwEngines list (length > 1), so src/08 emitted a PlaywrightCheck
-  // rather than a BrowserCheck. Derived from the browser manifests' pwEngines field
-  // in main(); present only when the count is positive. declaredBrowserCount and
-  // distinctEngineCount surface D-04's coverage-reduction visibility (how many
-  // Datadog browser device profiles collapsed to how many distinct Playwright
-  // engine projects); hasPrivateLocationCaveat marks a check needing the D-07
-  // Checkly Agent version verification. Drives the Playwright Check Suites
-  // (Multi-Browser) report section.
+  // Playwright Check Suites: the browser checks whose manifests carry a multi-engine
+  // pwEngines list (length > 1), so src/08 emitted a PlaywrightCheck rather than a
+  // BrowserCheck. Derived from the browser manifests' pwEngines field in main();
+  // present only when the count is positive. declaredBrowserCount and
+  // distinctEngineCount surface the coverage-reduction (how many Datadog browser
+  // device profiles collapsed to how many distinct Playwright engine projects);
+  // hasPrivateLocationCaveat marks a check needing the Checkly Agent version
+  // verification. Drives the Playwright Check Suites (Multi-Browser) report section.
   playwrightCheckSuites?: {
     count: number;
     checks: Array<{
@@ -385,7 +384,7 @@ const LOCATOR_EXHAUSTION_TOKEN = 'MIGRATION-LOCATOR-EXHAUSTION';
  *
  * Thin re-export of the shared canonical reader (src/shared/fs-json.ts), kept
  * under the historical readJsonFile name so this step's many call sites and the
- * exported surface stay byte-neutral (IN-01: one source of truth, two consumers).
+ * exported surface stay byte-neutral (one source of truth, two consumers).
  */
 export const readJsonFile = readJsonFileSafe;
 
@@ -394,11 +393,11 @@ export const readJsonFile = readJsonFileSafe;
  * lists, keeping the two mutually exclusive.
  *
  * A No Data check with an absent/unknown config status is BOTH deactivated
- * (activated: false) AND tagged reviewNoDataInDatadog (D-06). It must surface
- * only in the deactivated list, never under "Checks Left Active for Review",
- * which asserts the check is still running. The review list is therefore
- * restricted to genuinely-active review checks (the STAT-01 live case) via the
- * !isDeactivated guard; deactivated review-tagged checks fall through to the
+ * (activated: false) AND tagged reviewNoDataInDatadog. It must surface only in the
+ * deactivated list, never under "Checks Left Active for Review", which asserts the
+ * check is still running. The review list is therefore restricted to genuinely-active
+ * review checks (the live case) via the !isDeactivated guard; deactivated
+ * review-tagged checks fall through to the
  * deactivated list, which carries the tag so it can be grouped by its true tag.
  *
  * @param tests - The dd-test-status.json tests array.
@@ -433,8 +432,8 @@ export function projectDatadogStatusTests(
       })),
     // Checks left active but flagged for human review (any review* tag). The
     // !isDeactivated guard keeps deactivated absent-status No Data checks out of
-    // this list (D-06); grouping downstream is by the tag string itself, so
-    // future review tags (e.g. reviewAI in milestone 2) flow through unchanged.
+    // this list; grouping downstream is by the tag string itself, so future review
+    // tags flow through unchanged.
     reviewTests: tests
       .filter(t => t.tag !== null && t.tag.startsWith('review') && !t.isDeactivated)
       .map(t => ({
@@ -562,9 +561,9 @@ export function generateMarkdownReport(report: MigrationReport): string {
 
       if (noDataTests.length > 0) {
         // Deactivated No Data checks carry two distinct tags: paused checks
-        // (noDataInDatadog, D-04 row 2) and absent-status checks
-        // (reviewNoDataInDatadog, D-06). Group by the actual tag so each bullet
-        // sits under its true tag and a grep by tag finds every check.
+        // (noDataInDatadog) and absent-status checks (reviewNoDataInDatadog). Group by
+        // the actual tag so each bullet sits under its true tag and a grep by tag finds
+        // every check.
         const noDataByTag = new Map<string, typeof noDataTests>();
         for (const test of noDataTests) {
           const key = test.tag ?? 'noDataInDatadog';
@@ -591,7 +590,7 @@ export function generateMarkdownReport(report: MigrationReport): string {
     }
   }
 
-  // Checks Left Active for Review (D-09/D-10)
+  // Checks Left Active for Review
   // Grouped by the review tag string itself, so any new review* tag auto-appears
   // as its own subsection with no tag-to-heading map to maintain.
   if (report.datadogStatus && report.datadogStatus.reviewTests.length > 0) {
@@ -618,7 +617,7 @@ export function generateMarkdownReport(report: MigrationReport): string {
     lines.push('');
   }
 
-  // Promoted Checks (REGX-09)
+  // Promoted Checks
   // Grouped by the promotion reason string itself, so any new reason auto-appears
   // as its own subsection with no reason lookup map to maintain (mirrors the
   // review section above). Sourced from the _promotionReason field, never .check.ts.
@@ -646,7 +645,7 @@ export function generateMarkdownReport(report: MigrationReport): string {
     lines.push('');
   }
 
-  // Migration Flags (FLAG-03)
+  // Migration Flags
   // Sourced only from exports/migration-flags.json (via report.migrationFlags),
   // never by re-scanning the generated .spec.ts files. Grouped by the reason
   // string itself, so new FlagReason codes added by Phases 8/9/10 auto-appear as
@@ -677,7 +676,7 @@ export function generateMarkdownReport(report: MigrationReport): string {
     lines.push('');
   }
 
-  // Self-Healing Locator Chains (D-06)
+  // Self-Healing Locator Chains
   // Mirrors the Checks Left Active for Review idiom (heading, bold count sentence,
   // per-check bullet list capped at 25, blockquoted Action line). Sourced from the
   // browser manifests' hasMultiCandidate field via report.multiSelector. These
@@ -705,15 +704,15 @@ export function generateMarkdownReport(report: MigrationReport): string {
     lines.push('');
   }
 
-  // Playwright Check Suites, multi-browser (PWCS-03)
+  // Playwright Check Suites, multi-browser
   // Mirrors the Self-Healing Locator Chains idiom (heading, bold count sentence,
   // per-check bullet capped at 25, blockquoted Action line). Sourced from the
   // browser manifests' pwEngines field via report.playwrightCheckSuites: a check
   // whose test declared more than one browser was emitted as a PlaywrightCheck
-  // (never a BrowserCheck) plus a companion playwright.config.ts (plan 10-03). The
-  // per-check bullet surfaces D-04's declared-vs-distinct visibility; the D-07
-  // caveat clause points to the Migration Flags section for the full text rather
-  // than duplicating the flag message (avoids stale-copy drift between surfaces).
+  // (never a BrowserCheck) plus a companion playwright.config.ts. The per-check
+  // bullet surfaces the declared-vs-distinct visibility; the private-location caveat
+  // clause points to the Migration Flags section for the full text rather than
+  // duplicating the flag message (avoids stale-copy drift between surfaces).
   // The two static notes below are gated on the same count > 0 condition so they
   // render exactly once when at least one PlaywrightCheck exists, never per-check.
   if (report.playwrightCheckSuites && report.playwrightCheckSuites.count > 0) {
@@ -774,7 +773,7 @@ export function generateMarkdownReport(report: MigrationReport): string {
     lines.push('');
   }
 
-  // Check-Level Secrets Requiring Manual Values (D-06)
+  // Check-Level Secrets Requiring Manual Values
   if (report.checkLevelSecrets && report.checkLevelSecrets.totalEntries > 0) {
     const cls = report.checkLevelSecrets;
     lines.push('## Check-Level Secrets Requiring Manual Values');
@@ -1343,7 +1342,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // Promoted checks (REGX-09): sourced only from the _promotionReason field on
+  // Promoted checks: sourced only from the _promotionReason field on
   // multi-step-tests.json, never by re-scanning generated .check.ts files.
   const promotions = (multiStepTests?.tests || [])
     .filter(t => Boolean(t._promotionReason))
@@ -1354,16 +1353,16 @@ async function main(): Promise<void> {
       locationType: (t.privateLocations && t.privateLocations.length > 0 ? 'private' : 'public') as 'public' | 'private',
     }));
 
-  // Migration flags (FLAG-03): sourced only from exports/migration-flags.json,
-  // never by re-scanning generated .spec.ts files. Null-tolerant: an absent file
-  // (readJsonFile returns null) or an absent flags member yields an empty array,
-  // so step 12 completes and renders no section when there are no flags.
+  // Migration flags: sourced only from exports/migration-flags.json, never by
+  // re-scanning generated .spec.ts files. Null-tolerant: an absent file (readJsonFile
+  // returns null) or an absent flags member yields an empty array, so step 12
+  // completes and renders no section when there are no flags.
   const migrationFlags = migrationFlagsFile?.flags || [];
 
-  // Self-healing locator chains (D-06): derive the multi-candidate review list
-  // from the already-loaded browser manifests' hasMultiCandidate field. Null-
-  // tolerant for manifests predating the field. Public and private are merged;
-  // each check records its location type from which manifest it came from.
+  // Self-healing locator chains: derive the multi-candidate review list from the
+  // already-loaded browser manifests' hasMultiCandidate field. Null-tolerant for
+  // manifests predating the field. Public and private are merged; each check records
+  // its location type from which manifest it came from.
   const multiSelectorChecks: Array<{ publicId: string; name: string; locationType: 'public' | 'private' }> = [];
   for (const file of browserManifestPublic?.files || []) {
     if (file.hasMultiCandidate) {
@@ -1376,7 +1375,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // Playwright Check Suites (PWCS-03): derive the multi-engine review list from the
+  // Playwright Check Suites: derive the multi-engine review list from the
   // already-loaded browser manifests' pwEngines field, mirroring the multiSelector
   // loop above (file.logicalId is the Datadog public_id; src/07 writes it). A file
   // whose pwEngines has length > 1 was emitted as a PlaywrightCheck by src/08.
@@ -1384,7 +1383,7 @@ async function main(): Promise<void> {
   // hasPrivateLocationCaveat cross-reference the already-loaded browserTests by
   // public_id: options.device_ids length for the declared count (falling back to
   // the engine count so the field is never undefined) and any privateLocations for
-  // the D-07 Agent-version caveat.
+  // the Agent-version caveat.
   const playwrightCheckSuiteEntries: Array<{
     publicId: string;
     name: string;

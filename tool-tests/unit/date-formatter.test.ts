@@ -1,6 +1,6 @@
 /**
  * Unit tests for the moment-token date formatter inside convertPatternToJs
- * (Phase 9, plan 09-04, ASRT-04 / D-07 / D-08).
+ *.
  *
  * The prior date sub-block split the args on EVERY comma (dropping everything
  * after the format's own comma) and chained bare .replace() calls (corrupting
@@ -29,7 +29,7 @@ import { FlagCollector } from '../../src/shared/migration-flags.ts';
 // Task 1: the tokenizer itself
 // -------------------------------------------------------------------------
 
-describe('convertPatternToJs date(): RCA comma case (ASRT-04)', () => {
+describe('convertPatternToJs date(): RCA comma case', () => {
   it('date(0d,MMM D, YYYY) preserves the post-comma year segment (no comma-split drop)', () => {
     const expr = convertPatternToJs('{{ date(0d,MMM D, YYYY) }}');
     // Short month accessor (en-US) present.
@@ -110,7 +110,7 @@ describe('convertPatternToJs date(): bracketed literal escaping', () => {
   });
 });
 
-describe('convertPatternToJs date(): unknown-token passthrough and out-param (D-08)', () => {
+describe('convertPatternToJs date(): unknown-token passthrough and out-param', () => {
   it('Q is pushed into unknownTokens and passes through literally', () => {
     const unknown: string[] = [];
     const expr = convertPatternToJs('{{ date(0d,Q MMM) }}', unknown);
@@ -158,7 +158,7 @@ describe('convertPatternToJs date(): offset semantics and no-format fallback', (
   });
 });
 
-describe('convertPatternToJs date(): hostile literal escaping (T-09-04-01)', () => {
+describe('convertPatternToJs date(): hostile literal escaping', () => {
   it("a format containing a quote and a backslash yields JSON.stringify-quoted literal chunks", () => {
     // A hostile literal chunk between tokens: a single quote and a backslash.
     const expr = convertPatternToJs("{{ date(0d,MMM 'x\\y) }}");
@@ -209,7 +209,7 @@ function mkBrowserTestWithVar(pattern: string) {
   };
 }
 
-describe('generateSpecFile: date-token-unknown flag at the local-variables site (D-08)', () => {
+describe('generateSpecFile: date-token-unknown flag at the local-variables site', () => {
   it('emits exactly one date-token-unknown flag for a variable with an unknown token', () => {
     const collector = new FlagCollector();
     const { spec } = generateSpecFile(mkBrowserTestWithVar('{{ date(0d,Q MMM) }}') as any, collector);

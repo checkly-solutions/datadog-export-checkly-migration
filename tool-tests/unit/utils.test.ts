@@ -1,5 +1,5 @@
 /**
- * Characterization tests for the shared helpers in src/shared/utils.ts (D-08).
+ * Characterization tests for the shared helpers in src/shared/utils.ts.
  *
  * RULE: these tests pin the CURRENT observed behavior of the helpers,
  * including known bugs. They are not a wishlist. If an expectation here
@@ -7,9 +7,9 @@
  * to the observed reality instead.
  *
  * EXCEPTION: the sanitizeIdentifier, uniqueLogicalId, and
- * normalizePublicChecklyLocations describes below assert NEW correct behavior
- * landed in Phase 6 (Blocking Deployability). The former TRKB-03 digit-guard
- * bug is fixed here, so those cases now run as real assertions rather than
+ * normalizePublicChecklyLocations describes below assert NEW correct behavior for
+ * deployability. The former digit-guard bug is fixed here, so those cases now run
+ * as real assertions rather than
  * characterization pins. Every other expected value was derived by reading the
  * implementation and confirmed by executing it.
  */
@@ -123,8 +123,8 @@ describe('sanitizeIdentifier', () => {
     assert.strictEqual(sanitizeIdentifier('2fa login!'), '_2fa_login');
   });
 
-  // TRKB-03 is fixed in Phase 6 (this change). The old sanitizeIdentifier
-  // ordering ran replace(/^_|_$/g,'') AFTER the digit guard, stripping the
+  // The digit-guard bug is fixed here. The old sanitizeIdentifier ordering ran
+  // replace(/^_|_$/g,'') AFTER the digit guard, stripping the
   // leading underscore the guard had just added, so digit-only and all-special
   // inputs came out invalid for TypeScript. The fix moves the guard to last.
   // The TRKB-03 reference is kept for traceability.
@@ -138,18 +138,18 @@ describe('sanitizeIdentifier', () => {
 });
 
 /**
- * Specification tests for sanitizeFilename after the DEPLOY-08 / D-07 fix.
+ * Specification tests for sanitizeFilename's always-append public_id tail.
  *
- * This is the file-write sibling of the DEPLOY-01 logical-ID fix. Per D-07 the
- * public_id tail is now ALWAYS appended (not only when the slug exceeds 50
- * chars), so two short same-named Datadog tests can never slug to the same
- * filename and silently overwrite each other on disk. The tail is derived by the
- * shared publicIdSlugTail helper, the same formula uniqueLogicalId uses, so the
- * two can never drift. These assert NEW correct behavior (not characterization).
- * All inputs are invented synthetic values (syn- public ids, <=25-char names).
+ * This is the file-write sibling of the logical-ID fix. The public_id tail is
+ * ALWAYS appended (not only when the slug exceeds 50 chars), so two short same-named
+ * Datadog tests can never slug to the same filename and silently overwrite each other
+ * on disk. The tail is derived by the shared publicIdSlugTail helper, the same formula
+ * uniqueLogicalId uses, so the two can never drift. These assert NEW correct behavior
+ * (not characterization). All inputs are invented synthetic values (syn- public ids,
+ * <=25-char names).
  */
-describe('sanitizeFilename DEPLOY-08 / D-07: always-append public_id tail', () => {
-  it('WR-02: two short same-names with distinct public_ids get DISTINCT filenames', () => {
+describe('sanitizeFilename always-append public_id tail', () => {
+  it('two short same-names with distinct public_ids get DISTINCT filenames', () => {
     const a = sanitizeFilename('Synthetic Browser Flow', 'syn-006-pqr');
     const b = sanitizeFilename('Synthetic Browser Flow', 'syn-206-tuv');
     assert.notStrictEqual(a, b, 'same name + distinct public_id must not collide on disk');
@@ -212,10 +212,10 @@ describe('sanitizeFilename DEPLOY-08 / D-07: always-append public_id tail', () =
 });
 
 /**
- * publicIdSlugTail (DEPLOY-08 / D-07) is the shared tail-derivation helper
+ * publicIdSlugTail is the shared tail-derivation helper
  * extracted from uniqueLogicalId so sanitizeFilename and uniqueLogicalId cannot
  * drift. It lowercases, coerces non-alphanumeric runs to single dashes, trims,
- * and falls back to a stable char-code hex tail (WR-01) for degenerate all-
+ * and falls back to a stable char-code hex tail for degenerate all-
  * punctuation input so a non-empty raw always contributes a non-empty tail.
  */
 describe('publicIdSlugTail', () => {
@@ -238,7 +238,7 @@ describe('publicIdSlugTail', () => {
 });
 
 /**
- * Specification tests for uniqueLogicalId (D-01/D-02). This is the single
+ * Specification tests for uniqueLogicalId. This is the single
  * source of truth for construct emit sites AND the step-12 CSV writer, so
  * every check gets a project-unique logical ID derived from its name plus its
  * Datadog public_id. Output stays inside Checkly's LOGICAL_ID_PATTERN
@@ -254,8 +254,8 @@ describe('uniqueLogicalId', () => {
     );
   });
 
-  // Byte-identity pin (DEPLOY-08 refactor guard): extracting the tail-derivation
-  // block into publicIdSlugTail must not change uniqueLogicalId output for any
+  // Byte-identity pin (refactor guard): extracting the tail-derivation block into
+  // publicIdSlugTail must not change uniqueLogicalId output for any
   // input. This value is pinned from the pre-refactor implementation.
   it('is byte-identical after the publicIdSlugTail extraction (refactor guard)', () => {
     assert.strictEqual(
@@ -264,7 +264,7 @@ describe('uniqueLogicalId', () => {
     );
   });
 
-  it('yields distinct IDs for same name but different public_id (DEPLOY-01 foundation)', () => {
+  it('yields distinct IDs for same name but different public_id', () => {
     const a = uniqueLogicalId('browser', 'Login Flow', 'syn-abc-123');
     const b = uniqueLogicalId('browser', 'Login Flow', 'syn-xyz-789');
     assert.notStrictEqual(a, b);
@@ -294,7 +294,7 @@ describe('uniqueLogicalId', () => {
 });
 
 /**
- * WR-01 hardening (VAL-09, plan 06-06). The helper's contract is that a
+ * hardening. The helper's contract is that a
  * non-empty publicId always contributes a non-empty discriminator, so two
  * checks with distinct publicIds never collide, even on degenerate input.
  * Before the fix, an all-punctuation name AND an all-punctuation publicId both
@@ -304,7 +304,7 @@ describe('uniqueLogicalId', () => {
  * (they never slug empty), but it violated the uniqueness guarantee. All inputs
  * below are invented synthetic values, never real Datadog ids.
  */
-describe('uniqueLogicalId WR-01 degenerate hardening', () => {
+describe('uniqueLogicalId degenerate hardening', () => {
   it('never collapses to the bare prefix when publicId is non-empty', () => {
     // Was 'api' before the fix (fails-first): both name and publicId slug empty.
     assert.notStrictEqual(uniqueLogicalId('api', '', '@@@'), 'api');
@@ -328,7 +328,7 @@ describe('uniqueLogicalId WR-01 degenerate hardening', () => {
 });
 
 describe('normalizePublicChecklyLocations dedup', () => {
-  it('dedupes after the aws: prefix collapse (D-06)', () => {
+  it('dedupes after the aws: prefix collapse', () => {
     assert.deepStrictEqual(
       normalizePublicChecklyLocations(['aws:us-east-1', 'us-east-1']),
       ['us-east-1']
@@ -509,8 +509,8 @@ describe('convertConfigVariables', () => {
 });
 
 /**
- * Specification tests for helpers added in Phase 2 (regex escaping
- * foundation). Unlike the characterization rule in this file's header,
+ * Specification tests for the regex-escaping helpers. Unlike the characterization
+ * rule in this file's header,
  * these describes assert NEW correct behavior: the helpers were written
  * to satisfy these expectations, not the other way around.
  */

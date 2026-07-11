@@ -298,7 +298,7 @@ export function buildMappingCsvForDns(tests: DatadogDnsTest[]): string {
   for (const test of tests) {
     const filename = `${sanitizeFilename(test.name, test.public_id)}.check.ts`;
     // Same shared helper as the emit site, so the standalone mapping CSV can never
-    // drift from the emitted DnsMonitor logical id (D-02).
+    // drift from the emitted DnsMonitor logical id.
     const checklyId = uniqueLogicalId('dns', test.name, test.public_id);
     const locationType = test.privateLocations && test.privateLocations.length > 0 ? 'private' : 'public';
     const ddLocs = csvEscapeField((test.originalLocations || []).join(';'));

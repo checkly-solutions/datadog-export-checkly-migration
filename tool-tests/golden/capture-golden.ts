@@ -12,13 +12,13 @@
  *
  * This is a standalone script, deliberately NOT matched by the
  * tool-tests/**\/*.test.ts glob: the default test path must never spawn
- * subprocesses (decision D-04). Invoke via npm run golden:capture or
+ * subprocesses (decision). Invoke via npm run golden:capture or
  * npm run golden:verify.
  *
  * Importing this module runs nothing; mode dispatch happens only when the
  * file is the direct CLI entry point with an explicit mode argument.
  *
- * Isolation invariants (decision D-19):
+ * Isolation invariants (decision):
  *   - cwd for every subprocess is a fresh temp dir under os.tmpdir(), so the
  *     cwd-relative .account-name cache and checkly-migrated/ output root
  *     (see src/shared/output-config.ts) never touch the repo tree.
@@ -59,7 +59,7 @@ const ACCOUNT_NAME = 'golden';
  *
  * Excluded steps, with reasons:
  *   - 01 (initial-datadog-export): needs live Datadog network access.
- *   - 03 (filter-multi-step): outside the D-01/D-02 refactor list and
+ *   - 03 (filter-multi-step): outside the refactor list and
  *     unnecessary here because the committed fixtures are pre-split
  *     (api-tests.json contains no multi subtype; multi-step-tests.json is
  *     committed directly).
@@ -68,7 +68,7 @@ const ACCOUNT_NAME = 'golden';
  *   - 10a (check-datadog-test-status): module-level dotenv AND needs live
  *     Datadog API access, so it cannot run offline. Its behavior
  *     preservation is proven by mechanical-diff review plus the
- *     import-side-effect test in plan 01-05, not by capture.
+ *     import-side-effect test in, not by capture.
  *   - 10b (deactivate-missing-secrets): outside the refactor list.
  */
 export const GOLDEN_STEPS = [

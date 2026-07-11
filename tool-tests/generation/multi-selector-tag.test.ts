@@ -1,16 +1,16 @@
 /**
- * D-06 multi-selector review tag tests (plan 08-06, VAL-09).
+ * multi-selector review tag tests.
  *
  * Pins the src/08 half of the self-healing locator chain review surface: the
  * `reviewMultiSelector` construct tag is emitted for every BrowserCheck whose
  * spec resolved a multi-candidate firstMatch chain (manifest field
  * hasMultiCandidate true), appended AFTER filterAndRemapTags in the same
  * diagnostic slot as the iframe tag and migration_check_id so DD_TAGS_EXCLUDE,
- * DD_TAGS_EXCLUDE_ALL, and DD_TAGS_REMAP can never strip it (D-06). The tag is a
- * fixed literal set in generated MaC code, never API-applied (D-08).
+ * DD_TAGS_EXCLUDE_ALL, and DD_TAGS_REMAP can never strip it. The tag is a
+ * fixed literal set in generated MaC code, never API-applied.
  *
  * The tag is a review surface only: it NEVER touches the activated value. A live
- * multi-candidate check stays activated: true; a FLAG-04-deactivated
+ * multi-candidate check stays activated: true; a deactivated
  * multi-candidate check emits activated: false via the existing flagState path
  * alone (deactivation remains exclusively the zero-candidate slice).
  *
@@ -86,7 +86,7 @@ after(() => {
   }
 });
 
-describe('generateBrowserCheckCode: reviewMultiSelector tag (D-06)', () => {
+describe('generateBrowserCheckCode: reviewMultiSelector tag', () => {
   it('Test 1: hasMultiCandidate true emits the reviewMultiSelector tag', () => {
     const out = generateBrowserCheckCode(mkTest(), SPEC_FILENAME, 'public', false, undefined, true);
     assert.ok(out.includes('reviewMultiSelector'), 'a multi-candidate check must carry the reviewMultiSelector tag');
@@ -117,7 +117,7 @@ describe('generateBrowserCheckCode: reviewMultiSelector tag (D-06)', () => {
     process.env.DD_TAGS_EXCLUDE_ALL = 'true';
     try {
       const out = generateBrowserCheckCode(mkTest(), SPEC_FILENAME, 'public', false, undefined, true);
-      assert.ok(out.includes('reviewMultiSelector'), 'the review tag is appended after filterAndRemapTags and survives exclude-all (D-06)');
+      assert.ok(out.includes('reviewMultiSelector'), 'the review tag is appended after filterAndRemapTags and survives exclude-all');
     } finally {
       if (prior === undefined) {
         delete process.env.DD_TAGS_EXCLUDE_ALL;
@@ -140,14 +140,14 @@ describe('generateBrowserCheckCode: reviewMultiSelector tag (D-06)', () => {
     assert.equal(occurrences, 1, 'reviewMultiSelector must appear exactly once in the emitted tags array');
   });
 
-  it('Test 7: the tag never changes activated for a live multi-candidate check (D-06 boundary)', () => {
+  it('Test 7: the tag never changes activated for a live multi-candidate check', () => {
     const out = generateBrowserCheckCode(mkTest({ status: 'live' }), SPEC_FILENAME, 'public', false, undefined, true);
     assert.ok(out.includes('reviewMultiSelector'), 'a live multi-candidate check carries the tag');
     assert.ok(out.includes('activated: true'), 'the tag never activates or deactivates: a live check stays activated: true');
     assert.ok(!out.includes('activated: false'), 'the multi-selector tag must not force a live check off');
   });
 
-  it('Test 8: a FLAG-04-deactivated multi-candidate check emits activated: false via flagState only, still carrying both tags', () => {
+  it('Test 8: a deactivated multi-candidate check emits activated: false via flagState only, still carrying both tags', () => {
     const flagState = {
       flaggedIds: new Set(['syn-aaa-111']),
       deactivatedIds: new Set(['syn-aaa-111']),
@@ -160,10 +160,10 @@ describe('generateBrowserCheckCode: reviewMultiSelector tag (D-06)', () => {
       flagState,
       true,
     );
-    assert.ok(out.includes('activated: false'), 'deactivation comes from the FLAG-04 flagState path, not the multi-selector tag');
+    assert.ok(out.includes('activated: false'), 'deactivation comes from the flagState path, not the multi-selector tag');
     assert.ok(!out.includes('activated: true'), 'the deactivated check must not remain active');
     assert.ok(out.includes('reviewMultiSelector'), 'the multi-selector review tag is still present on the deactivated check');
-    assert.ok(out.includes('reviewMigrationFlag'), 'the FLAG-04 review tag is present alongside it');
+    assert.ok(out.includes('reviewMigrationFlag'), 'the review tag is present alongside it');
   });
 
   it('Test 9: a paused multi-candidate check with no flagState stays activated: false (Datadog status preserved)', () => {
@@ -174,14 +174,14 @@ describe('generateBrowserCheckCode: reviewMultiSelector tag (D-06)', () => {
 });
 
 /**
- * WR-01 (todo 2026-07-09, plan 09-07): hasMultiCandidate is the SOURCE of the
+ * (todo 2026-07-09): hasMultiCandidate is the SOURCE of the
  * reviewMultiSelector tag (Tests 1-9 above) and of the step-12 Self-Healing Locator
  * Chains report entry. Both consumers already follow the manifest field faithfully;
  * the defect closed here is that the field itself over-claimed.
  *
- * Phase 8 derived hasMultiCandidate from a second, independent extractLocator length
+ * derived hasMultiCandidate from a second, independent extractLocator length
  * scan inside the per-step loop (true whenever any locator-consuming step resolved two
- * or more candidates). But the D-05 assertion-polarity path emits NO firstMatch chain
+ * or more candidates). But the assertion-polarity path emits NO firstMatch chain
  * for a HARD (non-soft) negative multi-candidate assertion: it pins to the PRIMARY
  * candidate. So a check whose only multi-candidate step was a hard-negative assertion
  * was falsely tagged reviewMultiSelector and over-claimed in the report, even though its
@@ -197,10 +197,10 @@ describe('generateBrowserCheckCode: reviewMultiSelector tag (D-06)', () => {
  * polarity, it is whether a chain was emitted. Any scan-gate keyed on polarity would drift
  * from the body; the emitted-body derivation cannot.
  *
- * NOTE (09-07 deviation, verified against installed source 2026-07-10): the todo/plan
- * premise that a SOFT negative multi-candidate "DOES emit a locator-level firstMatch chain"
- * is false against generateAssertElementContent as installed. The D-05 negative-pins-to-
- * primary rule is evaluated BEFORE the soft branch, so a negative assertion (soft OR hard)
+ * NOTE (verified against installed source): the premise that a SOFT negative
+ * multi-candidate "DOES emit a locator-level firstMatch chain" is false against
+ * generateAssertElementContent as installed. The negative-pins-to-primary rule is
+ * evaluated BEFORE the soft branch, so a negative assertion (soft OR hard)
  * pins to the primary candidate and emits NO chain. A soft negative therefore correctly
  * reports hasMultiCandidate FALSE (its spec body has no self-healing chain to point a
  * reviewer at, so tagging it reviewMultiSelector would over-claim exactly as the hard
@@ -210,7 +210,7 @@ describe('generateBrowserCheckCode: reviewMultiSelector tag (D-06)', () => {
  * idiom), reading the returned hasMultiCandidate plus the emitted spec body. Every fixture
  * value is synthetic: syn- public ids, example.com family, names 25 chars or fewer.
  */
-describe('generateSpecFile: hasMultiCandidate is emitted-chain reality (WR-01)', () => {
+describe('generateSpecFile: hasMultiCandidate is emitted-chain reality', () => {
   type SpecTestInput = Parameters<typeof generateBrowserSpec>[0];
 
   function mkSpecTest(publicId: string, steps: unknown[]): SpecTestInput {
@@ -244,9 +244,9 @@ describe('generateSpecFile: hasMultiCandidate is emitted-chain reality (WR-01)',
       .join('\n');
   }
 
-  it('a hard-negative-only multi-candidate check reports hasMultiCandidate FALSE (WR-01 core, was RED true)', () => {
+  it('a hard-negative-only multi-candidate check reports hasMultiCandidate FALSE', () => {
     // The ONLY multi-candidate step is a non-soft notContains assertElementContent. The
-    // D-05 path pins it to the primary candidate and emits NO firstMatch chain, so the
+    // path pins it to the primary candidate and emits NO firstMatch chain, so the
     // manifest field must be false: neither reviewMultiSelector nor a report entry.
     const hardNegStep = {
       name: 'Assert gone',
@@ -285,9 +285,9 @@ describe('generateSpecFile: hasMultiCandidate is emitted-chain reality (WR-01)',
     assert.ok(/\bfirstMatch\b/.test(executableLines(result.spec)), 'the soft positive must emit a firstMatch chain into the executable body');
   });
 
-  it('a soft-NEGATIVE multi-candidate check reports hasMultiCandidate FALSE (D-05 negatives pin to primary, soft or hard)', () => {
-    // 09-07 deviation, verified against installed source: the D-05 negative-pins-to-primary
-    // rule is evaluated before the soft branch, so a soft negative pins to the primary
+  it('a soft-NEGATIVE multi-candidate check reports hasMultiCandidate FALSE (negatives pin to primary, soft or hard)', () => {
+    // verified against installed source: the negative-pins-to-primary rule is
+    // evaluated before the soft branch, so a soft negative pins to the primary
     // candidate and emits NO chain (usesHelpers false). Its spec body has no self-healing
     // chain, so hasMultiCandidate must be FALSE, exactly like the hard negative. This
     // corrects the todo/plan premise that a soft negative rides the chain.
@@ -301,7 +301,7 @@ describe('generateSpecFile: hasMultiCandidate is emitted-chain reality (WR-01)',
     assert.equal(
       result.hasMultiCandidate,
       false,
-      'a soft negative pins to the primary candidate (D-05) and emits no chain, so hasMultiCandidate must be false',
+      'a soft negative pins to the primary candidate and emits no chain, so hasMultiCandidate must be false',
     );
     const exec = executableLines(result.spec);
     assert.ok(!/\bfirstMatch\b/.test(exec), 'the soft-negative executable body must contain no firstMatch chain');
@@ -321,7 +321,7 @@ describe('generateSpecFile: hasMultiCandidate is emitted-chain reality (WR-01)',
   });
 
   it('a multi-candidate action (click) reports hasMultiCandidate TRUE (unchanged behavior)', () => {
-    // A multi-candidate action emits the locator-level firstMatch chain, unchanged by WR-01.
+    // A multi-candidate action emits the locator-level firstMatch chain, unchanged by.
     const clickStep = {
       name: 'Click go',
       type: 'click',
@@ -347,7 +347,7 @@ describe('generateSpecFile: hasMultiCandidate is emitted-chain reality (WR-01)',
   it('the derivation scans the comment-stripped executable body: a commented reference cannot set the field', () => {
     // A hard-negative multi-candidate assertion emits comment lines that mention the
     // primary candidate and the reasoned-inference rationale, but never the firstMatch
-    // token; even so, the derivation stripping comment lines is what guarantees a FLAG-04
+    // token; even so, the derivation stripping comment lines is what guarantees a
     // commented-out chain (or any comment) can never falsely set the field. Assert the
     // field tracks the EXECUTABLE body only by confirming the hard-negative stays false
     // while its full spec text is scanned for the token only in executable lines.

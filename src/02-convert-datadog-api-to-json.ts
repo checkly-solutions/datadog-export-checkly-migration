@@ -328,7 +328,7 @@ export function convertTest(ddTest: DatadogTest): ChecklyCheck {
       subtype: ddTest.subtype,
     },
 
-    // Carry raw configVariables for downstream conversion (D-01, D-02, D-03)
+    // Carry raw configVariables for downstream conversion
     configVariables: ddTest.config?.configVariables ?? [],
   };
 
@@ -360,14 +360,14 @@ export function convertTest(ddTest: DatadogTest): ChecklyCheck {
     config.request.queryParameters = ddTest.config.request.query;
   }
 
-  // Redirect fidelity (FID-01/FID-02, D-04): only an explicit Datadog false diverges
-  // from Checkly's default (follow). true or absent is omitted so Checkly's default applies.
+  // Redirect fidelity: only an explicit Datadog false diverges from Checkly's default
+  // (follow). true or absent is omitted so Checkly's default applies.
   if (ddTest.options?.follow_redirects === false) {
     config.request.followRedirects = false;
   }
 
-  // TLS-verification fidelity (FID-03, D-05): only an explicit Datadog true diverges
-  // from Checkly's default (verify). false or absent is omitted so Checkly's default applies.
+  // TLS-verification fidelity: only an explicit Datadog true diverges from Checkly's
+  // default (verify). false or absent is omitted so Checkly's default applies.
   if (ddTest.options?.allow_insecure === true) {
     config.request.skipSSL = true;
   }

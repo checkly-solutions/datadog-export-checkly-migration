@@ -1,5 +1,5 @@
 /**
- * Generation/behavior tests for the status-correlation seam (Phase 04, STAT-01/02/04).
+ * Generation/behavior tests for the status-correlation seam.
  *
  * Chains the exported convertTest (step 02) into generateApiCheckCode (step 04)
  * to build a real emitted `.check.ts` source, then drives the pure
@@ -39,7 +39,7 @@ const absentFixture = loadFixture('api-test-absent-status.json');
  * generateApiCheckCode calls filterAndRemapTags, which reads DD_TAGS_EXCLUDE,
  * DD_TAGS_EXCLUDE_ALL, and DD_TAGS_REMAP at call time. Snapshot and clear all
  * three before the tests and restore them exactly afterwards so tag assertions
- * are stable on any machine and the STAT-04 case cannot leak DD_TAGS_EXCLUDE
+ * are stable on any machine and the tag-append case cannot leak DD_TAGS_EXCLUDE
  * into other tests or the developer shell.
  */
 const DD_TAG_VARS = ['DD_TAGS_EXCLUDE', 'DD_TAGS_EXCLUDE_ALL', 'DD_TAGS_REMAP'] as const;
@@ -64,29 +64,29 @@ after(() => {
 });
 
 describe('status-correlation: applyOutcomeToSource over emitted check source', () => {
-  it('live + No Data keeps activated: true and gains reviewNoDataInDatadog (STAT-01)', () => {
+  it('live + No Data keeps activated: true and gains reviewNoDataInDatadog', () => {
     const source = generateApiCheckCode(convertTest(liveFixture));
     assert.match(source, /activated:\s*true/, 'step 04 must emit activated: true for a live test');
 
     const out = applyOutcomeToSource(source, classifyStatus('No Data', 'live'));
-    assert.match(out, /activated:\s*true/, 'the review-active case must not flip activated (Pitfall 3)');
+    assert.match(out, /activated:\s*true/, 'the review-active case must not flip activated');
     assert.ok(out.includes('reviewNoDataInDatadog'), 'review tag must be appended');
     assert.ok(!out.includes('"noDataInDatadog"'), 'the plain noDataInDatadog tag must not be present');
   });
 
-  it('paused + No Data flips activated: false and gains noDataInDatadog (STAT-02, unchanged)', () => {
+  it('paused + No Data flips activated: false and gains noDataInDatadog', () => {
     const source = generateApiCheckCode(convertTest(pausedFixture));
     const out = applyOutcomeToSource(source, classifyStatus('No Data', 'paused'));
     assert.match(out, /activated:\s*false/, 'paused No Data must deactivate');
     assert.ok(out.includes('noDataInDatadog'), 'noDataInDatadog tag must be appended');
   });
 
-  it('absent-status + No Data flips activated: false and gains reviewNoDataInDatadog (D-06)', () => {
+  it('absent-status + No Data flips activated: false and gains reviewNoDataInDatadog', () => {
     // The absent fixture omits the `status` key, so classifyStatus receives an
     // undefined config status: safe-by-default deactivation plus the review tag.
     const source = generateApiCheckCode(convertTest(absentFixture));
     const out = applyOutcomeToSource(source, classifyStatus('No Data', undefined));
-    assert.match(out, /activated:\s*false/, 'absent-status No Data must deactivate (D-06)');
+    assert.match(out, /activated:\s*false/, 'absent-status No Data must deactivate');
     assert.ok(out.includes('reviewNoDataInDatadog'), 'reviewNoDataInDatadog tag must be appended');
     assert.ok(
       !out.includes('"noDataInDatadog"'),
@@ -107,7 +107,7 @@ describe('status-correlation: applyOutcomeToSource over emitted check source', (
     assert.ok(out.includes('failingInDatadog'), 'failingInDatadog tag must be appended');
   });
 
-  it('review tag survives DD_TAGS_EXCLUDE because it is appended after step 04 filtering (STAT-04)', () => {
+  it('review tag survives DD_TAGS_EXCLUDE because it is appended after step 04 filtering', () => {
     process.env.DD_TAGS_EXCLUDE = 'reviewNoDataInDatadog';
     try {
       const source = generateApiCheckCode(convertTest(liveFixture));
@@ -119,7 +119,7 @@ describe('status-correlation: applyOutcomeToSource over emitted check source', (
       const out = applyOutcomeToSource(source, classifyStatus('No Data', 'live'));
       assert.ok(
         out.includes('reviewNoDataInDatadog'),
-        'the review tag must be present after applyOutcomeToSource despite DD_TAGS_EXCLUDE (D-12)'
+        'the review tag must be present after applyOutcomeToSource despite DD_TAGS_EXCLUDE'
       );
     } finally {
       delete process.env.DD_TAGS_EXCLUDE;
@@ -127,13 +127,13 @@ describe('status-correlation: applyOutcomeToSource over emitted check source', (
   });
 });
 
-describe('status-correlation: step-12 projection categorizes a deactivated absent-status check as deactivated, not left active (CR-01)', () => {
+describe('status-correlation: step-12 projection categorizes a deactivated absent-status check as deactivated, not left active', () => {
   // Three dd-test-status rows covering the three No Data outcomes plus a
   // baseline. Only the fields projectDatadogStatusTests reads are meaningful;
   // the rest are synthetic (Pattern 5 invented values).
   const tests = [
     {
-      // D-06 absent-status: deactivated AND review-tagged. Must land in the
+      // absent-status: deactivated AND review-tagged. Must land in the
       // deactivated list only, never under "left active for review".
       publicId: 'syn-105-abs',
       name: 'Absent Status Check',
@@ -145,7 +145,7 @@ describe('status-correlation: step-12 projection categorizes a deactivated absen
       fetchedAt: '2026-01-01T00:00:00.000Z',
     },
     {
-      // STAT-01 live No Data: left active, review-tagged. The only row that
+      // live No Data: left active, review-tagged. The only row that
       // belongs under "left active for review".
       publicId: 'syn-104-liv',
       name: 'Live No Data Check',
@@ -157,7 +157,7 @@ describe('status-correlation: step-12 projection categorizes a deactivated absen
       fetchedAt: '2026-01-01T00:00:00.000Z',
     },
     {
-      // STAT-02 paused No Data: deactivated, plain tag.
+      // paused No Data: deactivated, plain tag.
       publicId: 'syn-106-pau',
       name: 'Paused No Data Check',
       monitorId: 2106,
@@ -177,7 +177,7 @@ describe('status-correlation: step-12 projection categorizes a deactivated absen
       undefined,
       'a deactivated reviewNoDataInDatadog check must NOT be rendered as left active for review',
     );
-    // Only the genuinely-live STAT-01 case remains in the review list.
+    // Only the genuinely-live case remains in the review list.
     assert.equal(reviewTests.length, 1, 'only the live No Data check is left active for review');
     assert.equal(reviewTests[0].publicId, 'syn-104-liv');
   });
@@ -192,7 +192,7 @@ describe('status-correlation: step-12 projection categorizes a deactivated absen
       'reviewNoDataInDatadog',
       'the deactivated list must carry the true tag so the No Data heading can group by it',
     );
-    // The live STAT-01 check must never be double-listed as deactivated.
+    // The live check must never be double-listed as deactivated.
     assert.ok(
       !deactivatedTests.some(t => t.publicId === 'syn-104-liv'),
       'the live No Data check must not appear in the deactivated list',

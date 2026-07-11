@@ -1,18 +1,18 @@
 /**
- * Unit truth-table matrix for classifyStatus (Phase 04, STAT-03).
+ * Unit truth-table matrix for classifyStatus.
  *
  * classifyStatus is a pure function of two inputs (the monitor/search state and
  * the test's exported config status) and reads no environment, so this file
  * needs no dotenv, no fixtures, and no DD_TAGS_* save/restore hooks. Every row
- * of the LOCKED D-04/D-06 truth table is pinned here with a structural
+ * of the LOCKED status truth table is pinned here with a structural
  * deepStrictEqual assertion (never a snapshot).
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyStatus } from '../../src/shared/status-decision.ts';
 
-describe('classifyStatus: D-04/D-06 truth table', () => {
-  it('No Data + live -> active, reviewNoDataInDatadog (STAT-01)', () => {
+describe('classifyStatus: status truth table', () => {
+  it('No Data + live -> active, reviewNoDataInDatadog', () => {
     assert.deepStrictEqual(classifyStatus('No Data', 'live'), {
       deactivate: false,
       tag: 'reviewNoDataInDatadog',
@@ -20,7 +20,7 @@ describe('classifyStatus: D-04/D-06 truth table', () => {
     });
   });
 
-  it('No Data + paused -> deactivated, noDataInDatadog (STAT-02, unchanged)', () => {
+  it('No Data + paused -> deactivated, noDataInDatadog', () => {
     assert.deepStrictEqual(classifyStatus('No Data', 'paused'), {
       deactivate: true,
       tag: 'noDataInDatadog',
@@ -28,7 +28,7 @@ describe('classifyStatus: D-04/D-06 truth table', () => {
     });
   });
 
-  it('No Data + absent -> deactivated, reviewNoDataInDatadog (D-06)', () => {
+  it('No Data + absent -> deactivated, reviewNoDataInDatadog', () => {
     assert.deepStrictEqual(classifyStatus('No Data', undefined), {
       deactivate: true,
       tag: 'reviewNoDataInDatadog',

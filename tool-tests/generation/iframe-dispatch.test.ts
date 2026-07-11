@@ -1,9 +1,9 @@
 /**
  * Generation tests for the folded iframe emission path and the tightened SPA
- * classifier (Phase 8, plan 08-04).
+ * classifier.
  *
- * Task 1 (IFR-01 + IFR-03): the second self-healing mechanism is retired. The
- * legacy frame-scanning helper (findInFrame) is gone from the emitted helpers
+ * Task 1: the second self-healing mechanism is retired. The legacy frame-scanning
+ * helper (findInFrame) is gone from the emitted helpers
  * module and from src/07; the selector-string bridge (extractLocatorSelector)
  * is deleted; and generateIframeStepCode is now TOTAL: it returns a non-null
  * string for every known step type plus unknown, emitting a provenance comment
@@ -11,7 +11,7 @@
  * already searches page.frames()), so an iframe-classified step and a
  * main-page step share ONE locator mechanism.
  *
- * Task 2 (IFR-02): analyzeStepsForIframes no longer misclassifies post-auth SPA
+ * Task 2: analyzeStepsForIframes no longer misclassifies post-auth SPA
  * client navigation as an iframe boundary; it uses an interleaving signal against
  * the maintained current page context (not the stale start-url segment).
  *
@@ -44,10 +44,10 @@ function mkCtx(overrides: Partial<StepFlagContext> = {}): StepFlagContext {
 const PROVENANCE_MARKER = '// May be inside an iframe';
 
 // ---------------------------------------------------------------------------
-// Task 1: dispatch totality (IFR-03): every step type returns a non-null string
+// Task 1: dispatch totality: every step type returns a non-null string
 // ---------------------------------------------------------------------------
 
-describe('plan 08-04 Task 1 generateIframeStepCode: total dispatch (IFR-03)', () => {
+describe('Task 1 generateIframeStepCode: total dispatch', () => {
   // A synthetic step for each known type plus an unknown type. Element-bearing
   // steps get a simple id locator so the folded emission resolves a candidate.
   const withElement = { targetOuterHTML: '<input id="user">' };
@@ -91,7 +91,7 @@ describe('plan 08-04 Task 1 generateIframeStepCode: total dispatch (IFR-03)', ()
 // Task 1: element-step equivalence (iframe emission == default emission + comment)
 // ---------------------------------------------------------------------------
 
-describe('plan 08-04 Task 1 generateIframeStepCode: one mechanism (IFR-01)', () => {
+describe('Task 1 generateIframeStepCode: one mechanism', () => {
   it('an iframe-classified multi-candidate click emits the SAME statement as the default path, modulo the provenance comment', () => {
     const step: Step = {
       name: 'Click ghost',
@@ -129,7 +129,7 @@ describe('plan 08-04 Task 1 generateIframeStepCode: one mechanism (IFR-01)', () 
 // Task 1: page-scope steps surface the design limitation (not silent)
 // ---------------------------------------------------------------------------
 
-describe('plan 08-04 Task 1 generateIframeStepCode: page-scope steps surface scope by design', () => {
+describe('Task 1 generateIframeStepCode: page-scope steps surface scope by design', () => {
   it('assertCurrentUrl inside an iframe context emits its default statement plus a page-scope disclosure comment', () => {
     const step: Step = { type: 'assertCurrentUrl', params: { check: 'contains', value: '/home' } };
     const out = generateIframeStepCode(step, mkCtx()) as string;
@@ -157,7 +157,7 @@ describe('plan 08-04 Task 1 generateIframeStepCode: page-scope steps surface sco
 // Task 1: unknown step type emits exactly one flag (no double emission)
 // ---------------------------------------------------------------------------
 
-describe('plan 08-04 Task 1 generateIframeStepCode: unknown type emits one flag', () => {
+describe('Task 1 generateIframeStepCode: unknown type emits one flag', () => {
   it('an unknown step type records exactly one unsupported-step-type flag through the folded default path', () => {
     const step: Step = { name: 'Do something', type: 'someUnknownFutureType' };
     const ctx = mkCtx();
@@ -170,10 +170,10 @@ describe('plan 08-04 Task 1 generateIframeStepCode: unknown type emits one flag'
 });
 
 // ---------------------------------------------------------------------------
-// Task 1: negative assertions (legacy mechanism fully retired, IFR-01, T-8-04)
+// Task 1: negative assertions (legacy mechanism fully retired)
 // ---------------------------------------------------------------------------
 
-describe('plan 08-04 Task 1: the hang-capable frame API is gone (IFR-01, T-8-04)', () => {
+describe('Task 1: the hang-capable frame API is gone', () => {
   it('the emitted helpers source no longer exports findInFrame and contains no auto-waiting frameLocator call', () => {
     assert.ok(!/findInFrame/.test(SHARED_HELPERS_SOURCE), 'the helpers module must not export the retired findInFrame helper');
     assert.ok(!/frameLocator/.test(SHARED_HELPERS_SOURCE), 'the helpers module must contain no auto-waiting frameLocator call (the 120s-hang API)');
@@ -211,7 +211,7 @@ describe('plan 08-04 Task 1: the hang-capable frame API is gone (IFR-01, T-8-04)
     assert.ok(spec.includes(PROVENANCE_MARKER), 'the iframe step must carry its provenance comment');
   });
 
-  it('threat T-8-01: a hostile provenance-bearing step with quote and newline characters emits a single-line-safe comment', () => {
+  it('a hostile provenance-bearing step with quote and newline characters emits a single-line-safe comment', () => {
     const step: Step = {
       name: 'Ghost "click"\ninjected',
       type: 'click',
@@ -227,14 +227,14 @@ describe('plan 08-04 Task 1: the hang-capable frame API is gone (IFR-01, T-8-04)
 
 // ---------------------------------------------------------------------------
 // Plan 09-03: both-paths parity for the new/changed assertion emitters. An
-// iframe-classified assertPageLacks (ASRT-05) and assertElementPresent (ASRT-06)
+// iframe-classified assertPageLacks and assertElementPresent
 // must emit the SAME assertion body as the main-page step (single dispatch, no
 // second switch): the iframe emission equals the default emission modulo the
 // provenance comment.
 // ---------------------------------------------------------------------------
 
-describe('plan 09-03 both-paths parity: assertPageLacks and assertElementPresent through the single dispatch', () => {
-  it('an iframe-classified assertPageLacks emits the provenance comment plus the SAME not.toContainText body assertion (ASRT-05)', () => {
+describe('both-paths parity: assertPageLacks and assertElementPresent through the single dispatch', () => {
+  it('an iframe-classified assertPageLacks emits the provenance comment plus the SAME not.toContainText body assertion', () => {
     const step: Step = { name: 'Assert gone', type: 'assertPageLacks', params: { value: 'Session expired' } };
     const defaultEmission = generateStepCodeDefault(step, mkCtx());
     const iframeEmission = generateIframeStepCode(step, mkCtx()) as string;
@@ -250,7 +250,7 @@ describe('plan 09-03 both-paths parity: assertPageLacks and assertElementPresent
     assert.equal(stripped, defaultEmission, 'the iframe assertPageLacks emission must equal the default-path emission');
   });
 
-  it('an iframe-classified assertElementPresent emits the provenance comment plus toBeAttached (ASRT-06, single dispatch)', () => {
+  it('an iframe-classified assertElementPresent emits the provenance comment plus toBeAttached (single dispatch)', () => {
     const step: Step = { name: 'Assert widget', type: 'assertElementPresent', params: { element: { targetOuterHTML: '<div id="widget"></div>' } } };
     const defaultEmission = generateStepCodeDefault(step, mkCtx());
     const iframeEmission = generateIframeStepCode(step, mkCtx()) as string;
@@ -268,10 +268,10 @@ describe('plan 09-03 both-paths parity: assertPageLacks and assertElementPresent
 });
 
 // ---------------------------------------------------------------------------
-// Task 2: tightened SPA-navigation classification (IFR-02)
+// Task 2: tightened SPA-navigation classification
 // ---------------------------------------------------------------------------
 
-describe('plan 08-04 Task 2 analyzeStepsForIframes: post-auth SPA navigation is not an iframe (IFR-02)', () => {
+describe('Task 2 analyzeStepsForIframes: post-auth SPA navigation is not an iframe', () => {
   const elStep = (url: string, name = 'act') => ({
     type: 'click',
     name,

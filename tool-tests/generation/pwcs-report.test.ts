@@ -1,28 +1,28 @@
 /**
  * Generation tests for the step-12 `## Playwright Check Suites (Multi-Browser)`
- * report section and its two gated static notes (PWCS-03, plan 10-04).
+ * report section and its two gated static notes.
  *
  * Pins that generateMarkdownReport:
  *   - renders the Playwright Check Suites section when report.playwrightCheckSuites
  *     is populated, listing each check plus its declared-vs-distinct engine counts
- *     (D-04 coverage-reduction visibility) and the D-07 private-location Checkly
- *     Agent 6.0.3 caveat when hasPrivateLocationCaveat is true;
+ *     (coverage-reduction visibility) and the private-location Checkly Agent 6.0.3
+ *     caveat when hasPrivateLocationCaveat is true;
  *   - renders NO section when the count is 0 or the field is absent (null-tolerant,
  *     mirrors every other conditional section);
- *   - renders the PLAYWRIGHT_NATIVE entitlement note (D-09) and the @playwright/test
+ *   - renders the PLAYWRIGHT_NATIVE entitlement note and the @playwright/test
  *     devDependency note each exactly once, gated on count > 0, never per-check;
- *   - surfaces the three new pwcs-* reason codes (plan 10-01) through the EXISTING
+ *   - surfaces the three new pwcs-* reason codes through the EXISTING
  *     reason-grouped Migration Flags section with zero source change to that section;
  *   - leaves generateMappingCsv's check_type column at 'browser' for a PWCS check
  *     (csv has no PWCS awareness and needs none).
  *
  * Sources for the flag/caveat/entitlement copy asserted here:
- *   - D-04: declared browser device profiles vs. distinct Playwright engine projects
- *     (pwcs-engines-deduped, plan 10-01/10-02).
- *   - D-07: multi-browser PWCS routed to a private location requires Checkly Agent
- *     6.0.3 or newer (pwcs-private-location-agent-version, plan 10-02).
- *   - D-09: PlaywrightCheck requires the PLAYWRIGHT_NATIVE entitlement (10-CONTEXT.md).
- *   - @playwright/test ^1.61.1: pinned by plan 10-03 (checkly@8.13.0's own dev pin).
+ *   - declared browser device profiles vs. distinct Playwright engine projects
+ *     (pwcs-engines-deduped).
+ *   - multi-browser PWCS routed to a private location requires Checkly Agent
+ *     6.0.3 or newer (pwcs-private-location-agent-version).
+ *   - PlaywrightCheck requires the PLAYWRIGHT_NATIVE entitlement.
+ *   - @playwright/test ^1.61.1: pinned to checkly@8.13.0's own dev pin.
  *
  * All fixtures are authored synthetic from scratch against the code's own input
  * interfaces (per the Testing SOP): syn- publicIds, invented check names 25 chars
@@ -86,7 +86,7 @@ function makeReport(overrides: Record<string, unknown> = {}): any {
 }
 
 describe('step 12 Playwright Check Suites (Multi-Browser) section', () => {
-  it('renders the section with the check and its declared-vs-distinct counts (D-04) when present', () => {
+  it('renders the section with the check and its declared-vs-distinct counts when present', () => {
     const checks: PwcsCheck[] = [{
       publicId: 'syn-601-pws',
       name: 'PWCS Report Test',
@@ -98,7 +98,7 @@ describe('step 12 Playwright Check Suites (Multi-Browser) section', () => {
     const md = generateMarkdownReport(makeReport({ playwrightCheckSuites: { count: 1, checks } }));
     assert.ok(md.includes('## Playwright Check Suites (Multi-Browser)'), 'section heading must appear');
     assert.ok(md.includes('syn-601-pws'), 'the PWCS check publicId must appear as a bullet');
-    // D-04 visibility: both the declared browser count and the distinct engine count are surfaced.
+    // visibility: both the declared browser count and the distinct engine count are surfaced.
     const line = md.split('\n').find(l => l.includes('syn-601-pws'));
     assert.ok(line, 'the PWCS check bullet line must exist');
     assert.ok(line!.includes('3'), 'the declared browser count (3) must appear on the bullet');
@@ -115,7 +115,7 @@ describe('step 12 Playwright Check Suites (Multi-Browser) section', () => {
     assert.doesNotMatch(md, /## Playwright Check Suites \(Multi-Browser\)/, 'no heading when field is undefined');
   });
 
-  it('renders the D-07 private-location Agent 6.0.3 caveat only for a caveated check', () => {
+  it('renders the private-location Agent 6.0.3 caveat only for a caveated check', () => {
     const withCaveat: PwcsCheck[] = [{
       publicId: 'syn-602-pwp',
       name: 'PWCS Private Test',
@@ -143,7 +143,7 @@ describe('step 12 Playwright Check Suites (Multi-Browser) section', () => {
     assert.ok(!bulletBlock.includes('6.0.3'), 'a non-caveated check must not carry the 6.0.3 caveat on its bullet/continuation');
   });
 
-  it('renders the PLAYWRIGHT_NATIVE entitlement note (D-09) only when count > 0', () => {
+  it('renders the PLAYWRIGHT_NATIVE entitlement note only when count > 0', () => {
     const checks: PwcsCheck[] = [{
       publicId: 'syn-604-pwn',
       name: 'PWCS Entitlement Test',

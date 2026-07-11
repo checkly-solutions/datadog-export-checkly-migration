@@ -1,5 +1,5 @@
 /**
- * Generation tests for the PWCS construct branch in step 08 (PWCS-02, plan 10-03).
+ * Generation tests for the PWCS construct branch in step 08.
  *
  * Drives the two new step-08 exports directly, no subprocess and no file writes:
  *   - generatePlaywrightCheckCode: the sibling emitter beside generateBrowserCheckCode
@@ -11,7 +11,7 @@
  * "Values must match the Playwright project name ... Wrong names can deploy but
  * run zero tests." So pwProjects on the construct and projects[].name in the
  * companion config MUST come from ONE shared engines array and can never drift.
- * The construct also omits engine and runtimeId entirely (CONTEXT.md D-10): engine
+ * The construct also omits engine and runtimeId entirely (CONTEXT.md): engine
  * selects the JS runtime (Engine.node/Engine.bun), deliberately omitted so the
  * Checkly CLI auto-detects (Node.js 22 default), and runtimeId is a BrowserCheck
  * knob that must never be ported onto this construct (the RCA bug class).
@@ -77,7 +77,7 @@ describe('PWCS construct branch (generatePlaywrightCheckCode)', () => {
     assert.match(code, /new BrowserCheck\(/);
   });
 
-  it('Test 3: PlaywrightCheck omits retryStrategy, doubleCheck, runtimeId, engine, and never imports RetryStrategyBuilder/Engine (D-10)', () => {
+  it('Test 3: PlaywrightCheck omits retryStrategy, doubleCheck, runtimeId, engine, and never imports RetryStrategyBuilder/Engine', () => {
     const code = generatePlaywrightCheckCode(
       mkTest(),
       'public',
@@ -94,7 +94,7 @@ describe('PWCS construct branch (generatePlaywrightCheckCode)', () => {
     // Guard the prop specifically so the legitimate `engines` identifier / the
     // pwProjects/config engine names cannot false-positive: no `engine:` key and
     // no `Engine` import.
-    assert.ok(!/\bengine\s*:/.test(code), 'must not set an engine prop (D-10)');
+    assert.ok(!/\bengine\s*:/.test(code), 'must not set an engine prop');
     assert.ok(!/\bRetryStrategyBuilder\b/.test(code), 'must not import RetryStrategyBuilder');
     assert.ok(!/\bEngine\b/.test(code), 'must not import Engine');
   });
@@ -137,7 +137,7 @@ describe('PWCS construct branch (generatePlaywrightCheckCode)', () => {
     assert.ok(!p.includes('..'), 'a same-directory companion needs no parent-dir traversal');
   });
 
-  it('Test 6: private-location parity (D-06) — privateLocations emitted exactly as BrowserCheck would', () => {
+  it('Test 6: private-location parity — privateLocations emitted exactly as BrowserCheck would', () => {
     const test = mkTest({ privateLocations: ['synthetic-pl-east'], locations: [] });
     const pwc = generatePlaywrightCheckCode(
       test,
@@ -157,7 +157,7 @@ describe('PWCS construct branch (generatePlaywrightCheckCode)', () => {
     assert.equal(pwLine?.trim(), bcLine?.trim(), 'privateLocations line shape must match BrowserCheck');
   });
 
-  it('Test 7: check-level settings parity (D-02) — frequency, tags, activated, env/secrets match a BrowserCheck for the same fixture', () => {
+  it('Test 7: check-level settings parity — frequency, tags, activated, env/secrets match a BrowserCheck for the same fixture', () => {
     const flagState = { flaggedIds: new Set(['syn-501-pwc']), deactivatedIds: new Set<string>() };
     const secretKeys = ['SYNTHETIC_SECRET'];
     const test = mkTest({ status: 'live', tags: ['env:synthetic', 'team:qa'] });
@@ -211,10 +211,10 @@ describe('PWCS companion config (generatePlaywrightConfigCode)', () => {
 });
 
 /**
- * Config-to-spec resolution (WR-02 / CR-01 regression guard).
+ * Config-to-spec resolution regression guard.
  *
- * The blocker CR-01 was that the companion config declared only projects[] with
- * NO testDir/testMatch, so Playwright/Checkly defaulted testDir to the config's
+ * The regression it guards was that the companion config declared only projects[]
+ * with NO testDir/testMatch, so Playwright/Checkly defaulted testDir to the config's
  * own directory (__checks__/browser/<lt>/), which holds zero .spec.ts files, and
  * the migrated PlaywrightCheck ran nothing. These tests assert the emitted config
  * now provably discovers its ONE spec: testDir must resolve (via path arithmetic,
@@ -227,7 +227,7 @@ describe('PWCS companion config (generatePlaywrightConfigCode)', () => {
  *   config: __checks__/browser/<lt>/<base>.playwright.config.ts
  *   spec:   tests/browser/<lt>/<base>.spec.ts
  */
-describe('PWCS config discovers its spec (WR-02: config-to-spec resolution)', () => {
+describe('PWCS config discovers its spec (config-to-spec resolution)', () => {
   /** Pull the single-quoted value of a top-level config key from the emitted body. */
   function extractConfigValue(configBody: string, key: string): string | undefined {
     return configBody.match(new RegExp(`${key}:\\s*'([^']+)'`))?.[1];
@@ -240,7 +240,7 @@ describe('PWCS config discovers its spec (WR-02: config-to-spec resolution)', ()
 
       const testDir = extractConfigValue(configBody, 'testDir');
       const testMatch = extractConfigValue(configBody, 'testMatch');
-      assert.ok(testDir, 'config must declare a testDir (CR-01: default testDir finds zero specs)');
+      assert.ok(testDir, 'config must declare a testDir (default testDir finds zero specs)');
       assert.ok(testMatch, 'config must declare a testMatch');
 
       // The config lives at __checks__/browser/<lt>/; the spec lives at

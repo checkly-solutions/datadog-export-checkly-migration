@@ -1,16 +1,16 @@
 /**
- * Unit coverage for the Phase 10 PWCS contract substrate (PWCS-01, PWCS-03).
+ * Unit coverage for the multi-browser (PWCS) contract substrate.
  *
  * Two subjects:
  *   1. deviceFamily + deriveEnginesFromDeviceIds + PLAYWRIGHT_ENGINE_ORDER in
  *      src/shared/utils.ts: the shared family-parse rule (single source of truth,
  *      reused by src/07) plus the pure device_ids -> Playwright engine-set
- *      derivation primitive with the D-03 edge->chromium mapping and the D-04
+ *      derivation primitive with the edge->chromium mapping and the
  *      dedupe/canonical-order semantics.
  *   2. The three appended PWCS FlagReason codes in src/shared/migration-flags.ts:
  *      the closed FLAG_REASONS union gains the three PWCS codes as its final three
  *      entries (append-only) and emitFlag accepts them at runtime.
- *   3. PWCS-01 threading: options.device_ids survives step 01's
+ *   3. threading: options.device_ids survives step 01's
  *      transformTestLocations spread untouched.
  *
  * Determinism per the Testing SOP: no clock, randomness, timers, subprocess,
@@ -113,9 +113,9 @@ describe('deriveEnginesFromDeviceIds', () => {
   });
 });
 
-describe('PWCS FLAG_REASONS extension (PWCS-03)', () => {
+describe('PWCS FLAG_REASONS extension', () => {
   it('has the three PWCS codes appended last in order (append-only)', () => {
-    // The plan drafted against a 14-code pre-Phase-10 tuple (14 + 3 = 17); Phase 9.5
+    // The plan drafted against a 14-code pre-Phase-10 tuple (14 + 3 = 17);
     // landed user-locator-pin-unresolvable as code 15 after the plan was written, so
     // the real total is 18 with the PWCS codes at positions 16-18. The invariant that
     // matters is order-relative append, not an absolute count: assert the three PWCS
@@ -140,7 +140,7 @@ describe('PWCS FLAG_REASONS extension (PWCS-03)', () => {
   });
 });
 
-describe('PWCS-01 threading (options.device_ids survives step 01 transform)', () => {
+describe('threading (options.device_ids survives step 01 transform)', () => {
   const emptyMap = () => new Map<string, string>();
   const emptyUsage = () => new Map<string, number>();
 

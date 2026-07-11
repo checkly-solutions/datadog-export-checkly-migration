@@ -1,16 +1,16 @@
 /**
  * Generation tests for the promotion marker tag (step 06) and the promotion
- * report section (step 12) (REGX-07, REGX-09).
+ * report section (step 12).
  *
  * Part A pins that generateMultiStepCheckCode appends the promotedFromApiCheck
  * marker tag for a promoted test (and only for a promoted test), and that the
  * marker survives a DD_TAGS_EXCLUDE that would match it (append-after-filtering,
- * threat T-05-12). Part B pins that generateMarkdownReport renders a Promoted
+ * threat). Part B pins that generateMarkdownReport renders a Promoted
  * Checks section grouped by reason when promotions is populated, and renders no
- * heading when it is empty (threat T-05-13).
+ * heading when it is empty.
  *
- * Structural assertions on returned strings only, never snapshots (D-03); no
- * subprocess, no file writes (D-04). Inputs are minimal in-memory synthetic
+ * Structural assertions on returned strings only, never snapshots; no
+ * subprocess, no file writes. Inputs are minimal in-memory synthetic
  * objects (Pattern 5 invented values only).
  */
 process.env.CHECKLY_ACCOUNT_NAME ??= 'tool-tests';
@@ -24,7 +24,7 @@ import { generateMarkdownReport } from '../../src/12-generate-migration-report.t
  * generateMultiStepCheckCode calls filterAndRemapTags, which reads
  * DD_TAGS_EXCLUDE, DD_TAGS_EXCLUDE_ALL, and DD_TAGS_REMAP at call time.
  * Snapshot and clear all three before the tests and restore them exactly
- * afterwards (threat T-01-14).
+ * afterwards.
  */
 const DD_TAG_VARS = ['DD_TAGS_EXCLUDE', 'DD_TAGS_EXCLUDE_ALL', 'DD_TAGS_REMAP'] as const;
 let savedTagEnv: Record<string, string | undefined> = {};

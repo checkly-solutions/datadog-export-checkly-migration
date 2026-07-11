@@ -1,31 +1,30 @@
 /**
- * Contract test for the MIGRATION-FLAG cross-phase module (FLAG-01; D-01, D-02, D-03).
+ * Contract test for the MIGRATION-FLAG cross-phase module.
  *
  * This is the executable spec that src/shared/migration-flags.ts must satisfy.
- * Authored test-first (VAL-09): it fails with an unresolved-module error until
+ * Authored test-first: it fails with an unresolved-module error until
  * the module exists, then goes green unchanged.
  *
  * It locks:
- * - the exact seventeen-code FLAG_REASONS tuple in locked order (D-01): the three
- *   Phase 8 codes (shadow-dom-locator, negative-assertion-degraded,
- *   assertion-operator-unknown) appended after secret-value-required, then the two
- *   Phase 9 codes (date-token-unknown for ASRT-04/D-08, possible-plaintext-secret
- *   for D-10) appended after those, then the one Phase 9.5 code
- *   (user-locator-pin-unresolvable for FID-01/D-01), then the three Phase 10 PWCS
- *   codes (pwcs-device-unmapped, pwcs-engines-deduped,
- *   pwcs-private-location-agent-version for PWCS-03) appended last
+ * - the exact FLAG_REASONS tuple in locked order: the locator/residue codes
+ *   (shadow-dom-locator, negative-assertion-degraded, assertion-operator-unknown)
+ *   appended after secret-value-required, then the assertion/secret codes
+ *   (date-token-unknown, possible-plaintext-secret), then
+ *   user-locator-pin-unresolvable, then the three multi-browser codes
+ *   (pwcs-device-unmapped, pwcs-engines-deduped, pwcs-private-location-agent-version)
+ *   appended last
  * - the inline marker grammar: two-space-indented `// MIGRATION-FLAG:` line with
  *   a one-based `(step N)` render, colon separator, and an optional
  *   `// DD original:` second line, all embedded text routed through escapeString
- *   so hostile DD input cannot break out of the line comment (D-03, T-07-01)
+ *   so hostile DD input cannot break out of the line comment
  * - the FlagCollector one-seam semantics (emitFlag both records and returns the
  *   marker), the dedupe/deactivation id sets, runtime union enforcement, and
- *   instance isolation (D-02)
+ *   instance isolation
  * - the plain-JSON MigrationFlagsFile shape toFile() produces
  *
  * Expected escaped text derives from escapeString itself (the single canonical
- * escaper), asserting ROUTING rather than duplicating the escape table (D-02
- * reuse-don't-fork). Test 6 anchors the escaping non-tautologically with
+ * escaper), asserting ROUTING rather than duplicating the escape table
+ * (reuse-don't-fork). Test 6 anchors the escaping non-tautologically with
  * hard-coded raw-in / escaped-out assertions.
  *
  * Determinism per the Testing SOP: no clock, randomness, timers, subprocess,
@@ -45,17 +44,16 @@ import type { MigrationFlag, MigrationFlagsFile } from '../../src/shared/migrati
 import { escapeString } from '../../src/shared/utils.ts';
 
 /**
- * The seventeen locked reason codes in locked order (D-01). Hard-coded here so this
- * file is the visible contract-evolution point: any later phase that appends a
- * code updates this tuple in the same change. The three after secret-value-required
+ * The locked reason codes in locked order. Hard-coded here so this file is the
+ * visible contract-evolution point: any later change that appends a code updates
+ * this tuple in the same change. The three after secret-value-required
  * (shadow-dom-locator, negative-assertion-degraded, assertion-operator-unknown) are
- * the Phase 8 additions (LOC-06/LOC-08); the two after those (date-token-unknown for
- * ASRT-04/D-08, possible-plaintext-secret for D-10) are the Phase 9 additions; the
- * next one (user-locator-pin-unresolvable for FID-01/D-01) is the Phase 9.5
- * addition; the final three (pwcs-device-unmapped, pwcs-engines-deduped,
- * pwcs-private-location-agent-version for PWCS-03) are the Phase 10 additions,
- * appended after the Phase 9.5 code. Everything up to secret-value-required is
- * byte-identical to the pre-Phase-8 order.
+ * the locator/residue additions; the two after those (date-token-unknown,
+ * possible-plaintext-secret) are the assertion/secret additions; the next one
+ * (user-locator-pin-unresolvable) is the pin-authority addition; the final three
+ * (pwcs-device-unmapped, pwcs-engines-deduped, pwcs-private-location-agent-version)
+ * are the multi-browser additions, appended last. Everything up to
+ * secret-value-required is byte-identical to the original order.
  */
 const EXPECTED_REASONS = [
   'locator-unresolvable',
@@ -92,11 +90,11 @@ function makeFlag(overrides: Partial<MigrationFlag> = {}): MigrationFlag {
 }
 
 describe('FLAG_REASONS', () => {
-  it('deep-equals the exact seventeen-element tuple in locked order (D-01)', () => {
+  it('deep-equals the exact seventeen-element tuple in locked order', () => {
     assert.deepStrictEqual([...FLAG_REASONS], EXPECTED_REASONS);
   });
 
-  it('appends the three Phase 8 codes, the two Phase 9 codes, the Phase 9.5 code, then the three Phase 10 PWCS codes after secret-value-required (append-only, D-01)', () => {
+  it('appends the locator/residue, assertion/secret, pin-authority, and multi-browser codes after secret-value-required (append-only)', () => {
     const secretIdx = FLAG_REASONS.indexOf('secret-value-required');
     assert.ok(secretIdx >= 0, 'secret-value-required must still be present');
     assert.deepStrictEqual(
@@ -113,12 +111,12 @@ describe('FLAG_REASONS', () => {
         'pwcs-engines-deduped',
         'pwcs-private-location-agent-version',
       ],
-      'the three Phase 8 codes, the two Phase 9 codes, the Phase 9.5 code, then the three Phase 10 PWCS codes must follow secret-value-required in this exact order',
+      'the locator/residue, assertion/secret, pin-authority, and multi-browser codes must follow secret-value-required in this exact order',
     );
   });
 });
 
-describe('FlagCollector.emitFlag Phase 8 reason codes (LOC-06/LOC-08)', () => {
+describe('FlagCollector.emitFlag locator and residue reason codes', () => {
   const PHASE_8_REASONS: MigrationFlag['reason'][] = [
     'shadow-dom-locator',
     'negative-assertion-degraded',
@@ -136,7 +134,7 @@ describe('FlagCollector.emitFlag Phase 8 reason codes (LOC-06/LOC-08)', () => {
   }
 });
 
-describe('FlagCollector.emitFlag Phase 9 reason codes (ASRT-04/D-08, D-10)', () => {
+describe('FlagCollector.emitFlag assertion and secret reason codes', () => {
   const PHASE_9_REASONS: MigrationFlag['reason'][] = [
     'date-token-unknown',
     'possible-plaintext-secret',
@@ -153,7 +151,7 @@ describe('FlagCollector.emitFlag Phase 9 reason codes (ASRT-04/D-08, D-10)', () 
   }
 });
 
-describe('FlagCollector.emitFlag Phase 9.5 reason code (FID-01/D-01)', () => {
+describe('FlagCollector.emitFlag.5 reason code', () => {
   it('accepts user-locator-pin-unresolvable without throwing and returns a marker naming it', () => {
     const collector = new FlagCollector();
     const flag = makeFlag({
@@ -165,7 +163,7 @@ describe('FlagCollector.emitFlag Phase 9.5 reason code (FID-01/D-01)', () => {
     const marker = collector.emitFlag(flag);
     assert.ok(marker.includes('user-locator-pin-unresolvable'), 'the inline marker must contain the reason string');
     assert.deepStrictEqual(collector.flags[0], flag, 'the raw flag is recorded');
-    assert.ok(!flag.deactivates, 'the pin-unresolvable flag never deactivates (D-06 honesty, chain stays live)');
+    assert.ok(!flag.deactivates, 'the pin-unresolvable flag never deactivates (chain stays live)');
   });
 });
 
@@ -217,7 +215,7 @@ describe('formatInlineMarker', () => {
     assert.ok(!withoutDd.includes('\n'), 'no ddStepText -> single line, no trailing newline');
   });
 
-  it('routes hostile message and ddStepText through escapeString so no line escapes the comment (T-07-01)', () => {
+  it('routes hostile message and ddStepText through escapeString so no line escapes the comment', () => {
     const hostileMessage = 'bad "quote" \\ and\nnewline';
     const hostileStep = 'step "x" \\ y\nz';
     const marker = formatInlineMarker(
@@ -253,7 +251,7 @@ describe('formatInlineMarker', () => {
 });
 
 describe('FlagCollector.emitFlag', () => {
-  it('returns exactly formatInlineMarker output and records the raw flag (D-02 single seam)', () => {
+  it('returns exactly formatInlineMarker output and records the raw flag (single seam)', () => {
     const collector = new FlagCollector();
     const flag = makeFlag({ reason: 'wait-value-invalid', stepIndex: 2, message: 'wait invalid' });
     const ddStep = 'Wait 9999';

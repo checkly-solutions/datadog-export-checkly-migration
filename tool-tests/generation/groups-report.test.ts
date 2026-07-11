@@ -1,13 +1,13 @@
 /**
  * Generation tests for the group templates (step 11) and the report
- * generators (step 12) (VAL-01, D-04).
+ * generators (step 12).
  *
  * Deliberately a smoke-level pin for step 12: its emission logic largely
- * lives inside main() and stays there per D-17; deeper report coverage
+ * lives inside main() and stays there per; deeper report coverage
  * belongs to the phase that next touches src/12. Inputs are minimal
  * in-memory synthetic objects (Pattern 5 invented values only); no fixture
- * file needed. Structural assertions only, never snapshots (D-03); no
- * subprocess, no file writes (D-04).
+ * file needed. Structural assertions only, never snapshots; no
+ * subprocess, no file writes.
  */
 process.env.CHECKLY_ACCOUNT_NAME ??= 'tool-tests';
 
@@ -84,7 +84,7 @@ describe('step 12 generateMappingCsv: smoke pin', () => {
 });
 
 /**
- * Per-type CSV parity (DEPLOY-07, D-02, D-05). Every one of the five row types
+ * Per-type CSV parity. Every one of the five row types
  * must carry a checkly_logical_id computed by the SAME uniqueLogicalId helper the
  * construct emit sites use. Comparing against the imported helper (not a hardcoded
  * string) is the point: it proves the CSV writer and the emit sites share one
@@ -180,7 +180,7 @@ describe('step 12 generateMappingCsv: per-type uniqueLogicalId parity', () => {
   };
 
   // sanitizeFilename(name, publicId) now ALWAYS appends the dashed public_id tail
-  // (DEPLOY-08 / D-07), so the on-disk gate keys on the slug + '-' + tail form.
+  //, so the on-disk gate keys on the slug + '-' + tail form.
   const tcpFilenames = new Set(['parity-tcp-monitor-syn-204-jkl.check.ts']);
   const dnsFilenames = new Set(['parity-dns-monitor-syn-205-mno.check.ts']);
 
@@ -276,7 +276,7 @@ describe('step 12 generateMarkdownReport: smoke pin', () => {
     assert.ok(markdown.includes('| Browser Checks | 1 | 0 | 1 |'), 'Browser check counts must render');
   });
 
-  it('Phase 3: Conversion Notes records the redirect/TLS/cert emit convention (D-08)', () => {
+  it('Conversion Notes records the redirect/TLS/cert emit convention', () => {
     const markdown = generateMarkdownReport(report);
     assert.ok(
       markdown.includes('### Conversion Notes'),
@@ -313,7 +313,7 @@ describe('step 12 review section: tag-keyed grouping', () => {
 
   // Minimal synthetic MigrationReport carrying a datadogStatus with two review
   // tags (Pattern 5 invented values only, no fixture file). The second tag is a
-  // hypothetical future review tag; it must render with zero code change (D-09).
+  // hypothetical future review tag; it must render with zero code change.
   const report: Parameters<typeof generateMarkdownReport>[0] = {
     generatedAt: '2026-01-01T00:00:00.000Z',
     source: { exportedAt: '2026-01-01T00:00:00.000Z', site: 'datadoghq.com' },
@@ -382,7 +382,7 @@ describe('step 12 review section: tag-keyed grouping', () => {
     );
   });
 
-  it('auto-renders a second review tag as its own subsection with no code change (D-09)', () => {
+  it('auto-renders a second review tag as its own subsection with no code change', () => {
     const markdown = generateMarkdownReport(report);
     assert.ok(
       markdown.includes('### reviewSomethingElse (1)'),

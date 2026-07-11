@@ -23,10 +23,10 @@ export const FREQUENCY_MAP: Record<number, string> = {
 };
 
 /**
- * Sanitize a string to be a valid filename (DEPLOY-08 / D-07).
+ * Sanitize a string to be a valid filename.
  *
- * This is the file-write sibling of the DEPLOY-01 logical-ID fix. Per D-07 the
- * `uniqueId` (the Datadog public_id) tail is ALWAYS appended when provided, not
+ * This is the file-write sibling of the logical-ID sanitizer. The `uniqueId` (the
+ * Datadog public_id) tail is ALWAYS appended when provided, not
  * only when the slug exceeds MAX_LEN. Without this, two short same-named Datadog
  * tests (e.g. two "Synthetic Browser Flow" tests) slugged to the identical
  * filename and the second writeFile silently overwrote the first, so two source
@@ -81,7 +81,7 @@ export function generateLogicalId(name: string): string {
 }
 
 /**
- * Derive a Checkly-safe slug tail from a Datadog public_id (D-01, D-02, D-07).
+ * Derive a Checkly-safe slug tail from a Datadog public_id.
  *
  * This is the single tail-derivation formula shared by BOTH uniqueLogicalId (the
  * construct/CSV logical-ID writer) and sanitizeFilename (the on-disk filename
@@ -92,8 +92,8 @@ export function generateLogicalId(name: string): string {
  * single dash, and trims leading/trailing dashes. The result contains only
  * lowercase letters, digits, and single dashes.
  *
- * WR-01: a non-empty publicId is the uniqueness anchor and must never be silently
- * dropped. Real syn- ids always slug to a non-empty tail, so the fallback branch
+ * A non-empty publicId is the uniqueness anchor and must never be silently dropped.
+ * Real syn- ids always slug to a non-empty tail, so the fallback branch
  * never runs for production data and callers stay byte-identical. It only fires
  * on degenerate all-punctuation publicIds (e.g. "@@@"), where the normal slug
  * reduces to empty: there we derive a short, stable, collision-resistant hex tail
@@ -121,7 +121,7 @@ export function publicIdSlugTail(raw: string): string {
 
 /**
  * Build a project-unique logical ID from a construct-type prefix, the check
- * name, and the Datadog public_id (D-01, D-02).
+ * name, and the Datadog public_id.
  *
  * This is the single source of truth for construct emit sites AND the step-12
  * CSV writer, so the two can never drift: a logical ID emitted into a
@@ -172,10 +172,10 @@ export function convertFrequency(tickEvery?: number): string {
 /**
  * Sanitize a string to be a valid TypeScript identifier.
  *
- * Postconditions (DEPLOY-02, D-04): the result is always a valid TypeScript
- * identifier, never empty, and never digit-leading. The digit guard runs LAST,
- * after the leading/trailing underscore trim; the previous ordering trimmed the
- * guard underscore off right after adding it, which was the DEPLOY-02 root cause.
+ * Postconditions: the result is always a valid TypeScript identifier, never empty,
+ * and never digit-leading. The digit guard runs LAST, after the leading/trailing
+ * underscore trim: trimming the guard underscore off right after adding it would
+ * re-expose a digit-leading identifier.
  *
  * Ordering: coerce every character outside letters, digits, and underscore to
  * underscore; collapse underscore runs; trim leading and trailing underscores;
@@ -246,13 +246,12 @@ export function parseDatadogRegex(raw: string): { source: string; flags: string 
  * slugs (pl:*): this filter would drop them, and private locations belong in a
  * separate privateLocations field.
  *
- * The result is deduped after the aws: collapse (D-06): once "aws:us-east-1"
- * and "us-east-1" both reduce to "us-east-1", only the first is kept, in order.
+ * The result is deduped after the aws: collapse: once "aws:us-east-1" and
+ * "us-east-1" both reduce to "us-east-1", only the first is kept, in order.
  *
  * Single public-locations normalizer for steps 04 (ApiCheck), 04b (TcpMonitor),
  * 04c (DnsMonitor), 06 (MultiStepCheck), and 08 (BrowserCheck), so every path
- * stays in sync (WR-03). The 04b/04c forks are removed in plan 06-03 and step 08
- * routes through it in plan 06-04.
+ * stays in sync.
  */
 export function normalizePublicChecklyLocations(locations: string[]): string[] {
   const collapsed = locations
@@ -511,12 +510,12 @@ export interface DeviceEngineDerivation {
 }
 
 /**
- * Datadog device-family to Playwright engine map (D-03, D-04).
+ * Datadog device-family to Playwright engine map.
  *
  * The family is the token before the first dot in a Datadog device id
  * (chrome.laptop_large -> chrome). Edge folds to chromium unconditionally and
- * permanently because Edge is Chromium-based (D-03); safari folds to webkit
- * because Playwright drives Safari through the WebKit engine. Any family not
+ * permanently because Edge is Chromium-based; safari folds to webkit because
+ * Playwright drives Safari through the WebKit engine. Any family not
  * listed here (including the mobile synthetics:mobile:device:* syntax, whose
  * split-on-dot family is 'synthetics:mobile:device:iphone_15_ios_17' with no
  * dot, so the whole string is the family) is treated as unmapped.
@@ -555,13 +554,13 @@ export function deviceFamily(entry: unknown): string {
  * PlaywrightCheck on the manifest-transported result of this function.
  *
  * Mapping rule: family = deviceFamily(entry) (the lowercased token before the first dot).
- * chrome and edge map to chromium (D-03: Edge is Chromium-based, unconditional and
+ * chrome and edge map to chromium (Edge is Chromium-based, unconditional and
  * permanent); firefox maps to firefox; safari and webkit map to webkit. Everything
  * else (the mobile synthetics:mobile:device:* syntax, empty strings, non-string
  * entries) is quarantined in unmappedDeviceIds. engines is deduplicated and sorted
- * by PLAYWRIGHT_ENGINE_ORDER index (D-04: more device profiles than distinct
- * engines is a real reduction that must be surfaced, never silent), so the output
- * is canonical and independent of input order.
+ * by PLAYWRIGHT_ENGINE_ORDER index (more device profiles than distinct engines is a
+ * real reduction that must be surfaced, never silent), so the output is canonical and
+ * independent of input order.
  *
  * Pure, total, no I/O: hostile input (null, undefined, non-string entries) routes
  * to unmappedDeviceIds and never throws.

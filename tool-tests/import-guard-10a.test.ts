@@ -8,11 +8,11 @@
  *   - imports NO src module other than src/10a
  *   - asserts NOTHING that depends on any environment value dotenv could set
  *   - relies on node:test per-file process isolation to contain the
- *     pollution (Pitfall 3)
+ *     pollution
  *
  * CHECKLY_ACCOUNT_NAME is set as the FIRST module statement, before the src
  * import, so a hypothetically missing guard fails fast on a file-read error
- * instead of hanging on the interactive account-name prompt (D-19).
+ * instead of hanging on the interactive account-name prompt.
  */
 
 process.env.CHECKLY_ACCOUNT_NAME = 'import-guard';

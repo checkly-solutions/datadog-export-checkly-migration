@@ -56,12 +56,12 @@ interface DatadogRequest {
   body?: unknown;
   follow_redirects?: boolean;
   allow_insecure?: boolean;
-  // HTTP Basic auth carried from config.request by the promotion transform
-  // (plan 05-01). type 'web' is a Datadog browser/form login, not an
-  // Authorization: Basic header, so it is flagged upstream and never replayed.
+  // HTTP Basic auth carried from config.request by the promotion transform.
+  // type 'web' is a Datadog browser/form login, not an Authorization: Basic header,
+  // so it is flagged upstream and never replayed.
   basicAuth?: { username?: string; password?: string; type?: string };
-  // Query parameters carried from config.request by the promotion transform
-  // (plan 05-01); replayed via Playwright's per-call params option.
+  // Query parameters carried from config.request by the promotion transform;
+  // replayed via Playwright's per-call params option.
   query?: Record<string, string>;
   certificate?: {
     key?: { filename?: string; content?: string };
@@ -143,7 +143,7 @@ export function extractVariableContent(test: DatadogTest): string[] {
     }
     // Request query params (mirrors the headers loop). Without this, a variable
     // referenced only in a query param is missing from variable-usage.json and
-    // the report's secret prioritization (WR-01).
+    // the report's secret prioritization.
     if (step.request?.query) {
       for (const value of Object.values(step.request.query)) {
         content.push(value);
@@ -288,7 +288,7 @@ export function generateComparisonCode(expectExpr: string, operator: string, tar
     case 'matches': {
       // Genuine-regex site: the Datadog target is already a regex pattern.
       // Emit constructor form with JSON.stringify as the single JS-string
-      // escaper; never a slash-delimited literal built from data (REGX-02).
+      // escaper; never a slash-delimited literal built from data.
       if (typeof target === 'string') {
         const { source, flags } = parseDatadogRegex(target);
         const regexExpr = flags
@@ -350,8 +350,8 @@ export function generateRequestCode(request: DatadogRequest, stepIndex: number, 
     }
   }
 
-  // HTTP Basic auth replay (REGX-05). type 'web' is a Datadog browser/form
-  // login flow, not an Authorization: Basic header, so it is flagged upstream
+  // HTTP Basic auth replay. type 'web' is a Datadog browser/form login flow, not
+  // an Authorization: Basic header, so it is flagged upstream
   // (datadogBasicAuthWeb) and never emitted here. Base64 is computed at runtime
   // via Buffer.from(...).toString("base64") so any {{ VARS }} in the credentials
   // still interpolate through process.env at run time rather than being frozen
@@ -375,8 +375,8 @@ export function generateRequestCode(request: DatadogRequest, stepIndex: number, 
     options.push(`data: \`${convertedBody}\``);
   }
 
-  // Per-step redirect and TLS fidelity (FID-05, D-06). Emit fixed per-call
-  // Playwright options only for the explicit divergent values; absent stays
+  // Per-step redirect and TLS fidelity. Emit fixed per-call Playwright options only
+  // for the explicit divergent values; absent stays
   // omitted (Playwright defaults: follow redirects, verify TLS). Per-call form
   // only, valid in Playwright 1.51.1; never context-level newContext maxRedirects.
   if (request.follow_redirects === false) {
@@ -386,8 +386,8 @@ export function generateRequestCode(request: DatadogRequest, stepIndex: number, 
     options.push('ignoreHTTPSErrors: true');
   }
 
-  // Query parameter replay (REGX-05). Playwright accepts a per-call params
-  // Record and serializes it into the URL query string. Per-call form only,
+  // Query parameter replay. Playwright accepts a per-call params Record and
+  // serializes it into the URL query string. Per-call form only,
   // matching the redirect/TLS convention above; never context-level newContext.
   // Each value runs through convertVariables + rewriteExtractedVarRefs exactly
   // like the header path above, so a {{ VAR }} query value resolves at runtime

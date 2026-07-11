@@ -1,5 +1,5 @@
 /**
- * Unit tests for the shared promotion transform (Phase 05, REGX-05/06/08).
+ * Unit tests for the shared promotion transform.
  *
  * detectPromotionReasons / shouldPromote / promoteApiTestToMultiStep are pure
  * functions of their input test, reading no environment, so this file needs no
@@ -93,14 +93,14 @@ describe('promoteApiTestToMultiStep', () => {
     assert.strictEqual(steps.length, 1);
   });
 
-  it('drops the now-stale top-level request/assertions from the promoted config (IN-02)', () => {
+  it('drops the now-stale top-level request/assertions from the promoted config', () => {
     const cfg = promoted.config as any;
     assert.strictEqual(cfg.request, undefined, 'stale config.request must not survive beside steps');
     assert.strictEqual(cfg.assertions, undefined, 'stale config.assertions must not survive beside steps');
     assert.ok(Array.isArray(cfg.steps), 'the promoted config must still carry steps');
   });
 
-  it('carries ALL of the source assertions in the single step (REGX-06)', () => {
+  it('carries ALL of the source assertions in the single step', () => {
     const sourceLen = (bodyFixture.config as any).assertions.length;
     assert.strictEqual(sourceLen, 3);
     assert.strictEqual(step.assertions.length, sourceLen);
@@ -149,7 +149,7 @@ describe('promoteApiTestToMultiStep', () => {
     assert.deepStrictEqual(promoted.locations, ['us-east-1']);
   });
 
-  it('does not re-escape the regex targets (embeds verbatim, REGX-02)', () => {
+  it('does not re-escape the regex targets (embeds verbatim)', () => {
     const matchTarget = step.assertions.find(
       (a: any) => a.type === 'body' && a.operator === 'matches'
     ).target;

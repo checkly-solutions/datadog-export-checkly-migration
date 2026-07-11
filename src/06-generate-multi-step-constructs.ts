@@ -110,11 +110,11 @@ export function generateMultiStepCheckCode(test: DatadogTest, specFilename: stri
   // Normalize public locations the same way step 04 does (drop azure:/gcp:,
   // strip aws:) so a promoted former-ApiCheck test cannot emit an un-normalized
   // location on the multi path. Only the public field is touched; private
-  // location slugs are never passed through this filter (WR-03).
+  // location slugs are never passed through this filter.
   const cleanLocations = normalizePublicChecklyLocations(locations);
 
-  // DEPLOY-01 (D-05): the public_id tail keeps two same-name multi-step tests from
-  // collapsing to one logical id. Same shared helper as every other emit site.
+  // The public_id tail keeps two same-name multi-step tests from collapsing to one
+  // logical id. Same shared helper as every other emit site.
   const logicalId = uniqueLogicalId('multi', name, public_id);
 
   // Filter and remap Datadog-origin tags, then add migration traceability tag
@@ -123,7 +123,7 @@ export function generateMultiStepCheckCode(test: DatadogTest, specFilename: stri
 
   // Marker for tests promoted off the ApiCheck path (e.g. regex assertions).
   // Appended after filterAndRemapTags, like migration_check_id, so a user
-  // DD_TAGS_EXCLUDE rule cannot strip this traceability tag (REGX-07/09).
+  // DD_TAGS_EXCLUDE rule cannot strip this traceability tag.
   if (test._promotionReason) {
     processedTags.push('promotedFromApiCheck');
   }
@@ -241,7 +241,7 @@ export async function generateConstructsForLocationType(
       const filepath = path.join(outputDir, filename);
 
       await writeFile(filepath, code, 'utf-8');
-      // Track configVariable conversions (D-10)
+      // Track configVariable conversions
       trackConfigVariableConversions(test.name, test.config?.configVariables);
       successCount++;
       generatedFiles.push({
@@ -360,7 +360,7 @@ async function main(): Promise<void> {
   // Write variable usage report
   await writeVariableUsageReport();
 
-  // Write check-level secrets for downstream step 09 (D-06, D-08)
+  // Write check-level secrets for downstream step 09
   const checkLevelSecrets: Array<{ checkName: string; key: string; value: string; locked: boolean }> = [];
   for (const test of tests) {
     const envVars = convertConfigVariables(test.config?.configVariables);

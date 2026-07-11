@@ -14,7 +14,7 @@
  *
  * CHECKLY_ACCOUNT_NAME is set as the FIRST module statement, before any src
  * import, so a hypothetically missing guard fails fast on a file-read error
- * instead of hanging on the interactive account-name prompt (D-19).
+ * instead of hanging on the interactive account-name prompt.
  */
 
 process.env.CHECKLY_ACCOUNT_NAME = 'import-guard';
@@ -41,7 +41,7 @@ describe('import-guard: importing refactored scripts runs no pipeline step', () 
     assert.strictEqual(typeof mod.generateApiCheckCode, 'function');
   });
 
-  it('src/04 exposes NO sanitizer export; the canonical copy lives in src/shared/utils.ts (DEPLOY-03)', async () => {
+  it('src/04 exposes NO sanitizer export; the canonical copy lives in src/shared/utils.ts', async () => {
     const mod = await import('../src/04-generate-api-check-constructs-from-json.ts');
     assert.strictEqual(
       typeof (mod as Record<string, unknown>).sanitizeIdentifier,

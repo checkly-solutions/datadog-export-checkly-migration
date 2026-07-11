@@ -1,7 +1,7 @@
 /**
- * Unit tests for the assertionPolarity() classifier (Phase 8, plan 08-05, LOC-08).
+ * Unit tests for the assertionPolarity() classifier.
  *
- * assertionPolarity is the whole cross-phase seam between this phase and Phase 9's
+ * assertionPolarity is the whole seam between the polarity classifier and the
  * operator map: a PURE, TOTAL function returning only the two-value union
  * 'positive' | 'negative'. These tests lock the classification table plus totality
  * (the return is always one of the two values for any check string, so no odd
@@ -41,7 +41,7 @@ function mkStep(type: string, check?: string): Step07 {
   return { name: 'Assert x', type, params } as Step07;
 }
 
-describe('assertionPolarity: positive classifications (LOC-08 part A)', () => {
+describe('assertionPolarity: positive classifications', () => {
   it('classifies assertElementPresent as positive (existence claim)', () => {
     assert.equal(assertionPolarity(mkStep('assertElementPresent')), 'positive');
   });
@@ -63,7 +63,7 @@ describe('assertionPolarity: positive classifications (LOC-08 part A)', () => {
   });
 });
 
-describe('assertionPolarity: negative classifications (LOC-08 part A)', () => {
+describe('assertionPolarity: negative classifications', () => {
   it('classifies assertElementContent notContains as negative', () => {
     assert.equal(assertionPolarity(mkStep('assertElementContent', 'notContains')), 'negative');
   });

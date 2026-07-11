@@ -1,11 +1,11 @@
 /**
- * VAL-10 second-account generalization smoke test.
+ * second-account generalization smoke test.
  *
- * The Phase 8 locator fixes were designed against the primary-account census
- * (panw-it, 355 element steps). This suite proves they GENERALIZE to the second
- * account's distinct shape census WITHOUT overfitting: the pipeline does not
+ * The locator fixes were designed against the primary account. This suite proves
+ * they GENERALIZE to the second account's distinct shapes WITHOUT overfitting: the
+ * pipeline does not
  * crash and does not regress on the two account-2-only surfaces (multiLocator.sd
- * shadow-DOM steps and the co "alt" textType), and the three load-bearing census
+ * shadow-DOM steps and the co "alt" textType), and the three load-bearing
  * facts that generalize across both accounts hold behaviorally (co text is
  * lowercase, no role candidate ever derives from multiLocator.ro, zero
  * getByTestId emissions on a corpus with no data-testid).
@@ -91,7 +91,7 @@ function generate(test: SurrogateTest): { spec: string; reasons: string[]; usesH
 /** Element type extractLocator accepts (mirrors src/07's local ElementLocator). */
 type ElementArg = Parameters<typeof extractLocator>[0];
 
-describe('VAL-10 second-account generalization: no crash, no regress on second-account shapes', () => {
+describe('second-account generalization: no crash, no regress on second-account shapes', () => {
   it('no-crash bar: every surrogate test generates a spec without throwing', () => {
     for (const test of fixture.tests) {
       assert.doesNotThrow(
@@ -111,12 +111,12 @@ describe('VAL-10 second-account generalization: no crash, no regress on second-a
     // multi-candidate, so the spec imports and calls firstMatch.
     assert.ok(result.usesHelpers, 'the sd step still emits a live multi-candidate chain, so the spec references firstMatch');
     assert.ok(result.spec.includes('firstMatch('), 'the sd step must still emit a live firstMatch chain, not be dropped');
-    // FID-06 (D-06): the flag message states the verified Playwright capability, not
+    // the flag message states the verified Playwright capability, not
     // the retired out-of-scope claim. Test B's sd step has non-xpath live candidates,
     // so it is a variant-A open-root-piercing message.
     assert.ok(
       /pierce open shadow roots automatically/i.test(sdFlags[0].message),
-      'the sd flag must state that role/text/testId/CSS pierce open shadow roots automatically at runtime (FID-06 variant A)',
+      'the sd flag must state that role/text/testId/CSS pierce open shadow roots automatically at runtime (variant A)',
     );
     assert.ok(
       !/out of scope/i.test(sdFlags[0].message) && !/never attempted/i.test(sdFlags[0].message),
@@ -137,7 +137,7 @@ describe('VAL-10 second-account generalization: no crash, no regress on second-a
       const { spec } = generate(test);
       assert.ok(
         !spec.includes('getByTestId'),
-        `${test.public_id} emitted a getByTestId call on a corpus with no data-testid; the census fact regressed`
+        `${test.public_id} emitted a getByTestId call on a corpus with no data-testid; the generalization fact regressed`
       );
     }
   });
@@ -174,7 +174,7 @@ describe('VAL-10 second-account generalization: no crash, no regress on second-a
         scanCo(ml?.sd?.co, `${test.public_id}/${step.name}/sd`);
       }
     }
-    assert.equal(offenders.length, 0, `co text must be 100% lowercase (census fact); offenders: ${offenders.join(', ')}`);
+    assert.equal(offenders.length, 0, `co text must be 100% lowercase; offenders: ${offenders.join(', ')}`);
   });
 
   it('userLocator-first: Test C userLocator candidate is index 0 with the rewritten class-list selector', () => {

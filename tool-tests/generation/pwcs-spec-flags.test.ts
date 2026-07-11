@@ -1,30 +1,29 @@
 /**
- * Generation tests for the PWCS engine-set decision seam in src/07 (Phase 10,
- * plan 10-02, PWCS-03 / D-01 / D-04 / D-07). All offline, no subprocess, no file
- * writes (Testing SOP). These drive the exported, filesystem-free generateSpecFile
- * directly with a fresh FlagCollector per test and assert on the returned pwEngines
- * plus collector.flags. The concerns locked here:
+ * Generation tests for the multi-browser engine-set decision seam in src/07. All
+ * offline, no subprocess, no file writes (Testing SOP). These drive the exported,
+ * filesystem-free generateSpecFile directly with a fresh FlagCollector per test and
+ * assert on the returned pwEngines plus collector.flags. The concerns locked here:
  *
  *   (1) Engine-set return: generateSpecFile returns pwEngines, the deduped
  *       canonical-order Playwright engine list derived from options.device_ids.
- *   (2) D-04 dedupe flag: when Datadog declared more browser device profiles than
+ *   (2) Dedupe flag: when Datadog declared more browser device profiles than
  *       distinct Playwright engines, exactly one pwcs-engines-deduped flag is
  *       emitted, naming the declared profiles and the resulting engines; when any
  *       declared profile is an edge.* family, the message notes Edge is
  *       Chromium-based. This fires even for BrowserCheck-bound collapses (chrome +
- *       edge -> one engine), per D-04's visibility principle.
- *   (3) D-07 private-location flag: a multi-engine test routed to a private
- *       location emits exactly one non-deactivating pwcs-private-location-agent-
- *       version flag citing Checkly Agent 6.0.3.
+ *       edge -> one engine), so the reduction is always visible.
+ *   (3) Private-location flag: a multi-engine test routed to a private location
+ *       emits exactly one non-deactivating pwcs-private-location-agent-version flag
+ *       citing Checkly Agent 6.0.3.
  *   (4) Unmapped entry: a device_ids entry with no Playwright engine mapping emits
  *       one pwcs-device-unmapped flag naming the entry; it is ignored for routing.
  *   (5) No-op cases: a single-browser test and a test with no device_ids emit zero
  *       pwcs-* flags.
- *   (6) D-01 spec-body invariance: the returned spec string is byte-identical
- *       regardless of device_ids; the engine set influences nothing in the body.
+ *   (6) Spec-body invariance: the returned spec string is byte-identical regardless
+ *       of device_ids; the engine set influences nothing in the body.
  *
- * D-04 source: the migrator dedupes Datadog device profiles to distinct Playwright
- * engines (Edge folds to Chromium). D-07 source: Playwright Check Suites on a
+ * source: the migrator dedupes Datadog device profiles to distinct Playwright
+ * engines (Edge folds to Chromium). source: Playwright Check Suites on a
  * private location require Checkly Agent 6.0.3 or newer (Context7-verified),
  * unknowable from the export. All fixtures are authored synthetic from scratch
  * against the code's own input interfaces per the Testing SOP: syn- public ids,
@@ -40,7 +39,7 @@ import { FlagCollector, type MigrationFlag } from '../../src/shared/migration-fl
 
 // A minimal, deterministic browser test. steps live at the TOP level; the start
 // URL is config.request.url. A single goToUrl step keeps the emitted spec body
-// stable and independent of device_ids (the D-01 invariance control). Variants
+// stable and independent of device_ids (the invariance control). Variants
 // override options.device_ids and privateLocations only.
 function baseTest(overrides: {
   device_ids?: string[];
@@ -71,7 +70,7 @@ function pwcsFlags(collector: FlagCollector): MigrationFlag[] {
 }
 
 // Snapshot/clear/restore DD_TAGS_* so the suite stays hermetic and
-// order-independent alongside the sibling generation suites (threat T-01-14).
+// order-independent alongside the sibling generation suites.
 const DD_TAG_VARS = ['DD_TAGS_EXCLUDE', 'DD_TAGS_EXCLUDE_ALL', 'DD_TAGS_REMAP'] as const;
 let savedTagEnv: Record<string, string | undefined> = {};
 before(() => {
@@ -88,7 +87,7 @@ after(() => {
   }
 });
 
-describe('generateSpecFile PWCS engine-set decision (PWCS-03)', () => {
+describe('generateSpecFile PWCS engine-set decision', () => {
   it('Test 1: multi-engine return is the deduped canonical engine set', () => {
     const collector = new FlagCollector();
     const result = generateSpecFile(
@@ -98,7 +97,7 @@ describe('generateSpecFile PWCS engine-set decision (PWCS-03)', () => {
     assert.deepEqual(result.pwEngines, ['chromium', 'firefox']);
   });
 
-  it('Test 2: D-04 dedupe flag names declared profiles, engines, and the Edge note', () => {
+  it('Test 2: dedupe flag names declared profiles, engines, and the Edge note', () => {
     const collector = new FlagCollector();
     generateSpecFile(
       baseTest({ device_ids: ['chrome.laptop_large', 'firefox.laptop_large', 'edge.laptop_large'] }),
@@ -119,7 +118,7 @@ describe('generateSpecFile PWCS engine-set decision (PWCS-03)', () => {
     );
   });
 
-  it('Test 3: D-07 private-location flag fires on a multi-engine private test', () => {
+  it('Test 3: private-location flag fires on a multi-engine private test', () => {
     const collector = new FlagCollector();
     const result = generateSpecFile(
       baseTest({
@@ -172,7 +171,7 @@ describe('generateSpecFile PWCS engine-set decision (PWCS-03)', () => {
     assert.equal(pwcsFlags(collector).length, 0, 'no pwcs-* flags when device_ids is absent');
   });
 
-  it('Test 7: D-01 spec body is byte-identical regardless of device_ids', () => {
+  it('Test 7: spec body is byte-identical regardless of device_ids', () => {
     const multi = generateSpecFile(
       baseTest({ device_ids: ['chrome.laptop_large', 'firefox.laptop_large', 'edge.laptop_large'] }),
       new FlagCollector(),
@@ -181,7 +180,7 @@ describe('generateSpecFile PWCS engine-set decision (PWCS-03)', () => {
     assert.equal(
       multi.spec,
       none.spec,
-      'the engine set must not influence the emitted spec body (D-01)',
+      'the engine set must not influence the emitted spec body',
     );
   });
 

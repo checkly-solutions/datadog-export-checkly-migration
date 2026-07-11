@@ -270,7 +270,7 @@ function buildStatusReport(
     }
 
     // Classify the outcome from the two locked signals: the monitor/search
-    // state and the test's exported config status (D-04/D-06 truth table).
+    // state and the test's exported config status (the status truth table).
     // A live-in-Datadog test mislabeled No Data stays active with a review tag;
     // a genuinely paused No Data test still deactivates.
     const outcome = classifyStatus(overallState, test.configStatus);
@@ -314,7 +314,7 @@ function buildStatusReport(
  * comment) lives in the tested applyOutcomeToSource. The activated: true ->
  * false flip runs ONLY when outcome.deactivate is true, so a live-but-mislabeled
  * No Data check gains its reviewNoDataInDatadog tag without ever being
- * deactivated (D-08).
+ * deactivated.
  */
 async function deactivateCheckFile(filepath: string, outcome: StatusOutcome): Promise<boolean> {
   const content = await readFile(filepath, 'utf-8');
@@ -333,7 +333,7 @@ async function deactivateCheckFile(filepath: string, outcome: StatusOutcome): Pr
  * outcomeMap: publicId -> StatusOutcome (every entry with a non-null tag, i.e.
  * both deactivations and the review-active case). The scan is uniform across
  * every check type and location (api/multi/browser x public/private) because
- * the classify + apply logic is type-agnostic (D-07).
+ * the classify + apply logic is type-agnostic.
  */
 async function deactivateTests(
   outcomeMap: Map<string, StatusOutcome>
@@ -475,7 +475,7 @@ async function main(): Promise<void> {
   // (Alert, or No Data with a paused/absent config status) and the review-active
   // case (No Data on a live test), keyed on every entry that carries a tag. The
   // review-active case has deactivate:false, so it gets its review tag appended
-  // without flipping activated (D-08).
+  // without flipping activated.
   const outcomeMap = new Map<string, StatusOutcome>();
   let reviewActiveCount = 0;
   for (const test of report.tests) {

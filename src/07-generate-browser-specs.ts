@@ -14,7 +14,7 @@
  *   SAME firstMatch() chain as every other step: firstMatch already probes the
  *   main page then every page.frames() frame, so one mechanism serves both. No
  *   auto-waiting frame lookup is emitted anywhere, so a zero-iframe page cannot
- *   hang (IFR-01).
+ *   hang.
  */
 
 import { readFile, writeFile, mkdir } from 'fs/promises';
@@ -33,11 +33,10 @@ import { FlagCollector, type MigrationFlagsFile } from './shared/migration-flags
 interface ElementLocator {
   url?: string;              // URL where DD found this element (iframe signal)
   targetOuterHTML?: string;
-  // Human-pinned CSS/XPath override, attempted FIRST by Datadog's own runtime
-  // (LOC-03, D-03). Shape verified against both captured accounts (RESEARCH
-  // Refinement 4): values is an ordered list of { type, value } and
-  // failTestOnCannotLocate maps to the "If user specified locator fails, fail
-  // test" checkbox. All fields optional so a step without a userLocator parses.
+  // Human-pinned CSS/XPath override, attempted FIRST by Datadog's own runtime.
+  // values is an ordered list of { type, value } and failTestOnCannotLocate maps
+  // to the "If user specified locator fails, fail test" checkbox. All fields
+  // optional so a step without a userLocator parses.
   userLocator?: {
     values?: Array<{ type?: string; value?: string }>;
     failTestOnCannotLocate?: boolean;
@@ -46,18 +45,15 @@ interface ElementLocator {
     ro?: string;
     co?: string;
     cl?: string;
-    // Class+Text XPath: the sixth strategy, present in 100% of steps in both
-    // captured accounts yet absent from CONTEXT's field list and the pre-Phase-8
-    // type (RESEARCH Refinement 1). Optional string, sits with the class rungs.
+    // Class+Text XPath: the sixth Datadog strategy, present on effectively every
+    // step. Optional string, sits with the class rungs.
     clt?: string;
     at?: string;
     ab?: string;
     // Shadow-DOM nested locator (its own nested multiLocator for the shadow-root
-    // host). Appears ONLY in the second account (0/355 acct1, 10/74 acct2) on
-    // web-component elements. Typed defensively as an unknown-shaped record so an
-    // sd-bearing step parses without crashing; Phase 8 does not resolve it here
-    // (plan 08-03 owns the shadow-dom-locator flag seam). Never read for a
-    // candidate in this plan.
+    // host), present on web-component elements. Typed defensively as an
+    // unknown-shaped record so an sd-bearing step parses without crashing; it is
+    // never read to build a candidate (the shadow-dom-locator flag surfaces it).
     sd?: unknown;
   };
 }
@@ -67,12 +63,12 @@ interface BrowserStep {
   name?: string;
   allowFailure?: boolean;
   /**
-   * FID-03 (D-03): the Datadog per-step element-retry timeout, in SECONDS (census
-   * acct2 values 10/20/5/0). Drives the firstMatch settle budget for this step via
-   * deriveSettleBudgetMs. A value of 0, undefined, or negative means "no per-step
-   * override, use the test default" (Datadog stores timeout: 0 to mean use-default,
-   * NOT zero milliseconds), so those are treated as absent and fall through to the
-   * test's initialNavigationTimeout, then to the Datadog-parity default const.
+   * The Datadog per-step element-retry timeout, in SECONDS. Drives the firstMatch
+   * settle budget for this step via deriveSettleBudgetMs. A value of 0, undefined,
+   * or negative means "no per-step override, use the test default" (Datadog stores
+   * timeout: 0 to mean use-default, NOT zero milliseconds), so those are treated as
+   * absent and fall through to the test's initialNavigationTimeout, then to the
+   * Datadog-parity default const.
    */
   timeout?: number;
   params?: {
@@ -143,21 +139,21 @@ interface BrowserTest {
     };
     ignoreServerCertificateError?: boolean;
     /**
-     * FID-03 (D-03): the Datadog test-level navigation timeout, in SECONDS (census
-     * acct1 value 120). Used as the firstMatch settle budget fallback for any step
-     * with no per-step timeout override. Threaded per-step through
-     * StepFlagContext.navTimeoutSec (substeps inherit the parent test's value). A
-     * value of 0, undefined, or negative means "use default" and is treated as
-     * absent by deriveSettleBudgetMs, exactly like a step timeout.
+     * The Datadog test-level navigation timeout, in SECONDS. Used as the firstMatch
+     * settle budget fallback for any step with no per-step timeout override.
+     * Threaded per-step through StepFlagContext.navTimeoutSec (substeps inherit the
+     * parent test's value). A value of 0, undefined, or negative means "use default"
+     * and is treated as absent by deriveSettleBudgetMs, exactly like a step timeout.
      */
     initialNavigationTimeout?: number;
     /**
-     * PWCS-03: the Datadog browser device profiles this test declares (producer:
+     * The Datadog browser device profiles this test declares (produced by the
      * step 01 export; the field lives at options.device_ids, never
      * config.device_ids). Desktop browser.viewport syntax only (chrome.laptop_large
      * style); see the shared-types JSDoc on DatadogTest.options.device_ids /
      * BrowserTest.options.device_ids. Fed to deriveEnginesFromDeviceIds in
-     * generateSpecFile to decide the Playwright engine set and emit the PWCS flags.
+     * generateSpecFile to decide the Playwright engine set and emit the multi-browser
+     * flags.
      */
     device_ids?: string[];
   };
@@ -168,21 +164,21 @@ interface BrowserTest {
 interface Locator {
   type: string;
   value: string;
-  // The rung provenance (LOC-01): which strategy produced this candidate. Optional
-  // so every existing literal like { type: 'id', value: '#username' } stays valid.
+  // The rung provenance: which strategy produced this candidate. Optional so every
+  // existing literal like { type: 'id', value: '#username' } stays valid.
   source?: 'userLocator' | 'role' | 'testId' | 'text' | 'attr' | 'name' | 'id' | 'class' | 'clt' | 'at' | 'ab';
-  // The accessible name (LOC-05), populated ONLY for role candidates; consumed by
-  // the generateLocatorCode role case as the getByRole { name } option.
+  // The accessible name, populated ONLY for role candidates; consumed by the
+  // generateLocatorCode role case as the getByRole { name } option.
   name?: string;
-  // FID-05/D-05: true when this candidate is an ab/at/clt sourced xpath that has at
-  // least one stabler sibling, so it is a Datadog-recorded breadcrumb rather than a
-  // live pass-if-any candidate. A static stale path cannot self-heal the way Datadog
+  // True when this candidate is an ab/at/clt sourced xpath that has at least one
+  // stabler sibling, so it is a Datadog-recorded breadcrumb rather than a live
+  // pass-if-any candidate. A static stale path cannot self-heal the way Datadog
   // recomputes it, so a live rung can silently match a coincidental wrong element (a
   // divergence, not a reproduction). withLocator partitions these out of the live
   // firstMatch chain and re-emits each as a single-line provenance comment. Left unset
   // when a candidate is live, INCLUDING the last-resort case where the ONLY candidates
   // are ab/at/clt (nothing stabler exists to demote to) and a user-pinned userLocator
-  // xpath (the exemption keys on source, never on type, per D-07d).
+  // xpath (the exemption keys on source, never on type).
   provenanceOnly?: boolean;
 }
 
@@ -206,34 +202,60 @@ export interface StepFlagContext {
    */
   usedVarNames?: Set<string>;
   /**
-   * Per-spec secret-routing state (SEC-01, D-01), threaded from generateSpecFile
-   * with the same optional discipline as usedVarNames. `used` is the per-check
-   * collision ledger the derivePasswordEnvKey ladder disambiguates against (seeded
-   * with existing config-variable names so a derived key never rebinds an existing
-   * variable); `routed` accumulates the derived keys in step order, which
-   * generateSpecFile returns and writes into the _manifest.json files[].secretKeys
-   * entry for step 08 (plan 09-06) to declare construct-side. Optional so every
-   * existing call site that constructs a StepFlagContext without it stays valid;
-   * generateTypeText falls back to a fresh local state object when it is absent so
-   * direct emitter tests still dedupe within the single call.
+   * Per-spec secret-routing state, threaded from generateSpecFile with the same
+   * optional discipline as usedVarNames. `used` is the per-check collision ledger
+   * the derivePasswordEnvKey ladder disambiguates against (seeded with existing
+   * config-variable names so a derived key never rebinds an existing variable);
+   * `routed` accumulates the derived keys in step order, which generateSpecFile
+   * returns and writes into the _manifest.json files[].secretKeys entry for step 08
+   * to declare construct-side. Optional so every existing call site that constructs
+   * a StepFlagContext without it stays valid; generateTypeText falls back to a fresh
+   * local state object when it is absent so direct emitter tests still dedupe within
+   * the single call.
    */
   secretKeys?: { used: Set<string>; routed: string[] };
   /**
-   * FID-03 (D-03): the test-level navigation timeout in SECONDS
-   * (options.initialNavigationTimeout), threaded from generateSpecFile at every
-   * per-step ctx construction (including the substep ctx, which inherits the PARENT
-   * test's value). withLocator reads this as the fallback settle-budget source when
-   * a step carries no per-step timeout. Optional with the same discipline as
-   * usedVarNames/secretKeys so every existing call site that constructs a
-   * StepFlagContext without it stays valid; deriveSettleBudgetMs treats an absent
-   * (or 0/negative) value the same way, returning null so the call site emits the
-   * byte-stable two-argument firstMatch form.
+   * The test-level navigation timeout in SECONDS (options.initialNavigationTimeout),
+   * threaded from generateSpecFile at every per-step ctx construction (including the
+   * substep ctx, which inherits the PARENT test's value). withLocator reads this as
+   * the fallback settle-budget source when a step carries no per-step timeout.
+   * Optional with the same discipline as usedVarNames/secretKeys so every existing
+   * call site that constructs a StepFlagContext without it stays valid;
+   * deriveSettleBudgetMs treats an absent (or 0/negative) value the same way,
+   * returning null so the call site emits the byte-stable two-argument firstMatch
+   * form.
    */
   navTimeoutSec?: number;
+  /**
+   * Per-spec set of local variable names visible to variable interpolation.
+   * Mutable because a runApiTest extract_values registers new names mid-spec that
+   * later steps (including inlined substeps) must resolve as `${name}` rather than
+   * `${process.env.name}`. One shared Set instance per spec, never a copy, so a
+   * name registered by an earlier step is visible to every later step. Optional so
+   * every existing call site (and Partial-built tool-test contexts) stays valid;
+   * when absent, interpolation behaves as an empty set.
+   */
+  localVarNames?: Set<string>;
+  /**
+   * Per-spec API-response counter box. An object (not a bare number) so the
+   * increment propagates by reference across the whole call tree, mirroring the
+   * secretKeys object pattern; the first runApiTest in a spec emits `apiResponse`,
+   * the second `apiResponse2`, and inlined substeps continue the parent numbering.
+   * Optional so every existing call site stays valid; when absent, a call derives a
+   * throwaway box and starts fresh.
+   */
+  apiResponse?: { counter: number };
+  /**
+   * Subtest public_id to test-data map for playSubTest inlining, built per run in
+   * main(). Optional so every existing call site (and Partial-built tool-test
+   * contexts) stays valid; when absent, playSubTest falls through to its not-found
+   * branch.
+   */
+  subtests?: ReadonlyMap<string, BrowserTest>;
 }
 
 /**
- * Datadog key-name to Playwright KeyboardEvent.key alias map (GEN-02, D-10).
+ * Datadog key-name to Playwright KeyboardEvent.key alias map.
  *
  * A frozen module-level lookup table (mirrors the FREQUENCY_MAP idiom in
  * src/shared/utils.ts; a const table is not mutable module state). Keys are
@@ -272,7 +294,7 @@ const PRESS_KEY_ALIAS_MAP: Readonly<Record<string, string>> = Object.freeze({
 });
 
 /**
- * Set-Cookie attribute-token predicate (GEN-03, D-11). Pure, side-effect free.
+ * Set-Cookie attribute-token predicate. Pure, side-effect free.
  *
  * Returns true when a trimmed Set-Cookie token is a cookie attribute (Secure,
  * HttpOnly, Path=, Expires=, Domain=, SameSite=, Max-Age, Priority) rather than
@@ -296,20 +318,19 @@ interface GeneratedFile {
   hasIframes: boolean;
   // True when any locator-consuming step in this spec resolved two or more
   // candidates (an emitted firstMatch chain). Mirrors hasIframes byte-for-byte in
-  // style; plan 08-06 reads it from _manifest.json in src/08 to append the D-06
-  // reviewMultiSelector tag (D-06 transport).
+  // style; src/08 reads it from _manifest.json to append the reviewMultiSelector tag.
   hasMultiCandidate: boolean;
-  // Derived env-var keys this spec routed type="password" fills to, in step order
-  // (SEC-01, D-01). Mirrors hasMultiCandidate's manifest-transport style: src/08
-  // reads it from _manifest.json to declare construct-side environmentVariables as
-  // { key, value: "", secret: true } (plan 09-06). Empty when the spec has no
-  // password steps. Deterministic: same export always yields the same keys.
+  // Derived env-var keys this spec routed type="password" fills to, in step order.
+  // Mirrors hasMultiCandidate's manifest-transport style: src/08 reads it from
+  // _manifest.json to declare construct-side environmentVariables as
+  // { key, value: "", secret: true }. Empty when the spec has no password steps.
+  // Deterministic: same export always yields the same keys.
   secretKeys: string[];
   // The deduped canonical-order Playwright engine list derived from
-  // options.device_ids, written by src/07 (plan 10-02, PWCS-03). Mirrors
-  // secretKeys' manifest-transport style: src/08 reads it from _manifest.json to
-  // branch BrowserCheck vs PlaywrightCheck (plan 10-03) and src/12 reads it for the
-  // multi-browser report section (plan 10-04). Empty when no device_ids are declared.
+  // options.device_ids. Mirrors secretKeys' manifest-transport style: src/08 reads
+  // it from _manifest.json to branch BrowserCheck vs PlaywrightCheck and src/12
+  // reads it for the multi-browser report section. Empty when no device_ids are
+  // declared.
   pwEngines: string[];
 }
 
@@ -384,9 +405,9 @@ export function getFirstPathSegment(urlStr: string): string {
 
 /**
  * Decide whether a same-origin divergent element step INTERLEAVES with the current
- * page context (IFR-02). The physical rationale: a frame's content coexists with
- * the host page, so genuine in-frame steps ALTERNATE with host-page steps; a
- * client-side navigation moves the whole context forward and does not come back.
+ * page context. The physical rationale: a frame's content coexists with the host
+ * page, so genuine in-frame steps ALTERNATE with host-page steps; a client-side
+ * navigation moves the whole context forward and does not come back.
  *
  * Interleaving is true when a later element step returns to the current context's
  * first path segment (contextSegment) WITHOUT an intervening goToUrl to the
@@ -437,12 +458,13 @@ function isDivergentStepInterleaved(
  *      the divergent context INTERLEAVES with the current context (a later element
  *      step returns to the current segment with no intervening goToUrl to the
  *      divergent segment): iframe. A divergence that simply moves forward and does
- *      not return is client-side (SPA) navigation, not a frame boundary (IFR-02).
+ *      not return is client-side (SPA) navigation, not a frame boundary.
  *   6. Same origin, no interleaving: page navigation, update the context to the
  *      new url and its first segment.
  *
  * The context first segment is MAINTAINED (recomputed as the context updates), never
- * the stale start-url segment: that staleness was the pre-IFR-02 misclassification.
+ * the stale start-url segment: comparing against a stale segment over-classifies
+ * later same-origin steps as iframes.
  */
 export function analyzeStepsForIframes(
   startUrl: string | undefined,
@@ -456,7 +478,7 @@ export function analyzeStepsForIframes(
     currentPageHostname = new URL(currentPageUrl).hostname;
   } catch { /* ignore */ }
   // Maintained current-context first segment (recomputed as the context updates),
-  // replacing the stale start-url segment that caused the IFR-02 over-classification.
+  // never the stale start-url segment (which over-classifies later steps as iframes).
   let currentFirstSegment = getFirstPathSegment(currentPageUrl);
 
   let seenAuthSteps = false;
@@ -503,8 +525,7 @@ export function analyzeStepsForIframes(
 
     // Rule 5: Same origin, post-auth path divergence from the CURRENT context, but
     // only when the divergent context INTERLEAVES with the current context. A
-    // forward-only divergence (SPA client navigation) is NOT a frame boundary
-    // (IFR-02: precision fix, tightened from the former stale-segment comparison).
+    // forward-only divergence (SPA client navigation) is NOT a frame boundary.
     const elementFirstSegment = getFirstPathSegment(elementUrl);
     if (
       seenAuthSteps &&
@@ -531,42 +552,40 @@ export function analyzeStepsForIframes(
 // ---------------------------------------------------------------------------
 
 /**
- * The emitted co-located helpers module (LOC-02, IFR-01, D-02/D-08).
+ * The emitted co-located helpers module.
  *
  * Written once to tests/browser/helpers.ts and imported by specs that reference
  * a helper symbol (gated on actual use). This is CODE THAT RUNS in the Checkly
- * runtime (Playwright 1.51.1 / Node 22, Chromium-only): wall-clock reads and
- * bounded waits are correct and expected HERE. The determinism SOP governs the
+ * runtime (Playwright / Node 22, Chromium-only): wall-clock reads and bounded
+ * waits are correct and expected HERE. The tool's determinism rules govern the
  * migration tool and its tool tests, not this emitted runtime source.
  *
  * firstMatch() regenerates Datadog's self-healing multiLocator behavior: it
  * probes an ordered list of candidate locators with an INSTANT count (count
  * returns immediately with no auto-wait), returning the first candidate that
  * matches, main-page rungs first then every currently-existing frame from the
- * synchronous frame snapshot (the iframe rung of IFR-01, so a zero-iframe page
- * adds zero wait and the historical 120s frame hang is structurally impossible;
- * no rung calls an auto-waiting frame lookup). On a first miss it runs one
- * bounded settle loop for late-rendering frames and DOM, then on true exhaustion
- * returns the PRIMARY main-page candidate so Playwright's own auto-wait throws a
- * real, debuggable TimeoutError that names the intended selector (D-01), and it
- * emits the MIGRATION-LOCATOR-EXHAUSTION token as a boxed test.step plus a
- * console.error breadcrumb. That token is the single greppable locator-exhaustion
- * marker for humans and Checkly Rocky AI, baked into generated source and never an
- * API tag or a Checkly runtime flag (D-02/D-08).
+ * synchronous frame snapshot, so a zero-iframe page adds zero wait and no rung
+ * calls an auto-waiting frame lookup. On a first miss it runs one bounded settle
+ * loop for late-rendering frames and DOM, then on true exhaustion returns the
+ * PRIMARY main-page candidate so Playwright's own auto-wait throws a real,
+ * debuggable TimeoutError that names the intended selector, and it emits the
+ * MIGRATION-LOCATOR-EXHAUSTION token as a boxed test.step plus a console.error
+ * breadcrumb. That token is the single greppable locator-exhaustion marker for
+ * humans and Checkly Rocky AI, baked into generated source rather than an API tag.
  *
- * firstMatch is the ONLY exported locator mechanism: plan 08-04 retired the legacy
- * frame-scanning helper (its auto-waiting frame-lookup body was the 120s-hang root
- * cause on zero-iframe pages). Iframe-classified steps now fold into this same chain
- * via its page.frames() rung, so the module exports firstMatch and the exhaustion
- * token only, and no rung anywhere calls an auto-waiting frame lookup.
+ * firstMatch is the ONLY exported locator mechanism: there is no separate
+ * frame-scanning helper (an auto-waiting frame-lookup body hangs on zero-iframe
+ * pages). Iframe-classified steps fold into this same chain via its page.frames()
+ * rung, so the module exports firstMatch and the exhaustion token only, and no
+ * rung anywhere calls an auto-waiting frame lookup.
  */
 export const SHARED_HELPERS_SOURCE = `import { test, type Page, type Frame, type Locator } from "@playwright/test";
 
 /**
- * The front-loaded, greppable locator-exhaustion marker (D-02, D-08). Baked into
- * generated source so it surfaces in run logs, traces, and to Checkly Rocky AI
- * without any runtime tagging capability. Plan 08-05's assertion helper reuses
- * this identical string, so it lives here as the one source of truth.
+ * The front-loaded, greppable locator-exhaustion marker. Baked into generated
+ * source so it surfaces in run logs, traces, and to Checkly Rocky AI without any
+ * runtime tagging capability. The assertion helper (assertOnFirstMatch) reuses this
+ * identical string, so it lives here as the one source of truth.
  */
 export const LOCATOR_EXHAUSTION_TOKEN = "MIGRATION-LOCATOR-EXHAUSTION";
 
@@ -584,15 +603,13 @@ export type CandidateFactory = (root: Page | Frame) => Locator[];
 /**
  * Datadog-parity default settle budget for the bounded exhaustion rescan, in
  * milliseconds, used when a step carries no per-step or navigation timeout in the
- * export (FID-03, D-03). Datadog retries locating a step's element for 60 seconds
- * by default, adjustable up to 300 seconds (docs.datadoghq.com synthetics
- * browser_tests advanced_options, checked 2026-07-10), so 60000 matches that heal
- * window instead of the old fixed 2500ms (40x smaller). firstMatch takes the
- * budget as a parameter defaulting to this const; a timeout-bearing step passes a
- * value derived from its export timeout, a timeout-less step inherits this default.
- * This is the ONLY wait firstMatch ever spends, and it is explicit and numeric: a
- * defaulted retry-until-pass helper would mean an INFINITE timeout, reintroducing
- * the unbounded-wait hang this design exists to remove.
+ * export. Datadog retries locating a step's element for 60 seconds by default,
+ * adjustable up to 300 seconds, so 60000 matches that heal window. firstMatch takes
+ * the budget as a parameter defaulting to this const; a timeout-bearing step passes
+ * a value derived from its export timeout, a timeout-less step inherits this
+ * default. This is the ONLY wait firstMatch ever spends, and it is explicit and
+ * numeric: a defaulted retry-until-pass helper would mean an INFINITE timeout,
+ * reintroducing the unbounded-wait hang this design exists to remove.
  */
 const EXHAUSTION_RESCAN_BUDGET_MS = 60000;
 
@@ -609,17 +626,17 @@ const RESCAN_INTERVALS_MS = [100, 250, 500, 1000];
  * @param makeCandidates - A factory that, given a root (the page or a frame),
  *   returns the ordered Locator[] to probe against that root, highest priority
  *   first.
- * @param budgetMs - The total settle budget in milliseconds (FID-03). Defaults to
- *   the Datadog-parity const; a timeout-bearing step passes a value derived from
- *   its export timeout. Defensively capped at 240000 (Checkly's hard limit) inside
- *   the body so a hostile or absurd value can never produce an unbounded wait.
+ * @param budgetMs - The total settle budget in milliseconds. Defaults to the
+ *   Datadog-parity const; a timeout-bearing step passes a value derived from its
+ *   export timeout. Defensively capped at 240000 (Checkly's hard limit) inside the
+ *   body so a hostile or absurd value can never produce an unbounded wait.
  * @returns The first matching locator (strict-safe via .first()); on exhaustion the
  *   candidate that attaches first within the remaining budget (the candidate
  *   likeliest to resolve), or the primary main-page candidate when nothing attaches.
  */
 export async function firstMatch(page: Page, makeCandidates: (root: Page | Frame) => Locator[], budgetMs: number = EXHAUSTION_RESCAN_BUDGET_MS): Promise<Locator> {
-  // Defensive cap (FID-03): the budget is a derived-from-export number, so bound it
-  // at Checkly's hard 240000ms browser-check limit before spending any of it. This
+  // Defensive cap: the budget is a derived-from-export number, so bound it at
+  // Checkly's hard 240000ms browser-check limit before spending any of it. This
   // keeps every wait bounded and numeric even for an absurd export timeout.
   const cappedBudgetMs = Math.min(budgetMs, 240000);
   const tried: string[] = [];
@@ -646,7 +663,7 @@ export async function firstMatch(page: Page, makeCandidates: (root: Page | Frame
   if (first) return first;
 
   // Bounded settle loop: give late-rendering frames and DOM a chance, within the
-  // capped numeric budget. This is the D-01/FID-03 bounded budget.
+  // capped numeric budget.
   let spent = 0;
   for (const interval of RESCAN_INTERVALS_MS) {
     if (spent >= cappedBudgetMs) break;
@@ -656,8 +673,8 @@ export async function firstMatch(page: Page, makeCandidates: (root: Page | Frame
     if (hit) return hit;
   }
 
-  // Attach-race phase (FID-03, arch-review C2): the instant-count ladder found
-  // nothing, but a candidate may simply be slow to attach. Spend the REMAINING
+  // Attach-race phase: the instant-count ladder found nothing, but a candidate may
+  // simply be slow to attach. Spend the REMAINING
   // budget racing ALL candidates (main page first, then every current frame) for
   // first-attached and return the winner, the candidate likeliest to resolve. This
   // fixes the false-fail where a slow element matchable only by a NON-primary
@@ -690,11 +707,11 @@ export async function firstMatch(page: Page, makeCandidates: (root: Page | Frame
     }
   }
 
-  // True exhaustion (D-02): emit the greppable signal as a boxed test.step plus a
+  // True exhaustion: emit the greppable signal as a boxed test.step plus a
   // console.error breadcrumb, then return the PRIMARY main-page candidate so the
   // caller's action produces a real native TimeoutError naming the intended
-  // selector (D-01). The helper never throws here: a late-appearing element can
-  // still succeed via the terminal action's own auto-wait.
+  // selector. The helper never throws here: a late-appearing element can still
+  // succeed via the terminal action's own auto-wait.
   const summary = \`\${LOCATOR_EXHAUSTION_TOKEN}: no locator matched after \${tried.length} candidate probe(s)\`;
   await test.step(summary, async () => {
     console.error(\`[\${LOCATOR_EXHAUSTION_TOKEN}] tried candidates: \${tried.join(" | ")}\`);
@@ -704,17 +721,17 @@ export async function firstMatch(page: Page, makeCandidates: (root: Page | Frame
 
 /**
  * Per-attempt bound for a positive multi-candidate assertion probe, in
- * milliseconds. Explicit and numeric for the same reason firstMatch's budget is
- * (D-01): a defaulted expect timeout on a probe attempt would be Playwright's
- * global default, and a defaulted toPass would be infinite. Every non-final probe
- * carries this bound; only the final attempt runs uncaught with no override so the
- * native assertion error surfaces intact.
+ * milliseconds. Explicit and numeric for the same reason firstMatch's budget is: a
+ * defaulted expect timeout on a probe attempt would be Playwright's global default,
+ * and a defaulted toPass would be infinite. Every non-final probe carries this
+ * bound; only the final attempt runs uncaught with no override so the native
+ * assertion error surfaces intact.
  */
 const PROBE_ASSERT_TIMEOUT_MS = 2500;
 
 /**
- * Positive multi-candidate assertion self-healing (LOC-08 D-04). Datadog's
- * multiLocator is N ways to find the SAME element, so a positive assertion is
+ * Positive multi-candidate assertion self-healing. Datadog's multiLocator is N
+ * ways to find the SAME element, so a positive assertion is
  * faithfully reproduced by trying each resolving candidate in priority order and
  * passing on the FIRST that satisfies the assertion. This is the assertion-level
  * analogue of firstMatch and it REPLACES the silent narrow-to-first weakening: a
@@ -802,28 +819,20 @@ export function extractVariableContent(test: BrowserTest): string[] {
   return content;
 }
 
-// Module-level set of local variable names for the current spec being generated.
-// Set in generateSpecFile(), read by convertVariables().
-let currentLocalVarNames = new Set<string>();
-
-// Module-level map of subtest public_id → full test data for inlining.
-// Populated in main(), read by generatePlaySubTest().
-const subtestMap = new Map<string, BrowserTest>();
-
-export function convertVariables(str: string): string {
+export function convertVariables(str: string, localVarNames?: ReadonlySet<string>): string {
   if (!str) return str;
   return str.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, varName) => {
-    if (currentLocalVarNames.has(varName)) return `\${${varName}}`;
+    if (localVarNames?.has(varName)) return `\${${varName}}`;
     return `\${process.env.${varName}}`;
   });
 }
 
 /**
- * Generation-time moment-token table (ASRT-04, D-07). Each entry maps a moment
- * display-format token to the JS Date accessor expression evaluated against a
- * `const d` inside the emitted date IIFE. Month and weekday names use the en-US
- * locale accessor because Datadog renders English month/day names (A3: the one
- * real census pattern is English); a non-English locale is out of scope here.
+ * Generation-time moment-token table. Each entry maps a moment display-format
+ * token to the JS Date accessor expression evaluated against a `const d` inside the
+ * emitted date IIFE. Month and weekday names use the en-US locale accessor because
+ * Datadog renders English month/day names; a non-English locale is out of scope
+ * here.
  *
  * The table is deliberately explicit so "recognized-but-unmapped" (Do, in the
  * tokenizer but with no entry here) is distinguishable from "unrecognized" (any
@@ -855,8 +864,8 @@ const MOMENT_TOKENS: Record<string, string> = {
 };
 
 /**
- * Longest-match-first tokenizer for moment formats (ASRT-04, D-07). Matches a
- * bracketed literal first, then tokens ordered longest-first so MMMM never
+ * Longest-match-first tokenizer for moment formats. Matches a bracketed literal
+ * first, then tokens ordered longest-first so MMMM never
  * degrades to MMM and M never eats the Ms inside MMM. `Do` is IN the recognized
  * set even though it has no MOMENT_TOKENS entry (so it flags as unknown rather
  * than tokenizing as D + o). Built with string escapes only, no raw control
@@ -873,7 +882,7 @@ const MOMENT_TOKEN_RE = /(\[[^\]]*\]|YYYY|YY|MMMM|MMM|MM|M|DD|Do|D|dddd|ddd|dd|H
  * @param unknownTokens - Optional out-param: any moment token outside the
  *   MOMENT_TOKENS table (recognized-but-unmapped like Do, or unrecognized runs
  *   like Q) is pushed here, deduplicated within one call, so the caller can emit
- *   a single date-token-unknown flag (D-08). Existing call sites omit it.
+ *   a single date-token-unknown flag. Existing call sites omit it.
  */
 export function convertPatternToJs(pattern: string, unknownTokens?: string[]): string {
   const chars: Record<string, string> = {
@@ -897,11 +906,11 @@ export function convertPatternToJs(pattern: string, unknownTokens?: string[]): s
       return `' + String(Date.now() + ${offset * 1000}) + '`;
     }
     if (fn === 'date') {
-      // ASRT-04 / D-07 / D-08: split the args on the FIRST comma only. The
-      // offset/format separator and the format's own commas are the same
-      // character; splitting on every comma (the prior bug) dropped everything
-      // after the format comma, so date(0d,MMM D, YYYY) lost ", YYYY". Everything
-      // after the first comma is the format, verbatim (single trim only).
+      // Split the args on the FIRST comma only. The offset/format separator and the
+      // format's own commas are the same character; splitting on every comma drops
+      // everything after the format comma, so date(0d,MMM D, YYYY) would lose
+      // ", YYYY". Everything after the first comma is the format, verbatim (single
+      // trim only).
       const raw = args || '0';
       const firstComma = raw.indexOf(',');
       const offsetPart = firstComma === -1 ? raw : raw.slice(0, firstComma);
@@ -912,9 +921,9 @@ export function convertPatternToJs(pattern: string, unknownTokens?: string[]): s
         // token becomes its Date accessor expression; a bracketed [literal] and
         // every non-token chunk become JSON.stringify-quoted literals so a
         // hostile format (quotes, backslashes) cannot break out of the emitted
-        // string (T-09-04-01); a recognized-but-unmapped token (Do) or an
-        // unrecognized alphabetic run (Q) passes through as a quoted literal AND
-        // is reported via unknownTokens (D-08: never silent).
+        // string; a recognized-but-unmapped token (Do) or an unrecognized
+        // alphabetic run (Q) passes through as a quoted literal AND is reported via
+        // unknownTokens (never silent).
         const dateExpr = buildDateExpr(fmt, offsetDays, unknownTokens);
         return `' + ${dateExpr} + '`;
       }
@@ -929,7 +938,7 @@ export function convertPatternToJs(pattern: string, unknownTokens?: string[]): s
 }
 
 /**
- * Build the emitted date IIFE body for a moment format string (ASRT-04, D-07).
+ * Build the emitted date IIFE body for a moment format string.
  *
  * Returns a self-contained IIFE expression of the shape
  * `(() => { const d = new Date(Date.now() + <days> * 86400000); return <piece> + <piece> + ...; })()`
@@ -957,8 +966,8 @@ function buildDateExpr(fmt: string, offsetDays: number, unknownTokens?: string[]
   };
 
   // Emit a literal chunk (never a moment token). Any alphabetic run inside it is
-  // an unrecognized moment token (D-08): report it, but still pass the whole
-  // chunk through verbatim so the output is deterministic.
+  // an unrecognized moment token: report it, but still pass the whole chunk through
+  // verbatim so the output is deterministic.
   const emitLiteralChunk = (chunk: string) => {
     if (chunk === '') return;
     for (const m of chunk.match(/[A-Za-z]+/g) || []) reportUnknown(m);
@@ -997,14 +1006,14 @@ function buildDateExpr(fmt: string, offsetDays: number, unknownTokens?: string[]
 // ---------------------------------------------------------------------------
 
 /**
- * Extensible denylist of dynamic-id RegExp shapes (LOC-06). Belt-and-suspenders,
- * NEVER exhaustive: a new dynamic-id scheme (Angular ng-, React :r0:, MUI mui-<N>,
- * ...) will always slip through. The durable half of the fix is DEMOTION (raw id
- * ranks below role/text/attr in extractLocator, so a dynamic id is only chosen
- * when nothing stabler exists); this denylist just prunes the known-bad shapes the
- * census surfaced (RESEARCH §3.5). There is intentionally NO literal allowlist:
- * the denylist is precision-tested so semantic ids (email, password,
- * submit-button, okta-signin-submit) survive without being enumerated.
+ * Extensible denylist of dynamic-id RegExp shapes. Belt-and-suspenders, NEVER
+ * exhaustive: a new dynamic-id scheme (Angular ng-, React :r0:, MUI mui-<N>, ...)
+ * will always slip through. The durable half of the fix is DEMOTION (raw id ranks
+ * below role/text/attr in extractLocator, so a dynamic id is only chosen when
+ * nothing stabler exists); this denylist just prunes known-bad shapes. There is
+ * intentionally NO literal allowlist: the denylist is precision-tested so semantic
+ * ids (email, password, submit-button, okta-signin-submit) survive without being
+ * enumerated.
  */
 export const DYNAMIC_ID_PATTERNS: readonly RegExp[] = [
   /^input\d+$/,                                                   // Okta classic widget input<N>
@@ -1016,7 +1025,7 @@ export const DYNAMIC_ID_PATTERNS: readonly RegExp[] = [
 
 /**
  * True when an id matches a known dynamic/hashed shape and must be rejected as a
- * candidate (LOC-06). Tests the id against DYNAMIC_ID_PATTERNS. Pure.
+ * candidate. Tests the id against DYNAMIC_ID_PATTERNS. Pure.
  */
 export function isDynamicId(id: string): boolean {
   return DYNAMIC_ID_PATTERNS.some((pattern) => pattern.test(id));
@@ -1033,25 +1042,24 @@ const STANDARD_HTML_TAGS = new Set([
   'table', 'tbody', 'td', 'textarea', 'tfoot', 'th', 'thead', 'time', 'tr', 'u', 'ul', 'video',
 ]);
 
-/** Tag-to-implicit-role map (LOC-05), for elements with no explicit role= attribute. */
+/** Tag-to-implicit-role map, for elements with no explicit role= attribute. */
 const IMPLICIT_ROLE_BY_TAG: Readonly<Record<string, string>> = {
   h1: 'heading', h2: 'heading', h3: 'heading', h4: 'heading', h5: 'heading', h6: 'heading',
   button: 'button', img: 'img', select: 'combobox', textarea: 'textbox',
 };
 
 /**
- * Derive a role-scoped candidate from targetOuterHTML ONLY (LOC-05). The role
- * comes from an explicit role= attribute or a small tag-to-implicit-role map
- * (a[href] -> link, h1..h6 -> heading, button -> button, img -> img, select ->
- * combobox, textarea -> textbox, input[type=submit|button] -> button, other
- * input -> textbox). The accessible name comes ONLY from targetOuterHTML in
- * preference order aria-label, inner text, alt, title, then value on button-type
- * inputs; original case is preserved. Returns null when no name derives (a
- * nameless role rung is weaker than the text rung, so it is skipped; planner
- * decision, documented). NEVER reads multiLocator.ro: the census proves ro
- * encodes zero real ARIA roles in both accounts. The ro channel is read only by
- * the separate defensive deriveRoRoleCandidate rung (Phase 9.5 FID-02), which stays
- * silent on every census shape; this function itself still never reads ro. Pure.
+ * Derive a role-scoped candidate from targetOuterHTML ONLY. The role comes from an
+ * explicit role= attribute or a small tag-to-implicit-role map (a[href] -> link,
+ * h1..h6 -> heading, button -> button, img -> img, select -> combobox, textarea ->
+ * textbox, input[type=submit|button] -> button, other input -> textbox). The
+ * accessible name comes ONLY from targetOuterHTML in preference order aria-label,
+ * inner text, alt, title, then value on button-type inputs; original case is
+ * preserved. Returns null when no name derives, because a nameless role rung is
+ * weaker than the text rung and is skipped. NEVER reads multiLocator.ro: observed
+ * ro values encode zero real ARIA roles (they are always xpaths). The ro channel is
+ * read only by the separate defensive deriveRoRoleCandidate rung, which stays silent
+ * on every observed shape; this function itself never reads ro. Pure.
  */
 export function deriveRoleCandidate(targetHtml: string): { role: string; name: string } | null {
   if (!targetHtml) return null;
@@ -1089,13 +1097,12 @@ export function deriveRoleCandidate(targetHtml: string): { role: string; name: s
 const KNOWN_ROLE_SET: ReadonlySet<string> = new Set(Object.values(IMPLICIT_ROLE_BY_TAG));
 
 /**
- * FID-02 (D-02), gated by the D-07c census: defensively recover an ARIA role from
- * multiLocator.ro. The census PROVES ro is NEVER a bare ARIA role in either
- * captured account (0/348 acct1, 0/73 acct2); it is always an xpath. So this parse
- * is DEFENSIVE and ADDITIVE and is expected to return null on ALL current data and
- * the golden seed. It exists only so a THIRD account whose ro genuinely carries a
- * role signal is not silently dropped. deriveRoleCandidate (the census-grounded
- * role rung) still reads targetOuterHTML ONLY; the ro channel is read here alone.
+ * Defensively recover an ARIA role from multiLocator.ro. Observed ro values are
+ * never a bare ARIA role (they are always xpaths), so this parse is DEFENSIVE and
+ * ADDITIVE and is expected to return null on all current data and the golden seed.
+ * It exists only so an account whose ro genuinely carries a role signal is not
+ * silently dropped. deriveRoleCandidate (the primary role rung) still reads
+ * targetOuterHTML ONLY; the ro channel is read here alone.
  *
  * Recognition rules, closed and conservative (anything else returns null):
  *   a. Bare role token: ro is ^[a-z]+$ after trim+lowercase AND a member of
@@ -1104,15 +1111,15 @@ const KNOWN_ROLE_SET: ReadonlySet<string> = new Set(Object.values(IMPLICIT_ROLE_
  *      quoted); the tag is mapped through IMPLICIT_ROLE_BY_TAG ONLY (the anchor-href
  *      and input-type special cases in deriveRoleCandidate need attribute context ro
  *      cannot supply, so they are deliberately skipped). When the same ro carries the
- *      census text() equality form (translate(...) = "text"), the final quoted string
- *      of that predicate is surfaced as the accessible name. Returns null when the tag
+ *      text() equality form (translate(...) = "text"), the final quoted string of
+ *      that predicate is surfaced as the accessible name. Returns null when the tag
  *      has no implicit-role mapping.
  *   c. Everything else (id-anchored, class-anchored, text-only, malformed): null.
  *
  * The returned role value is always a KNOWN_ROLE_SET member, so it can never carry a
  * slash, at sign, parenthesis, quote, or whitespace: hostile ro text cannot reach
  * emission as a role. The accessible name renders through the SAME escapeString choke
- * point in the generateLocatorCode role case as every other role name (T-9.5-03). Pure.
+ * point in the generateLocatorCode role case as every other role name. Pure.
  */
 export function deriveRoRoleCandidate(ro: string | undefined): { role: string; name?: string } | null {
   if (!ro) return null;
@@ -1130,8 +1137,8 @@ export function deriveRoRoleCandidate(ro: string | undefined): { role: string; n
     const role = IMPLICIT_ROLE_BY_TAG[tag];
     if (!role) return null;
 
-    // Surface the census text() equality name when present: the FINAL double-quoted
-    // string of a text()[normalize-space(translate(...)) = "text"] predicate. The
+    // Surface the text() equality name when present: the FINAL double-quoted string
+    // of a text()[normalize-space(translate(...)) = "text"] predicate. The
     // final match is taken deliberately so the earlier local-name()="tag" quoted
     // string is never mistaken for the name. Skipped (name stays undefined) when no
     // text() predicate exists.
@@ -1177,8 +1184,8 @@ function deriveAccessibleName(targetHtml: string): string {
 
 /**
  * Derive stable-attribute selector candidates from targetOuterHTML: name=, href=,
- * and NON-EMPTY aria-label= (the census carries 32 aria-label="" empties that must
- * yield nothing). Every returned candidate carries source 'attr'. Pure.
+ * and NON-EMPTY aria-label= (an empty aria-label="" must yield nothing). Every
+ * returned candidate carries source 'attr'. Pure.
  */
 export function deriveStableAttrCandidates(targetHtml: string): Locator[] {
   const candidates: Locator[] = [];
@@ -1198,7 +1205,7 @@ export function deriveStableAttrCandidates(targetHtml: string): Locator[] {
 }
 
 /**
- * Rewrite a userLocator CSS value into a usable selector (D-03). A space-separated
+ * Rewrite a userLocator CSS value into a usable selector. A space-separated
  * bare-word class list ('btn primary large') becomes a dotted selector
  * ('.btn.primary.large'); a single bare STANDARD html tag ('h1') returns null
  * meaning skip the rung (it matches every such element, useless); real selector
@@ -1224,10 +1231,10 @@ export function rewriteUserLocatorValue(value: string): string | null {
 }
 
 /**
- * Pick the best usable text from a co content array (LOC-04 input). Preference:
- * directText, then alt (second-account image alt-text surface), then innerText,
- * then anything else usable. Values are trimmed; entries empty after trim are
- * skipped. Returns null when nothing usable exists. Pure.
+ * Pick the best usable text from a co content array. Preference: directText, then
+ * alt (image alt-text surface), then innerText, then anything else usable. Values
+ * are trimmed; entries empty after trim are skipped. Returns null when nothing
+ * usable exists. Pure.
  */
 export function pickContentText(entries: Array<{ text?: string; textType?: string }>): string | null {
   const usable = entries
@@ -1244,30 +1251,29 @@ export function pickContentText(entries: Array<{ text?: string; textType?: strin
 }
 
 /**
- * Extract the ordered candidate list that feeds the firstMatch() chain (LOC-01).
+ * Extract the ordered candidate list that feeds the firstMatch() chain.
  *
  * Returns an ordered Locator[] (never a single early-return pick): [] for an
  * undefined element and for zero derivable candidates. The userLocator is index 0
- * and trusted (D-03: a human pinned it, so it is EXEMPT from the dynamic-id
- * rejection every other rung obeys); role is scoped from targetOuterHTML only
- * (LOC-05); data-testid is checked BEFORE any raw id extraction (LOC-07); text
- * from co is the RAW trimmed original (regex assembly is generateLocatorCode's
- * job, LOC-04); dynamic ids and hashed classes are demoted then denylist-rejected
- * (LOC-06). A final marking pass (FID-05, D-05) sets provenanceOnly on every
+ * and trusted (a human pinned it, so it is EXEMPT from the dynamic-id rejection
+ * every other rung obeys); role is scoped from targetOuterHTML only; data-testid is
+ * checked BEFORE any raw id extraction; text from co is the RAW trimmed original
+ * (regex assembly is generateLocatorCode's job); dynamic ids and hashed classes are
+ * demoted then denylist-rejected. A final marking pass sets provenanceOnly on every
  * ab/at/clt sourced xpath rung WHEN a stabler sibling exists, so withLocator can
  * keep those Datadog-recorded breadcrumbs out of the live chain; it marks none when
  * they are the only signal (last resort) and never touches a userLocator xpath
- * (demotion keys on source, not on type, D-07d). Pure: no FlagCollector, no I/O, no
- * ctx parameter (the zero-candidate FLAG-04 emit is withLocator's seam; the
- * shadow-dom-locator flag is plan 08-03's).
+ * (demotion keys on source, not on type). Pure: no FlagCollector, no I/O, no ctx
+ * parameter (the zero-candidate emit is withLocator's seam; the shadow-dom-locator
+ * flag is emitted elsewhere).
  *
- * ORDERING HONESTY: this precedence is a census-grounded engineering decision
- * (08-RESEARCH §4.2), validated empirically by VAL-10 and per-check npx checkly
- * test. It is NOT a reproduction of a documented Datadog inter-strategy ordering
- * (no such ordering is published; RESEARCH honesty ledger §7.1). Only rung #1
- * (userLocator first) is Datadog-authoritative. Rung 2b (Phase 9.5 FID-02) is the
- * separate defensive deriveRoRoleCandidate ro role rung: purely additive, deduped
- * against the targetOuterHTML-derived role, and silent on every census ro shape.
+ * ORDERING HONESTY: this precedence is an engineering decision validated empirically
+ * by the generalization smoke tests and per-check npx checkly test. It is NOT a
+ * reproduction of a documented Datadog inter-strategy ordering (no such ordering is
+ * published). Only rung #1 (userLocator first) is Datadog-authoritative. Rung 2b is
+ * the separate defensive deriveRoRoleCandidate ro role rung: purely additive,
+ * deduped against the targetOuterHTML-derived role, and silent on every observed ro
+ * shape.
  */
 export function extractLocator(element?: ElementLocator): Locator[] {
   if (!element) return [];
@@ -1278,9 +1284,8 @@ export function extractLocator(element?: ElementLocator): Locator[] {
 
   // Rung 1: userLocator (source 'userLocator'). First values[] entry; css routed
   // through rewriteUserLocatorValue (null result skips the rung); xpath passed
-  // through defensively (zero observed, docs allow it). EXEMPT from isDynamicId
-  // rejection (D-03): rejecting a human-pinned selector would discard the best
-  // available signal.
+  // through defensively (docs allow it). EXEMPT from isDynamicId rejection:
+  // rejecting a human-pinned selector would discard the best available signal.
   const firstUser = element.userLocator?.values?.[0];
   if (firstUser?.value) {
     if (firstUser.type === 'xpath') {
@@ -1295,18 +1300,18 @@ export function extractLocator(element?: ElementLocator): Locator[] {
   const roleCand = deriveRoleCandidate(targetHtml);
   if (roleCand) candidates.push({ type: 'role', value: roleCand.role, source: 'role', name: roleCand.name });
 
-  // Rung 2b (FID-02, D-02): the DEFENSIVE ro role rung. Purely additive. The census
-  // (D-07c) proves ro is never a role in the captured accounts, so this stays silent
-  // on all current data; it fires only when ro genuinely encodes a role (bare token
-  // or a local-name() predicate). Same { type: 'role', value, source, name } shape as
-  // rung 2, so the type-and-value dedupe below collapses any overlap with the
-  // targetOuterHTML-derived role; no dedupe change is needed.
+  // Rung 2b: the DEFENSIVE ro role rung. Purely additive. Observed ro is never a
+  // role, so this stays silent on all current data; it fires only when ro genuinely
+  // encodes a role (bare token or a local-name() predicate). Same { type: 'role',
+  // value, source, name } shape as rung 2, so the type-and-value dedupe below
+  // collapses any overlap with the targetOuterHTML-derived role; no dedupe change is
+  // needed.
   const roRole = deriveRoRoleCandidate(multiLocator.ro);
   if (roRole) candidates.push({ type: 'role', value: roRole.role, source: 'role', name: roRole.name });
 
   // Rung 3: testId (source 'testId') from an ANCHORED data-testid match, checked
-  // BEFORE any raw id extraction (LOC-07). The bare id, not an attribute selector,
-  // so generateLocatorCode emits getByTestId(value).
+  // BEFORE any raw id extraction. The bare id, not an attribute selector, so
+  // generateLocatorCode emits getByTestId(value).
   const testIdMatch = targetHtml.match(/(?:^|\s)data-testid="([^"]+)"/);
   if (testIdMatch) candidates.push({ type: 'testId', value: testIdMatch[1], source: 'testId' });
 
@@ -1329,8 +1334,8 @@ export function extractLocator(element?: ElementLocator): Locator[] {
   // sufficient here: \b matches between the '-' and the 'i' of data-testid, so
   // \bid="..." would still leak the data-testid value; only a preceding
   // start-or-whitespace guard is safe. Then the ro rung's raw-@id form as a
-  // secondary source. REJECT any id where isDynamicId is true (LOC-06: demotion is
-  // this rung's position, rejection is the denylist).
+  // secondary source. REJECT any id where isDynamicId is true (demotion is this
+  // rung's position, rejection is the denylist).
   const anchoredIdMatch = targetHtml.match(/(?:^|\s)id="([^"]+)"/);
   if (anchoredIdMatch && !isDynamicId(anchoredIdMatch[1])) {
     candidates.push({ type: 'id', value: `#${anchoredIdMatch[1]}`, source: 'id' });
@@ -1347,9 +1352,9 @@ export function extractLocator(element?: ElementLocator): Locator[] {
   // (source 'clt') as an xpath-emitted candidate when present.
   if (multiLocator.cl) {
     // The class name is the LAST double-quoted argument of the contains() call in
-    // both the simple form (contains(@class, " x ")) and the real census form
+    // both the simple form (contains(@class, " x ")) and the concat form
     // (contains(concat(' ', normalize-space(@class), ' '), " x ")), whose inner
-    // concat() commas defeated the old first-arg regex. Take the final quoted run.
+    // concat() commas defeat a naive first-arg regex. Take the final quoted run.
     const classMatch = multiLocator.cl.match(/"\s*([^"]+?)\s*"\s*\)[^"]*$/);
     if (classMatch) {
       const className = classMatch[1].trim();
@@ -1362,7 +1367,7 @@ export function extractLocator(element?: ElementLocator): Locator[] {
   if (multiLocator.clt) candidates.push({ type: 'xpath', value: multiLocator.clt, source: 'clt' });
 
   // Rung 8: at (source 'at') ONLY when the at xpath carries an attribute predicate
-  // (contains an '@'), per RESEARCH rung 7 (a bare absolute path is as brittle as ab).
+  // (contains an '@'); a bare absolute path is as brittle as ab, so it is skipped.
   if (multiLocator.at && multiLocator.at.includes('@')) {
     candidates.push({ type: 'xpath', value: multiLocator.at, source: 'at' });
   }
@@ -1380,20 +1385,20 @@ export function extractLocator(element?: ElementLocator): Locator[] {
     return true;
   });
 
-  // FID-05 marking pass (D-05, D-07d): the ab/at/clt sourced xpath rungs are
-  // Datadog-recorded breadcrumbs, not live pass-if-any candidates. A static stale
-  // path cannot self-heal the way Datadog recomputes it at runtime, so a live rung
-  // can silently match a coincidental wrong element. When at least one candidate is
-  // sourced OUTSIDE the stale set, mark every stale-sourced candidate provenanceOnly
+  // Marking pass: the ab/at/clt sourced xpath rungs are Datadog-recorded
+  // breadcrumbs, not live pass-if-any candidates. A static stale path cannot
+  // self-heal the way Datadog recomputes it at runtime, so a live rung can silently
+  // match a coincidental wrong element. When at least one candidate is sourced
+  // OUTSIDE the stale set, mark every stale-sourced candidate provenanceOnly
   // (withLocator then partitions it out of the live chain and re-emits it as a
   // one-line breadcrumb comment). When ALL candidates are stale-sourced, mark NONE:
   // the chain would otherwise deactivate on zero live candidates, so the stale rungs
   // stay live as last resort. The marking is keyed STRICTLY on source membership in
   // {ab, at, clt}, never on the locator type being xpath, so a user-pinned userLocator
-  // xpath (FID-01 authority) is never demoted. The list is never reordered, removed
-  // from, or re-pushed to: candidates[0] stays live by construction (a stale rung is
-  // only marked when a stabler sibling exists, and the earliest stable rung precedes
-  // every stale one in extraction order).
+  // xpath is never demoted. The list is never reordered, removed from, or re-pushed
+  // to: candidates[0] stays live by construction (a stale rung is only marked when a
+  // stabler sibling exists, and the earliest stable rung precedes every stale one in
+  // extraction order).
   const hasStablerCandidate = deduped.some((c) => !c.source || !STALE_XPATH_SOURCES.has(c.source));
   if (hasStablerCandidate) {
     for (const c of deduped) {
@@ -1406,19 +1411,19 @@ export function extractLocator(element?: ElementLocator): Locator[] {
 
 /**
  * The candidate sources whose xpath is a Datadog-recorded breadcrumb rather than a
- * live selector (FID-05/D-05): ab (absolute path), structural at, and clt. Demotion
- * keys on membership in this set, NEVER on the locator type being xpath, so a
- * user-pinned userLocator xpath (source 'userLocator', D-07d) stays a live candidate.
+ * live selector: ab (absolute path), structural at, and clt. Demotion keys on
+ * membership in this set, NEVER on the locator type being xpath, so a user-pinned
+ * userLocator xpath (source 'userLocator') stays a live candidate.
  */
 const STALE_XPATH_SOURCES = new Set(['ab', 'at', 'clt']);
 
 /**
  * The six element-action step types whose emitted code consumes a resolved
- * locator (extractLocator). These are the only step types FLAG-05 residue
- * detection applies to: they are the ones that route a locator value into the
- * generated spec. Non-locator steps (goToUrl, wait, assertPageContains, etc.) are
- * never inspected, and an unsupported step type already carries 07-02's
- * unsupported-step-type flag, so residue-flagging a non-emitted step would be noise.
+ * locator (extractLocator). These are the only step types locator-residue detection
+ * applies to: they are the ones that route a locator value into the generated spec.
+ * Non-locator steps (goToUrl, wait, assertPageContains, etc.) are never inspected,
+ * and an unsupported step type already carries the unsupported-step-type flag, so
+ * residue-flagging a non-emitted step would be noise.
  */
 const LOCATOR_CONSUMING_STEP_TYPES = new Set([
   'typeText',
@@ -1442,7 +1447,7 @@ const SVG_GEOMETRY_ATTR_REGEX = /@(cx|cy|r|rx|ry|x1|y1|x2|y2|d|points)=/;
  * (styled-components `.sc-`, Emotion `.css-`, AWS-UI `.awsui_`) rotate every build,
  * so a selector led by one is anchored to nothing durable. A selector led by a
  * semantic token (`.ant-btn.sc-x`) deliberately does not match: it has a real
- * leading signal, and finer chain grading is Phase 8.
+ * leading signal.
  */
 const HASHED_CLASS_PREFIX_REGEX = /^\.(sc-|css-|awsui_)/;
 
@@ -1450,22 +1455,22 @@ const HASHED_CLASS_PREFIX_REGEX = /^\.(sc-|css-|awsui_)/;
 const SERIALIZED_OBJECT_ARTIFACT = '[object Object]';
 
 /**
- * FLAG-05: classify Tier-2/3 recording residue on a RESOLVED locator value.
+ * Classify recording residue on a RESOLVED locator value.
  *
  * Pure and side-effect free: reads no environment, mutates nothing, and never
  * touches extractLocator's selection logic (candidate reordering, demotion, and
- * rejection are Phase 8 LOC-06/LOC-08; this only OBSERVES the single value the
- * current extractor already picked). Detection only: a match never means the
- * locator is guessed, synthesized, or replaced. Tier-3 recovery (rebuilding a
- * locator from the residue) is permanently out of scope; the information to build
- * a real locator does not exist in the export.
+ * rejection happen there; this only OBSERVES the single value the current extractor
+ * already picked). Detection only: a match never means the locator is guessed,
+ * synthesized, or replaced. Recovery (rebuilding a locator from the residue) is
+ * permanently out of scope; the information to build a real locator does not exist
+ * in the export.
  *
- * Four ordered predicates, first hit wins, so a step records at most one FLAG-05
- * locator flag:
- *   1. value contains the serialized-object artifact, ANY type (dual-form per
- *      RESEARCH Pitfall 2: the same artifact leaks into both co-derived text
- *      values and at-derived xpath literals, and a substring test on the RESOLVED
- *      value catches both without inspecting multiLocator keys) -> unconvertible-locator
+ * Four ordered predicates, first hit wins, so a step records at most one locator
+ * residue flag:
+ *   1. value contains the serialized-object artifact, ANY type (dual-form: the same
+ *      artifact leaks into both co-derived text values and at-derived xpath
+ *      literals, and a substring test on the RESOLVED value catches both without
+ *      inspecting multiLocator keys) -> unconvertible-locator
  *   2. xpath anchored on an SVG geometry attribute -> unconvertible-locator
  *   3. class led by a hashed CSS-in-JS token -> unconvertible-locator
  *   4. xpath with no attribute predicate and no text() function (purely
@@ -1505,35 +1510,35 @@ export function detectLocatorResidue(
 
 /**
  * Emit the Playwright locator expression for a single candidate (the per-candidate
- * builder for the firstMatch chain; plan 08-03 assembles the chain from these).
+ * builder that withLocator assembles the firstMatch chain from).
  *
  * receiver defaults to 'page' so single-candidate emission of an id-only element
- * stays byte-identical to today (page.locator with the hash-id selector), keeping
- * the seed-fixture spec stable; the firstMatch chain passes a frame receiver per rung.
+ * stays byte-identical (page.locator with the hash-id selector); the firstMatch
+ * chain passes a frame receiver per rung.
  *
  * role  -> receiver.getByRole("role", { name: "name" }) with escapeString on both,
  *          NEVER an exact-match option: getByRole name matching is already
  *          case-insensitive substring (verified live, Playwright locators ref), so
- *          adding { exact: true } would reintroduce the case trap (LOC-05).
- * testId-> receiver.getByTestId("value") on the bare test id (LOC-07).
+ *          adding { exact: true } would reintroduce the case trap.
+ * testId-> receiver.getByTestId("value") on the bare test id.
  * text  -> receiver.getByText(new RegExp(J, "i")) where J is the generation-time
  *          JSON.stringify of "^" + escapeRegex(trimmed) + "$". co is a WHOLE-STRING
- *          comparison, not a substring one: Datadog's ro proves it emits
- *          normalize-space(translate(., UPPER, lower)) = "text" (census 154/154
- *          acct1 + 33/33 acct2 text() xpaths use = "..." equality, never contains).
- *          The anchored regex reproduces whole-string, the "i" flag reproduces the
- *          case-fold, and trim() plus Playwright's own whitespace normalization
- *          (which applies even to a regex getByText, per current playwright.dev docs)
- *          reproduce normalize-space. So the anchor is faithful to Datadog's own
- *          runtime, never a weakening (LOC-04, FID-04). The new RegExp(JSON.stringify(...))
- *          idiom (reused from the startsWith precedent) means hostile regex-breaking
- *          characters in co text can never escape the emitted string literal (T-8-01).
+ *          comparison, not a substring one: Datadog's ro emits
+ *          normalize-space(translate(., UPPER, lower)) = "text", i.e. "..." equality,
+ *          never contains. The anchored regex reproduces whole-string, the "i" flag
+ *          reproduces the case-fold, and trim() plus Playwright's own whitespace
+ *          normalization (which applies even to a regex getByText, per current
+ *          playwright.dev docs) reproduce normalize-space. So the anchor is faithful
+ *          to Datadog's own runtime, never a weakening. The new RegExp(JSON.stringify(...))
+ *          idiom (shared with the startsWith path) means hostile regex-breaking
+ *          characters in co text can never escape the emitted string literal.
  * userLocator css -> receiver.locator("selector").
  * xpath (userLocator xpath, clt, at, ab) -> receiver.locator("xpath=...").
  * id/class/name/attr -> receiver.locator("selector") string form.
  *
- * The _ctx parameter is threaded from the withLocator seam; it is unused here
- * (FLAG-04 fires upstream, FLAG-05 residue fires at the generateStepCode seam).
+ * The _ctx parameter is threaded from the withLocator seam; it is unused here (the
+ * zero-candidate flag fires upstream, residue detection fires at the generateStepCode
+ * seam).
  */
 export function generateLocatorCode(locator: Locator, _ctx: StepFlagContext, receiver: string = 'page'): string {
   switch (locator.type) {
@@ -1544,11 +1549,11 @@ export function generateLocatorCode(locator: Locator, _ctx: StepFlagContext, rec
     case 'testId':
       return `${receiver}.getByTestId("${escapeString(locator.value)}")`;
     case 'text': {
-      // co is a whole-string comparison (census: ro emits normalize-space(translate)
-      // = "text" equality, never contains), so anchor whole-string (^...$) and case-fold
-      // with "i". escapeRegex neutralizes co metacharacters; JSON.stringify quotes the
-      // whole pattern so quotes, backslashes, and newlines cannot break out of the RegExp
-      // constructor argument (T-8-01). trim() plus Playwright's own whitespace
+      // co is a whole-string comparison (ro emits normalize-space(translate) = "text"
+      // equality, never contains), so anchor whole-string (^...$) and case-fold with
+      // "i". escapeRegex neutralizes co metacharacters; JSON.stringify quotes the
+      // whole pattern so quotes, backslashes, and newlines cannot break out of the
+      // RegExp constructor argument. trim() plus Playwright's own whitespace
       // normalization (which applies even to a regex getByText) reproduce normalize-space.
       const pattern = `^${escapeRegex(locator.value.trim())}$`;
       return `${receiver}.getByText(new RegExp(${JSON.stringify(pattern)}, "i"))`;
@@ -1569,9 +1574,9 @@ export function generateLocatorCode(locator: Locator, _ctx: StepFlagContext, rec
  * Describe a Datadog step for the preserved-DD-step comment: the step type plus
  * the double-quoted step name when present (for example: click "Click ghost").
  *
- * Contract (threat T-07-02-02): NEVER include step.params values. Typed values
- * can be credentials; keeping them out of the flags file and report surfaces is a
- * hard requirement. This text is passed RAW to emitFlag; escaping happens exactly
+ * Contract: NEVER include step.params values. Typed values can be credentials;
+ * keeping them out of the flags file and report surfaces is a hard requirement. This
+ * text is passed RAW to emitFlag; escaping happens exactly
  * once inside the shared formatInlineMarker, so this must not pre-escape.
  */
 export function describeDatadogStep(step: BrowserStep): string {
@@ -1579,22 +1584,22 @@ export function describeDatadogStep(step: BrowserStep): string {
 }
 
 /**
- * The candidate-source values that make a chain's LEADING rung weak (LOC-06 /
- * FLAG-05 weak clause). A chain whose first candidate is one of these has no
- * user-pinned, role, testId, text, or stable-attribute lead, so it degrades to a
- * best-effort selector and is surfaced (never deactivated) via weak-fallback-chain.
+ * The candidate-source values that make a chain's LEADING rung weak. A chain whose
+ * first candidate is one of these has no user-pinned, role, testId, text, or
+ * stable-attribute lead, so it degrades to a best-effort selector and is surfaced
+ * (never deactivated) via weak-fallback-chain.
  */
 const WEAK_LEAD_SOURCES = new Set(['id', 'class', 'clt', 'at', 'ab']);
 
 /**
- * Classify the strength of an ordered candidate chain by its LEADING rung (LOC-06).
+ * Classify the strength of an ordered candidate chain by its LEADING rung.
  *
  * Pure and total. Returns 'weak' when the first candidate's source is one of id,
  * class, clt, at, ab (a best-effort selector lead); returns 'strong' otherwise
  * (userLocator, role, testId, text, attr, name). Grades on the first candidate
  * only: a weak lead with stronger followers is still a weak chain, because the
  * lead is what the emitted chain probes first. An empty array classifies 'strong'
- * (there is no weak lead to flag; the zero-candidate case is FLAG-04's slice).
+ * (there is no weak lead to flag; the zero-candidate case is a separate slice).
  */
 export function classifyChainStrength(candidates: Locator[]): 'weak' | 'strong' {
   const lead = candidates[0];
@@ -1603,11 +1608,11 @@ export function classifyChainStrength(candidates: Locator[]): 'weak' | 'strong' 
 }
 
 /**
- * Map a candidate's rung provenance to a short human-readable comment label
- * (readability Option B). The label channel is a CLOSED enum (the Locator.source
- * union) plus the internal Locator.type fallback, never raw Datadog export text,
- * so this is not an interpolation surface (threat T-Q-01). The three xpath rungs
- * are disambiguated so a reviewer sees WHICH xpath flavor a candidate came from;
+ * Map a candidate's rung provenance to a short human-readable comment label. The
+ * label channel is a CLOSED enum (the Locator.source union) plus the internal
+ * Locator.type fallback, never raw Datadog export text, so this is not an
+ * interpolation surface. The three xpath rungs are disambiguated so a reviewer sees
+ * WHICH xpath flavor a candidate came from;
  * the absolute-path rung is annotated as the most brittle. The interpunct is
  * U+00B7 (a printable UTF-8 character, not a control byte and not an em-dash),
  * per the repo output rule.
@@ -1636,9 +1641,8 @@ export function candidateSourceLabel(c: Locator): string {
 }
 
 /**
- * Build the emitted candidate-factory source for the firstMatch chain (LOC-02),
- * one candidate per line with a trailing provenance comment (readability Options
- * A + B).
+ * Build the emitted candidate-factory source for the firstMatch chain, one
+ * candidate per line with a trailing provenance comment.
  *
  * Returns a multi-line factory expression of shape:
  *   (root) => [
@@ -1662,9 +1666,9 @@ export function candidateSourceLabel(c: Locator): string {
  *
  * Every interpolation routes through generateLocatorCode, whose escaping
  * (escapeString / the JSON.stringify RegExp idiom) is the single choke point, so
- * a hostile Datadog value can never break out of the emitted string literal
- * (threat T-8-01); this emitter only concatenates those already-safe expressions
- * and the closed-enum source labels (candidateSourceLabel), never raw export text.
+ * a hostile Datadog value can never break out of the emitted string literal; this
+ * emitter only concatenates those already-safe expressions and the closed-enum
+ * source labels (candidateSourceLabel), never raw export text.
  */
 export function buildCandidateFactoryExpr(candidates: Locator[], ctx: StepFlagContext): string {
   const lines = candidates.map(
@@ -1674,14 +1678,14 @@ export function buildCandidateFactoryExpr(candidates: Locator[], ctx: StepFlagCo
 }
 
 /**
- * The chain-emission descriptor handed to a withLocator build callback (LOC-02).
+ * The chain-emission descriptor handed to a withLocator build callback.
  *
  * withLocator resolves the ordered candidate list once and packages the emitted
  * expressions here so each of the six locator-consuming generators interpolates a
  * ready-made locator expression without re-deriving anything:
- *   - candidates: the ordered LIVE Locator[] (index 0 is the primary). FID-05
- *     demoted breadcrumbs (ab/at/clt provenance-only) are excluded here; they are
- *     surfaced as single-line comments by withLocator and never ride the chain.
+ *   - candidates: the ordered LIVE Locator[] (index 0 is the primary). Demoted
+ *     breadcrumbs (ab/at/clt provenance-only) are excluded here; they are surfaced
+ *     as single-line comments by withLocator and never ride the chain.
  *   - isMulti: true when two or more candidates resolved (drives firstMatch vs direct).
  *   - locatorExpr: the expression an action/assertion applies its call to. For a
  *     single candidate it is the direct page-receiver expression (byte-stable with
@@ -1693,7 +1697,7 @@ export function buildCandidateFactoryExpr(candidates: Locator[], ctx: StepFlagCo
  *     interpolate this name into firstMatch(page, <name>) / assertOnFirstMatch(page,
  *     <name>, ...), so a multi-line arrow never sits inline inside an await.
  *   - primaryExpr: the primary candidate as a direct page-receiver expression
- *     (plan 08-05's negative-assertion seam pins negatives to this).
+ *     (the negative-assertion seam pins negatives to this).
  */
 export interface LocatorChainCode {
   candidates: Locator[];
@@ -1705,25 +1709,22 @@ export interface LocatorChainCode {
 
 /**
  * Derive the firstMatch settle budget in milliseconds from the export's Datadog
- * timeout (FID-03, D-03).
+ * timeout.
  *
  * Precedence: the per-step step.timeout, else the test's initialNavigationTimeout,
  * else null (no export timeout, so the call site emits the byte-stable
  * two-argument firstMatch form and the helper falls back to its const default).
  *
- * Datadog stores these values in SECONDS, and a value of 0 (5 of 8 acct2 step
- * timeouts are 0), undefined, or negative means "no override, use the test
- * default" rather than "zero milliseconds", so any non-finite or non-positive
- * input is treated as absent (a zero step timeout falls through to the nav
- * timeout, never emitting a zero or near-zero budget). The chosen seconds value is
- * converted to milliseconds and clamped to a 2500ms floor and a 240000ms cap. The
- * 2500ms floor guards a derived budget from regressing below the Phase-8 budget;
- * the 240000ms cap is Checkly's hard browser-check limit (per checklyhq.com docs).
+ * Datadog stores these values in SECONDS, and a value of 0, undefined, or negative
+ * means "no override, use the test default" rather than "zero milliseconds", so any
+ * non-finite or non-positive input is treated as absent (a zero step timeout falls
+ * through to the nav timeout, never emitting a zero or near-zero budget). The chosen
+ * seconds value is converted to milliseconds and clamped to a 2500ms floor and a
+ * 240000ms cap. The floor guards a derived budget from regressing below a usable
+ * minimum; the 240000ms cap is Checkly's hard browser-check limit.
  *
- * A1 confirmed 2026-07-10 from docs.datadoghq.com (synthetics browser_tests
- * advanced_options): a browser test retries locating a step's element for 60
- * seconds by default, adjustable up to 300 seconds, and the export values are in
- * seconds (census values 5/10/20/120 corroborate).
+ * Datadog default: a browser test retries locating a step's element for 60 seconds
+ * by default, adjustable up to 300 seconds, and the export values are in seconds.
  *
  * @param stepTimeoutSec - the per-step Datadog timeout in seconds (0/undefined/negative = absent).
  * @param navTimeoutSec - the test-level navigation timeout in seconds (0/undefined/negative = absent).
@@ -1742,92 +1743,87 @@ export function deriveSettleBudgetMs(stepTimeoutSec?: number, navTimeoutSec?: nu
 
 /**
  * Emit a locator-consuming statement, firing the zero-candidate flag when no
- * locator can be derived (FLAG-04, D-05).
+ * locator can be derived.
  *
  * Non-null path: return the two-space indent plus build(generateLocatorCode(...)),
- * preserving today's emitted statement byte for byte.
+ * preserving the emitted statement byte for byte.
  *
- * Null path: fire the deactivating locator-unresolvable flag (D-05: no candidate
- * means the step cannot run and everything after it breaks, so the honest,
- * safe-by-default move is deactivate-and-flag on the construct side, driven by
- * deactivates: true here). Return the loud marker (with the preserved DD step)
- * followed by the intended statement rendered as a comment. This path NEVER
- * returns a runnable statement and NEVER emits a Playwright skip (D-05 forbids
- * skip: it deploys an active-but-skipping check).
+ * Null path: fire the deactivating locator-unresolvable flag (no candidate means the
+ * step cannot run and everything after it breaks, so the honest, safe-by-default
+ * move is deactivate-and-flag on the construct side, driven by deactivates: true
+ * here). Return the loud marker (with the preserved DD step) followed by the intended
+ * statement rendered as a comment. This path NEVER returns a runnable statement and
+ * NEVER emits a Playwright skip (a skip deploys an active-but-skipping check).
  *
- * Pin-authority emit decision (FID-01, D-01): when userLocator.failTestOnCannotLocate
- * is true AND the pin was derivable (live primary source userLocator), emit the pinned
- * locator ALONE (no firstMatch, no factory const, no non-pin candidate, no FID-05
- * provenance breadcrumbs) so a pin miss fails the step natively, matching Datadog's
+ * Pin-authority emit decision: when userLocator.failTestOnCannotLocate is true AND
+ * the pin was derivable (live primary source userLocator), emit the pinned locator
+ * ALONE (no firstMatch, no factory const, no non-pin candidate, no provenance
+ * breadcrumbs) so a pin miss fails the step natively, matching Datadog's
  * fail-on-pin-miss checkbox; when the flag is true but the pin could not be derived,
- * keep the self-healing chain and surface a non-deactivating user-locator-pin-unresolvable
- * flag (never a silent divergence). The gate keys on the parsed boolean and the pin's
- * source, never on candidate type, so css and xpath pins behave identically (D-07d).
+ * keep the self-healing chain and surface a non-deactivating
+ * user-locator-pin-unresolvable flag (never a silent divergence). The gate keys on
+ * the parsed boolean and the pin's source, never on candidate type, so css and xpath
+ * pins behave identically.
  */
 export function withLocator(
   step: BrowserStep,
   ctx: StepFlagContext,
   build: (chain: LocatorChainCode) => string,
 ): string {
-  // extractLocator returns an ORDERED Locator[] (LOC-01). An empty array is TRUTHY
-  // in JavaScript, so the presence test is a length check, not a null check.
+  // extractLocator returns an ORDERED Locator[]. An empty array is TRUTHY in
+  // JavaScript, so the presence test is a length check, not a null check.
   const candidates = extractLocator(step.params?.element);
 
-  // FID-05 (D-05): partition the LIVE candidates (everything not demoted to
-  // provenance-only) from the demoted ab/at/clt breadcrumbs. Every emission decision
-  // below reads LIVE only: isMulti, classifyChainStrength, primaryExpr from live[0],
-  // the factory hoist gate, buildCandidateFactoryExpr(live), and chain.candidates.
-  // The extractLocator marking pass guarantees that if candidates.length > 0 then
-  // live.length > 0 (the all-stale last-resort case marks nothing), so the
-  // zero-candidate FLAG-04 branch below stays keyed on candidates.length exactly as
-  // before and its behavior is unchanged.
+  // Partition the LIVE candidates (everything not demoted to provenance-only) from
+  // the demoted ab/at/clt breadcrumbs. Every emission decision below reads LIVE only:
+  // isMulti, classifyChainStrength, primaryExpr from live[0], the factory hoist gate,
+  // buildCandidateFactoryExpr(live), and chain.candidates. The extractLocator marking
+  // pass guarantees that if candidates.length > 0 then live.length > 0 (the all-stale
+  // last-resort case marks nothing), so the zero-candidate branch below stays keyed
+  // on candidates.length and its behavior is unchanged.
   const live = candidates.filter((c) => !c.provenanceOnly);
   const provenance = candidates.filter((c) => c.provenanceOnly);
 
-  // FID-01 (D-01): honor userLocator.failTestOnCannotLocate, the Datadog "If user
-  // specified locator fails, fail test" checkbox. When the flag is true Datadog
+  // Honor userLocator.failTestOnCannotLocate, the Datadog "If user specified locator
+  // fails, fail test" checkbox. When the flag is true Datadog
   // ignores the stored multiLocator strategies and fails the step if the pinned
   // selector misses, so a self-healing fallback chain would DIVERGE from Datadog by
   // passing on a wrong element. The gate keys on the parsed boolean plus the live
   // primary's userLocator source, NEVER on the candidate type, so a css pin and an
-  // xpath pin both emit pin-only (D-07d).
+  // xpath pin both emit pin-only.
   //   - pinOnly: the flag is true AND the pin was derivable (userLocator is index 0
-  //     of extractLocator and exempt from FID-05 demotion, so a derivable pin makes
+  //     of extractLocator and exempt from demotion, so a derivable pin makes
   //     live[0].source === 'userLocator'). Emit the pin alone: no firstMatch call, no
-  //     factory const, no non-pin candidate expression, and no FID-05 provenance
-  //     breadcrumbs (Datadog itself ignores the stored strategies in this mode).
+  //     factory const, no non-pin candidate expression, and no provenance breadcrumbs
+  //     (Datadog itself ignores the stored strategies in this mode).
   //   - pinUnresolvable: the flag is true but the userLocator rung was SKIPPED (empty
   //     value, or rewriteUserLocatorValue rejected a lone bare standard tag), so the
   //     live primary is not the pin. Keeping the chain silent would hide that this step
   //     no longer reproduces Datadog's fail-on-pin-miss authority, so surface a
   //     non-deactivating user-locator-pin-unresolvable flag and fall through to the
-  //     normal chain (honest-flag north star: never a silent divergence).
+  //     normal chain (never a silent divergence).
   const pinAuthority = step.params?.element?.userLocator?.failTestOnCannotLocate === true;
   const pinOnly = pinAuthority && live[0]?.source === 'userLocator';
   const pinUnresolvable = pinAuthority && live[0]?.source !== 'userLocator';
 
   if (candidates.length > 0) {
     // Degrade flags fire BEFORE the statement, through the one emit seam, and are
-    // prepended as markers exactly like the FLAG-05 residue marker pattern in
-    // generateStepCode. Neither flag deactivates (D-06: a degraded-but-resolved
-    // chain stays ACTIVE; deactivation remains exclusively the zero-candidate
-    // FLAG-04 slice below).
+    // prepended as markers exactly like the residue marker pattern in
+    // generateStepCode. Neither flag deactivates: a degraded-but-resolved chain stays
+    // ACTIVE; deactivation remains exclusively the zero-candidate slice below.
     let markers = '';
 
-    // (a) shadow-dom-locator (FID-06/D-06): the element carries a nested sd
-    // (shadow-DOM host) locator. The step's normal chain IS emitted, so shadow-root
-    // piercing IS attempted at runtime: verified against current Playwright docs,
-    // Playwright locators pierce OPEN shadow roots automatically for user-facing
-    // locators (getByRole/getByText/getByLabel/getByTestId) and CSS locators; XPath
-    // candidates do NOT pierce; closed shadow roots cannot be resolved by any
-    // Playwright locator. The earlier claim that piercing was unattempted and
-    // outside the tool's reach is disproven and no longer shipped. The message is
-    // variant-aware:
+    // (a) shadow-dom-locator: the element carries a nested sd (shadow-DOM host)
+    // locator. The step's normal chain IS emitted, so shadow-root piercing IS
+    // attempted at runtime: Playwright locators pierce OPEN shadow roots automatically
+    // for user-facing locators (getByRole/getByText/getByLabel/getByTestId) and CSS
+    // locators; XPath candidates do NOT pierce; closed shadow roots cannot be resolved
+    // by any Playwright locator. The message is variant-aware:
     //   - variant A (at least one non-xpath live candidate): the chain can pierce an
     //     open root, so state the capability and its two limits (XPath, closed roots).
-    //   - variant B (every live candidate is xpath, the last-resort all-stale case
-    //     from plan 09.5-04): no emitted candidate can pierce even an open root, so
-    //     state the stronger honest surface and the remedy.
+    //   - variant B (every live candidate is xpath, the last-resort all-stale case):
+    //     no emitted candidate can pierce even an open root, so state the stronger
+    //     honest surface and the remedy.
     // Neither variant deactivates and neither suppresses the chain (attempt preserved).
     if (step.params?.element?.multiLocator?.sd !== undefined) {
       const anyNonXpath = live.some((c) => c.type !== 'xpath');
@@ -1846,14 +1842,13 @@ export function withLocator(
         ) + '\n';
     }
 
-    // FID-01 (D-01): when the pin is authoritative (pinOnly), Datadog ignores the
-    // stored strategies entirely, so the FID-05 provenance breadcrumbs for the
-    // (suppressed) chain are not emitted either: the pinned locator ONLY. Otherwise
-    // emit the FID-05 breadcrumbs below.
+    // When the pin is authoritative (pinOnly), Datadog ignores the stored strategies
+    // entirely, so the provenance breadcrumbs for the (suppressed) chain are not
+    // emitted either: the pinned locator ONLY. Otherwise emit the breadcrumbs below.
     //
-    // FID-05 provenance breadcrumbs (D-05): each demoted ab/at/clt rung is re-emitted
-    // as ONE four-space-indented single-line // comment so a reviewer keeps the
-    // last-known Datadog path. The value is neutralized to a single line via the same
+    // Provenance breadcrumbs: each demoted ab/at/clt rung is re-emitted as ONE
+    // four-space-indented single-line // comment so a reviewer keeps the last-known
+    // Datadog path. The value is neutralized to a single line via the same
     // truncate-then-JSON.stringify idiom the residue marker uses (bounded to 120
     // chars, then JSON.stringify), so a quote, backslash, or newline in a hostile
     // export value cannot break the comment line. A single-line // comment (never a
@@ -1866,13 +1861,13 @@ export function withLocator(
       }
     }
 
-    // FID-01 (D-01): the flag is true but the pin could not be derived into a candidate
-    // (empty value, or rewriteUserLocatorValue rejected a lone bare standard tag). The
-    // self-healing chain is emitted instead, which does NOT reproduce Datadog's
-    // fail-on-pin-miss authority, so surface the divergence with a non-deactivating flag
-    // (this flag never sets deactivates). The message names the CONDITION only, never the
-    // raw selector value (T-9.5-05 value-free discipline); describeDatadogStep also omits
-    // params values, so no selector leaks into the DD-original line.
+    // The flag is true but the pin could not be derived into a candidate (empty value,
+    // or rewriteUserLocatorValue rejected a lone bare standard tag). The self-healing
+    // chain is emitted instead, which does NOT reproduce Datadog's fail-on-pin-miss
+    // authority, so surface the divergence with a non-deactivating flag (this flag
+    // never sets deactivates). The message names the CONDITION only, never the raw
+    // selector value; describeDatadogStep also omits params values, so no selector
+    // leaks into the DD-original line.
     if (pinUnresolvable) {
       markers +=
         ctx.collector.emitFlag(
@@ -1887,9 +1882,9 @@ export function withLocator(
         ) + '\n';
     }
 
-    // FID-01 (D-01): a pin-only step forces single-candidate emission regardless of how
-    // many strategies the chain would otherwise carry. isMulti is the multi-candidate
-    // gate for the factory hoist, the weak-fallback-chain flag, and the firstMatch call;
+    // A pin-only step forces single-candidate emission regardless of how many
+    // strategies the chain would otherwise carry. isMulti is the multi-candidate gate
+    // for the factory hoist, the weak-fallback-chain flag, and the firstMatch call;
     // forcing it false makes the pin emit as a direct statement with no scaffolding. A
     // pinned step is user authority, not a weak fallback chain, so the weak gate below
     // must also see isMulti false.
@@ -1898,10 +1893,9 @@ export function withLocator(
     // (b) weak-fallback-chain: a MULTI-candidate chain whose leading rung is a
     // best-effort selector (id/class/clt/at/ab). Gated on isMulti by name and
     // intent: the reason is weak-fallback-CHAIN, so a lone id-only locator (no
-    // fallback rungs) is not a chain and must not flood the flags. This activates
-    // the reason seeded by Phase 7 with zero emit sites (FLAG-05 weak clause,
-    // LOC-06). Reads LIVE candidates only (FID-05): a chain classified from the live
-    // set, since the demoted rungs never ride it.
+    // fallback rungs) is not a chain and must not flood the flags. Reads LIVE
+    // candidates only: a chain classified from the live set, since the demoted rungs
+    // never ride it.
     if (isMulti && classifyChainStrength(live) === 'weak') {
       markers +=
         ctx.collector.emitFlag(
@@ -1927,9 +1921,9 @@ export function withLocator(
     // while the const declaration text is assembled here. Reserving unconditionally
     // keeps uniqueVarName's suffix numbering deterministic (the reservation order
     // does not depend on which build callback fires). The name routes through
-    // generateElementVarName -> sanitizeIdentifier -> uniqueVarName (DEPLOY-04
-    // guard inherited), so a hostile step name can never emit an invalid or
-    // duplicate identifier (threat T-Q-02).
+    // generateElementVarName -> sanitizeIdentifier -> uniqueVarName (the identifier
+    // guard is inherited), so a hostile step name can never emit an invalid or
+    // duplicate identifier.
     let factoryName = '';
     let constDecl = '';
     if (isMulti) {
@@ -1947,33 +1941,32 @@ export function withLocator(
 
     const factoryExpr = factoryName; // the hoisted const NAME (multi only; '' otherwise)
 
-    // FID-03 (D-03): derive the settle budget from the export timeout (per-step
-    // step.timeout wins, else the test-level navTimeoutSec, else null). The third
-    // firstMatch argument is interpolated ONCE here, at the single withLocator emit
-    // seam, so every firstMatch consumer (actions, soft assertions, iframe-folded
-    // steps) inherits the derived budget uniformly. When the derivation is null (no
-    // export timeout, or a zero/negative one) the two-argument call is emitted
-    // byte-identically to the pre-FID-03 form, so timeout-less call sites stay
-    // stable and the helper uses its Datadog-parity default const. A pin-only step
-    // forces isMulti false above and emits no firstMatch call, so it never reaches
-    // this seam.
+    // Derive the settle budget from the export timeout (per-step step.timeout wins,
+    // else the test-level navTimeoutSec, else null). The third firstMatch argument is
+    // interpolated ONCE here, at the single withLocator emit seam, so every firstMatch
+    // consumer (actions, soft assertions, iframe-folded steps) inherits the derived
+    // budget uniformly. When the derivation is null (no export timeout, or a
+    // zero/negative one) the two-argument call is emitted byte-identically to the
+    // no-budget form, so timeout-less call sites stay stable and the helper uses its
+    // Datadog-parity default const. A pin-only step forces isMulti false above and
+    // emits no firstMatch call, so it never reaches this seam.
     const settleBudgetMs = deriveSettleBudgetMs(step.timeout, ctx.navTimeoutSec);
     const budgetArg = settleBudgetMs !== null ? `, ${settleBudgetMs}` : '';
     const locatorExpr = isMulti ? `(await firstMatch(page, ${factoryName}${budgetArg}))` : primaryExpr;
 
-    // FID-05: the chain carries the LIVE candidates only (index 0 is the live
-    // primary); the demoted breadcrumbs are already surfaced as provenance comments
-    // in markers and never ride the emitted chain. FID-01 (D-01): a pin-only step
-    // narrows chain.candidates to the pin alone (live[0]) so any consumer sees the
-    // truthful single-candidate set, matching the emitted pin-only statement.
+    // The chain carries the LIVE candidates only (index 0 is the live primary); the
+    // demoted breadcrumbs are already surfaced as provenance comments in markers and
+    // never ride the emitted chain. A pin-only step narrows chain.candidates to the
+    // pin alone (live[0]) so any consumer sees the truthful single-candidate set,
+    // matching the emitted pin-only statement.
     const chainCandidates = pinOnly ? live.slice(0, 1) : live;
     const chain: LocatorChainCode = { candidates: chainCandidates, isMulti, locatorExpr, factoryExpr, primaryExpr };
     const built = build(chain);
 
     // Emit the hoisted const BEFORE the built statement, but ONLY when the built
     // text actually references the name. Negative-polarity multi-candidate
-    // assertions pin to primaryExpr and never touch the factory (D-05), so an
-    // unconditional hoist would emit an unused const. A false-positive containment
+    // assertions pin to primaryExpr and never touch the factory, so an unconditional
+    // hoist would emit an unused const. A false-positive containment
     // hit merely emits a harmless extra const (acceptable); a false negative would
     // leave a dangling reference, which cannot happen because the only writers of
     // firstMatch(page, <name>) / assertOnFirstMatch(page, <name>, ...) put the name
@@ -1988,8 +1981,8 @@ export function withLocator(
     return `${markers}${constDecl}${built}`;
   }
 
-  // Zero-candidate FLAG-04 path (D-05): deactivate the whole check and comment out
-  // the intended action. build() receives a synthetic chain whose locatorExpr is
+  // Zero-candidate path: deactivate the whole check and comment out the intended
+  // action. build() receives a synthetic chain whose locatorExpr is
   // the placeholder; EVERY line of the built statement is commented out (a
   // multi-line built statement must not leave a trailing runnable line), each at
   // four-space body depth after stripping its own leading whitespace.
@@ -2019,16 +2012,14 @@ export function withLocator(
 }
 
 /**
- * Assemble the deterministic exports/migration-flags.json artifact (FLAG-02,
- * D-03 surface 1) from the per-run collector. The stable seam main() and the tool
- * tests call.
+ * Assemble the deterministic exports/migration-flags.json artifact from the per-run
+ * collector. The stable seam main() and the tool tests call.
  *
- * Delegates to the collector's toFile() (07-01's shipped assembler) rather than
- * re-implementing the assembly (reuse, don't fork). The result carries no
- * wall-clock value: the golden harness byte-compares the output tree and the
- * determinism SOP forbids timestamp reads, so the artifact needs no normalization
- * entry. Step 08 (07-04) recovers both the flagged and the deactivated public_id
- * sets from the written JSON.
+ * Delegates to the collector's toFile() rather than re-implementing the assembly
+ * (reuse, don't fork). The result carries no wall-clock value: the golden harness
+ * byte-compares the output tree and the determinism rules forbid timestamp reads, so
+ * the artifact needs no normalization entry. Step 08 recovers both the flagged and
+ * the deactivated public_id sets from the written JSON.
  */
 export function buildMigrationFlagsFile(collector: FlagCollector): MigrationFlagsFile {
   return collector.toFile();
@@ -2061,8 +2052,8 @@ export function generateElementVarName(step: BrowserStep): string {
     })
     .join('');
 
-  // Route through the canonical sanitizer (DEPLOY-04, D-04): a digit-leading
-  // camelCase base like '3dotstoeditMenu' would otherwise emit an invalid
+  // Route through the canonical sanitizer: a digit-leading camelCase base like
+  // '3dotstoeditMenu' would otherwise emit an invalid
   // `const 3dotstoeditMenu`, a bundle-time SyntaxError. Sanitizing here (not at
   // the call site) means uniqueVarName's counter suffix appends to an already
   // valid base, and every current and future caller inherits the guard.
@@ -2086,32 +2077,32 @@ export function uniqueVarName(base: string, used: Set<string>): string {
 // which already probes the main page then all page.frames() frames)
 // ---------------------------------------------------------------------------
 
-export function generateGoToUrl(step: BrowserStep): string {
-  const url = convertVariables(escapeTemplateLiteral(step.params?.value || ''));
+export function generateGoToUrl(step: BrowserStep, localVarNames?: ReadonlySet<string>): string {
+  const url = convertVariables(escapeTemplateLiteral(step.params?.value || ''), localVarNames);
   return `    await page.goto(\`${url}\`);`;
 }
 
 /**
- * Strict password-field detector (SEC-01, D-09). Anchored to an <input> tag that
- * carries a type attribute equal to "password" (single or double quoted),
- * case-insensitive. This is the ONLY auto-route trigger: a recorded password lands
- * as a plaintext literal in a committed .spec.ts today, and this predicate gates
- * the routing that replaces the literal with a process.env reference. Detection is
- * deliberately narrow (D-09): a false-positive route would sever a working plain
- * field, so only a declared type="password" routes; the D-10 advisory net below
- * surfaces secret-like NON-password fields without ever rewriting them.
+ * Strict password-field detector. Anchored to an <input> tag that carries a type
+ * attribute equal to "password" (single or double quoted), case-insensitive. This is
+ * the ONLY auto-route trigger: a recorded password would otherwise land as a
+ * plaintext literal in a committed .spec.ts, and this predicate gates the routing
+ * that replaces the literal with a process.env reference. Detection is deliberately
+ * narrow: a false-positive route would sever a working plain field, so only a
+ * declared type="password" routes; the advisory net below surfaces secret-like
+ * NON-password fields without ever rewriting them.
  */
 const IS_PASSWORD_FIELD = /<input\b[^>]*\btype\s*=\s*["']password["']/i;
 
 /**
- * Secret-like identifier heuristic (D-10 advisory). Word-boundary alternation over
+ * Secret-like identifier heuristic (advisory). Word-boundary alternation over
  * common credential-field name forms (password/passcode/pwd/secret/token/api key/
  * credential). Matched ONLY against a field's extracted IDENTIFYING attribute
  * values (name, id, data-testid, placeholder, aria-label, autocomplete), never the
  * raw outerHTML and never the typed value, so a matched substring can never be a
- * password the user typed (contract T-07-02). A hit records a low-severity
- * possible-plaintext-secret flag and leaves the fill UNCHANGED (D-10: never rewrite
- * a non-password field; the routing is strict type="password", D-09).
+ * password the user typed. A hit records a low-severity possible-plaintext-secret
+ * flag and leaves the fill UNCHANGED (never rewrite a non-password field; the
+ * routing is strict type="password").
  *
  * The scanned identifier is normalized so `_` and `-` act as word separators (via
  * matchesSecretLike): a field named `api_token` or `login-secret` splits into
@@ -2122,8 +2113,8 @@ const IS_PASSWORD_FIELD = /<input\b[^>]*\btype\s*=\s*["']password["']/i;
 const SECRET_LIKE = /\b(pass(word|code)?|pwd|secret|token|api[-_]?key|credential)\b/i;
 
 /**
- * True when a field's extracted identifier string looks secret-like (D-10). The
- * identifier is normalized so `_`/`-` become spaces before the SECRET_LIKE scan,
+ * True when a field's extracted identifier string looks secret-like. The identifier
+ * is normalized so `_`/`-` become spaces before the SECRET_LIKE scan,
  * so `api_token` and `login-secret` match even though the raw underscore/hyphen
  * would suppress the word boundary. Pure.
  */
@@ -2132,8 +2123,8 @@ function matchesSecretLike(identifier: string): boolean {
 }
 
 /**
- * Per-check secret-key derivation ladder (SEC-01, D-01). Deterministic,
- * collision-proof, readable-first. Extracts a tier-1 identifier from the recorded
+ * Per-check secret-key derivation ladder. Deterministic, collision-proof,
+ * readable-first. Extracts a tier-1 identifier from the recorded
  * HTML in preference order data-testid, name, id; a present identifier becomes
  * sanitizeIdentifier(raw).toUpperCase() (a valid, non-digit-leading env-var name),
  * an absent one becomes BROWSER_SECRET_STEP<n> (1-based). On a collision within the
@@ -2146,7 +2137,7 @@ function matchesSecretLike(identifier: string): boolean {
  *
  * The extraction regex reads an attribute value and routes it through
  * sanitizeIdentifier, so a hostile targetOuterHTML value can never interpolate raw
- * HTML into emitted code (threat T-09-05-03).
+ * HTML into emitted code.
  *
  * @param html - The step element's targetOuterHTML.
  * @param stepIndex - Zero-based step index (rendered one-based in fallback keys).
@@ -2183,11 +2174,11 @@ export function derivePasswordEnvKey(
 }
 
 /**
- * Extract the identifying attribute values a secret-like scan is allowed to read
- * (D-10). ONLY name, id, data-testid, placeholder, aria-label, and autocomplete;
- * NEVER the value attribute and NEVER the raw outerHTML, so a typed password can
- * never be what SECRET_LIKE matches (contract T-07-02, threat T-09-05-02). Returns
- * the concatenated attribute values as one scannable string. Pure.
+ * Extract the identifying attribute values a secret-like scan is allowed to read.
+ * ONLY name, id, data-testid, placeholder, aria-label, and autocomplete; NEVER the
+ * value attribute and NEVER the raw outerHTML, so a typed password can never be what
+ * SECRET_LIKE matches. Returns the concatenated attribute values as one scannable
+ * string. Pure.
  */
 function extractSecretLikeIdentifiers(html: string): string {
   const names = ['name', 'id', 'data-testid', 'placeholder', 'aria-label', 'autocomplete'];
@@ -2201,27 +2192,25 @@ function extractSecretLikeIdentifiers(html: string): string {
 
 /**
  * Emit a Playwright fill for a Datadog typeText step, routing recorded passwords to
- * process.env references (SEC-01 / SEC-03 / D-01 / D-09 / D-10). Ordered branches,
- * variable-branch first (matching the generatePressKey discipline):
+ * process.env references. Ordered branches, variable-branch first (matching the
+ * generatePressKey discipline):
  *
  *   (1) The value already references a Datadog {{ VAR }}: the existing
  *       convertVariables emission is byte-identical and NO secret flag fires. The
- *       value is already secret-safe; rerouting would sever a working reference
- *       (threat T-09-05-04).
- *   (2) IS_PASSWORD_FIELD matches the element's targetOuterHTML (D-09 strict
- *       trigger): derive a per-check env key (D-01 ladder), record it on
- *       ctx.secretKeys.routed for the manifest, emit exactly one
- *       secret-value-required flag naming the KEY and field identifier (never the
- *       value, T-07-02), and emit the fill referencing process.env.<KEY>. The key
- *       and routed value are computed BEFORE withLocator so even the zero-candidate
- *       FLAG-04 commented-out fill carries the env reference, never plaintext
- *       (threat T-09-05-01).
- *   (3) SECRET_LIKE matches the field's identifying attributes only (D-10
- *       advisory): emit exactly one possible-plaintext-secret flag naming the field
- *       identifier and leave the fill UNCHANGED (D-10: never rewrite a non-password
- *       field). A4 is resolved here: an autocomplete="current-password" hint on a
- *       non-password-typed field is a D-10 advisory signal only, never an
- *       auto-route, honoring D-09's strict type="password" trigger.
+ *       value is already secret-safe; rerouting would sever a working reference.
+ *   (2) IS_PASSWORD_FIELD matches the element's targetOuterHTML (strict trigger):
+ *       derive a per-check env key, record it on ctx.secretKeys.routed for the
+ *       manifest, emit exactly one secret-value-required flag naming the KEY and
+ *       field identifier (never the value), and emit the fill referencing
+ *       process.env.<KEY>. The key and routed value are computed BEFORE withLocator
+ *       so even the zero-candidate commented-out fill carries the env reference,
+ *       never plaintext.
+ *   (3) SECRET_LIKE matches the field's identifying attributes only (advisory): emit
+ *       exactly one possible-plaintext-secret flag naming the field identifier and
+ *       leave the fill UNCHANGED (never rewrite a non-password field). An
+ *       autocomplete="current-password" hint on a non-password-typed field is an
+ *       advisory signal only, never an auto-route, honoring the strict type="password"
+ *       trigger.
  *   (4) Otherwise the byte-identical current emission.
  *
  * ctx.secretKeys is optional: a direct emitter test that constructs a bare
@@ -2235,7 +2224,7 @@ export function generateTypeText(step: BrowserStep, ctx: StepFlagContext): strin
   // Branch (1): an already-variable value is secret-safe; keep it byte-identical.
   const hasVariable = /\{\{\s*\w+\s*\}\}/.test(rawValue);
 
-  // Branch (2): strict type="password" auto-route (D-09).
+  // Branch (2): strict type="password" auto-route.
   if (!hasVariable && IS_PASSWORD_FIELD.test(html)) {
     // Fall back to a fresh local state object when ctx.secretKeys is absent so
     // direct emitter tests work; the per-spec state (threaded from generateSpecFile)
@@ -2257,8 +2246,8 @@ export function generateTypeText(step: BrowserStep, ctx: StepFlagContext): strin
       describeDatadogStep(step),
     );
     // Route BEFORE withLocator: the routed fill references process.env.<KEY>, so even
-    // the zero-candidate FLAG-04 commented-out path carries the env reference and
-    // never the plaintext value.
+    // the zero-candidate commented-out path carries the env reference and never the
+    // plaintext value.
     const routedFill = withLocator(
       step,
       ctx,
@@ -2267,9 +2256,9 @@ export function generateTypeText(step: BrowserStep, ctx: StepFlagContext): strin
     return `${marker}\n${routedFill}`;
   }
 
-  // Branch (3): secret-like NON-password field (D-10 advisory; A4). Scan ONLY the
-  // extracted identifying attributes, never the raw HTML or the value.
-  const value = convertVariables(escapeTemplateLiteral(rawValue));
+  // Branch (3): secret-like NON-password field (advisory). Scan ONLY the extracted
+  // identifying attributes, never the raw HTML or the value.
+  const value = convertVariables(escapeTemplateLiteral(rawValue), ctx.localVarNames);
   if (!hasVariable) {
     const identifier = extractSecretLikeIdentifiers(html);
     if (identifier && matchesSecretLike(identifier)) {
@@ -2303,7 +2292,7 @@ export function generateHover(step: BrowserStep, ctx: StepFlagContext): string {
 }
 
 /**
- * Emit a Playwright key press for a Datadog `pressKey` step (GEN-02, D-10).
+ * Emit a Playwright key press for a Datadog `pressKey` step.
  *
  * Emitted through page.keyboard.press(): the press form for a key not aimed at an
  * element, matching Datadog pressKey semantics (verified against the Playwright
@@ -2324,7 +2313,7 @@ export function generatePressKey(step: BrowserStep, ctx: StepFlagContext): strin
   const key = step.params?.value || 'Enter';
   const hasVariable = /\{\{\s*\w+\s*\}\}/.test(key);
   if (hasVariable) {
-    const converted = convertVariables(escapeTemplateLiteral(key));
+    const converted = convertVariables(escapeTemplateLiteral(key), ctx.localVarNames);
     return `    await page.keyboard.press(\`${converted}\`);`;
   }
 
@@ -2347,8 +2336,8 @@ export function generatePressKey(step: BrowserStep, ctx: StepFlagContext): strin
 
 /**
  * Resolve a raw Datadog key name to its canonical Playwright KeyboardEvent.key
- * form, or null when the name is unmapped (GEN-02, D-10). Pure, side-effect free.
- * Checks the alias map (case-insensitive), then the f1..f12 F-key pattern, then a
+ * form, or null when the name is unmapped. Pure, side-effect free. Checks the alias
+ * map (case-insensitive), then the f1..f12 F-key pattern, then a
  * single-printable-character passthrough (case preserved).
  */
 function resolvePlaywrightKey(rawKey: string): string | null {
@@ -2371,7 +2360,7 @@ export function generatePlaySubTest(step: BrowserStep, ctx: StepFlagContext): st
   if (!subtestId) {
     return `    // TODO: playSubTest step missing subtestPublicId`;
   }
-  const subtest = subtestMap.get(subtestId);
+  const subtest = ctx.subtests?.get(subtestId);
   if (!subtest) {
     return `    // TODO: Subtest "${subtestId}" not found in export; ensure it is exported or add the appropriate tag`;
   }
@@ -2392,9 +2381,12 @@ export function generatePlaySubTest(step: BrowserStep, ctx: StepFlagContext): st
     // spec and construct are affected) and using the substep's index, so flags
     // fired inside an inlined subtest attribute to the parent check. Thread the
     // shared used-name set so hoisted factory consts dedupe across the boundary.
-    // FID-03 (D-03): inherit the parent test's navigation timeout so a substep's
-    // derived firstMatch settle budget matches the enclosing test.
-    const substepCtx: StepFlagContext = { collector: ctx.collector, publicId: ctx.publicId, stepIndex: i, usedVarNames, navTimeoutSec: ctx.navTimeoutSec };
+    // Inherit the parent test's navigation timeout so a substep's derived firstMatch
+    // settle budget matches the enclosing test. Inherit the
+    // parent per-spec state too: a substep's runApiTest must continue the PARENT
+    // apiResponse numbering, its extract_values names must land in the PARENT
+    // localVarNames set, and a nested playSubTest must resolve against the same map.
+    const substepCtx: StepFlagContext = { collector: ctx.collector, publicId: ctx.publicId, stepIndex: i, usedVarNames, navTimeoutSec: ctx.navTimeoutSec, localVarNames: ctx.localVarNames, apiResponse: ctx.apiResponse, subtests: ctx.subtests };
     code += '\n\n' + generateStepCode(substeps[i], i, false, usedVarNames, substepCtx);
   }
   code += `\n    // --- End subtest: ${subtest.name} ---`;
@@ -2402,28 +2394,26 @@ export function generatePlaySubTest(step: BrowserStep, ctx: StepFlagContext): st
 }
 
 export function generateSelectOption(step: BrowserStep, ctx: StepFlagContext): string {
-  const value = convertVariables(escapeTemplateLiteral(step.params?.value || ''));
+  const value = convertVariables(escapeTemplateLiteral(step.params?.value || ''), ctx.localVarNames);
   return withLocator(step, ctx, (chain) => `    await ${chain.locatorExpr}.selectOption(\`${value}\`);`);
 }
 
 /**
- * Emit a Playwright hard-wait for a Datadog `wait` step (GEN-01; D-07, D-08, D-09).
+ * Emit a Playwright hard-wait for a Datadog `wait` step.
  *
- * The seconds-to-ms `* 1000` conversion is CORRECT and is kept unchanged. Datadog
- * documents browser wait steps in seconds with a 300-second maximum
- * (https://docs.datadoghq.com/synthetics/browser_tests/actions/), and every real
- * wait across both captured exports is a sane seconds value (3, 5, 10, 60). The
- * RCA's "1000x bug / indeterminate unit" premise was therefore disproven against
- * both exports (D-07); this is parse-hardening, not unit-detection.
+ * The seconds-to-ms `* 1000` conversion is correct: Datadog documents browser wait
+ * steps in seconds with a 300-second maximum
+ * (https://docs.datadoghq.com/synthetics/browser_tests/actions/). This is
+ * parse-hardening around that conversion, not unit-detection.
  *
  * Valid input (a number in the inclusive 1..300 range) emits the byte-identical
- * `await page.waitForTimeout(<seconds * 1000>);` with no flag (Option A, D-08: no
- * advisory on normal waits). A missing, empty, non-numeric, `<= 0`, or `> 300`
- * value is not silently defaulted to a 1-second wait; it fires a
- * `wait-value-invalid` flag through the threaded collector, preserves the DD step,
- * and comments the waitForTimeout line out so the spec still parses but never runs
- * an invented pause. `page.waitForTimeout(ms)` stays the faithful literal
- * translation for valid waits (D-09: no deterministic web-first replacement).
+ * `await page.waitForTimeout(<seconds * 1000>);` with no flag (no advisory on normal
+ * waits). A missing, empty, non-numeric, `<= 0`, or `> 300` value is not silently
+ * defaulted to a 1-second wait; it fires a `wait-value-invalid` flag through the
+ * threaded collector, preserves the DD step, and comments the waitForTimeout line
+ * out so the spec still parses but never runs an invented pause.
+ * `page.waitForTimeout(ms)` stays the faithful literal translation for valid waits
+ * (no deterministic web-first replacement).
  */
 export function generateWait(step: BrowserStep, ctx: StepFlagContext): string {
   // Real exports carry a JSON number; the local BrowserStep type says string, so
@@ -2464,19 +2454,18 @@ export function generateScroll(step: BrowserStep): string {
 /**
  * The set of assertElementContent check operators whose intent is NEGATIVE: the
  * assertion holds when the element does NOT match. These are the only two negative
- * operators in either captured census (one notEquals in account 1, zero in account
- * 2), so the classifier is a small closed set, not an engine. notIsEmpty is
- * deliberately NOT here: non-emptiness is an existence claim, so it classifies
- * positive (see assertionPolarity JSDoc).
+ * operators observed, so the classifier is a small closed set, not an engine.
+ * notIsEmpty is deliberately NOT here: non-emptiness is an existence claim, so it
+ * classifies positive (see assertionPolarity JSDoc).
  */
 const NEGATIVE_ASSERTION_CHECKS = new Set(['notContains', 'notEquals']);
 
 /**
- * Classify an assertion step's polarity for the LOC-08 emission seam. Pure and
- * total: it takes a BrowserStep and returns exactly one of 'positive' | 'negative'
- * for every possible input, with no I/O, no collector, and no step mutation.
+ * Classify an assertion step's polarity for the emission seam. Pure and total: it
+ * takes a BrowserStep and returns exactly one of 'positive' | 'negative' for every
+ * possible input, with no I/O, no collector, and no step mutation.
  *
- * Classification table (LOC-08, D-04/D-05):
+ * Classification table:
  *   - assertElementPresent            => positive (an existence claim)
  *   - assertElementContent contains   => positive
  *   - assertElementContent equals     => positive
@@ -2493,15 +2482,14 @@ const NEGATIVE_ASSERTION_CHECKS = new Set(['notContains', 'notEquals']);
  * simply does not hold), whereas a wrongly-negative assertion is a false-green trap
  * (a not.* matcher passes vacuously when the element is absent). Defaulting unknown
  * operators positive can never manufacture a silent pass. The flag that surfaces an
- * unimplemented operator is emitted at the emission site (generateAssertElementContent,
- * Task 2), NOT by this classifier: keeping the classifier a pure two-value function
- * is the whole point of the seam.
+ * unimplemented operator is emitted at the emission site
+ * (generateAssertElementContent), NOT by this classifier: keeping the classifier a
+ * pure two-value function is the whole point of the seam.
  *
- * This two-value contract is the entire cross-phase boundary with Phase 9. The
- * per-operator matcher map (notEquals, notIsEmpty, greater, lessThan, assertPageLacks
- * dispatch, DOM-presence semantics, convertVariables in assert values) is Phase 9's
- * plug-in point (ASRT-01 through ASRT-06); it plugs into this polarity, adding no new
- * classification axis.
+ * This two-value contract is the entire boundary with the per-operator matcher map.
+ * The matcher map (notEquals, notIsEmpty, greater, lessThan, assertPageLacks
+ * dispatch, DOM-presence semantics, convertVariables in assert values) plugs into
+ * this polarity, adding no new classification axis.
  *
  * @param step - The assertion BrowserStep to classify (its type and params.check).
  * @returns 'positive' or 'negative'; never anything else.
@@ -2521,15 +2509,13 @@ export function assertionPolarity(step: BrowserStep): 'positive' | 'negative' {
 
 /**
  * The set of assertElementContent check operators with an implemented matcher in
- * the emitter. Phase 9 (ASRT-01, plan 09-02) expanded the Phase 8 set from
- * {contains, equals, startsWith, notContains} to the full Datadog element-content
- * operator census: notEquals (native pinned negative, D-05), notIsEmpty (positive
- * non-whitespace matcher, A1), greater and lessThan (numeric-parse matchers, D-04).
- * An operator OUTSIDE this set is still surfaced with the assertion-operator-unknown
- * flag rather than silently emitting a possibly-wrong matcher: the flag seam is
- * retained (D-06) so a genuinely unknown or future operator never becomes a silent
- * false green. notContains and notEquals are implemented and negative; the rest are
- * implemented and positive.
+ * the emitter: contains, equals, startsWith, notContains, notEquals (native pinned
+ * negative), notIsEmpty (positive non-whitespace matcher), greater and lessThan
+ * (numeric-parse matchers). An operator OUTSIDE this set is still surfaced with the
+ * assertion-operator-unknown flag rather than silently emitting a possibly-wrong
+ * matcher: the flag seam is retained so a genuinely unknown or future operator never
+ * becomes a silent false green. notContains and notEquals are implemented and
+ * negative; the rest are implemented and positive.
  */
 const IMPLEMENTED_ASSERTION_CHECKS = new Set([
   'contains',
@@ -2543,9 +2529,9 @@ const IMPLEMENTED_ASSERTION_CHECKS = new Set([
 ]);
 
 /**
- * The numeric assertElementContent operators and their Playwright matcher methods
- * (D-04, plan 09-02 ASRT-01). greater maps to toBeGreaterThan, lessThan to
- * toBeLessThan. Membership here (not in renderPositiveContentMatcher) routes a step
+ * The numeric assertElementContent operators and their Playwright matcher methods.
+ * greater maps to toBeGreaterThan, lessThan to toBeLessThan. Membership here (not in
+ * renderPositiveContentMatcher) routes a step
  * through the distinct numeric-parse expect.poll shape rather than the locator-text
  * matcher shape.
  */
@@ -2556,73 +2542,69 @@ const NUMERIC_ASSERTION_METHODS: Record<string, string> = {
 
 /**
  * The two inline comment lines that document the negative-assertion polarity
- * decision (D-05). Pinning a negative to the primary candidate keeps an unrelated
- * fallback element from satisfying the negation by accident (the pass-if-any trap).
- * Datadog's multiLocator negative-resolution is undocumented in Datadog's docs and
- * unexercised in the captured exports (the census has one element-scoped negative
- * total), so pinning prevents a false green and is the settled choice (Phase 9.5
- * FID-08 / D-07a: the ambiguity is unsettleable, not an inference to be implemented).
- * No em-dashes (repo output rule).
+ * decision. Pinning a negative to the primary candidate keeps an unrelated fallback
+ * element from satisfying the negation by accident (the pass-if-any trap). Datadog's
+ * multiLocator negative-resolution is undocumented and unexercised in the observed
+ * exports, so pinning prevents a false green and is the settled choice: the ambiguity
+ * is unsettleable, not an inference to be implemented. No em-dashes.
  */
 const NEGATIVE_POLARITY_COMMENT =
-  '    // Negative assertion pinned to the primary candidate only: an unrelated fallback element must never satisfy it by accident (D-05).\n' +
+  '    // Negative assertion pinned to the primary candidate only: an unrelated fallback element must never satisfy it by accident.\n' +
   '    // Datadog\'s multiLocator negative-resolution is undocumented and unexercised in the captured exports, so pinning is the only choice that cannot manufacture a false green.';
 
 /**
  * The double-brace-with-word predicate used to decide whether a raw value carries a
- * Datadog {{ VAR }} reference (ASRT-02, plan 09-02). Identical to the generatePressKey
- * hasVariable regex so the whole generator uses one variable-detection rule.
+ * Datadog {{ VAR }} reference. Identical to the generatePressKey hasVariable regex so
+ * the whole generator uses one variable-detection rule.
  */
 const CONTENT_VALUE_HAS_VARIABLE = /\{\{\s*\w+\s*\}\}/;
 
 /**
  * The emitted-source snippet that regex-escapes a runtime string, appended to a
- * runtime value before it is fed to new RegExp (ASRT-02, plan 09-02). Two consumers
- * share this ONE const so the escape idiom can never drift: (1) the startsWith
- * variable branch in renderPositiveContentMatcher below, and (2) 09-03's
- * generateAssertCurrentUrl variable branches. The $& replacement backreferences the
- * matched metacharacter and prefixes a backslash, so a hostile runtime value cannot
- * act as regex metacharacters. Built with string escapes only, never a raw control
- * byte (repo encoding hazard).
+ * runtime value before it is fed to new RegExp. Two consumers share this ONE const so
+ * the escape idiom can never drift: (1) the startsWith variable branch in
+ * renderStartsWithMatcherArg below, and (2) generateAssertCurrentUrl's variable
+ * branches. The $& replacement backreferences the matched metacharacter and prefixes
+ * a backslash, so a hostile runtime value cannot act as regex metacharacters. Built
+ * with string escapes only, never a raw control byte.
  */
 const INLINE_REGEX_ESCAPE = ".replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')";
 
 /**
- * Render the string matcher ARGUMENT for a content assertion value (ASRT-02, plan
- * 09-02). This is the single choke point deciding plain-vs-variable emission for the
- * quote-delimited string matchers (contains / equals / notContains / notEquals):
- *   - No {{ VAR }}: a double-quoted escapeString literal, byte-identical to the
- *     pre-task emission (golden and Phase 8 matcher-stability promise).
+ * Render the string matcher ARGUMENT for a content assertion value. This is the
+ * single choke point deciding plain-vs-variable emission for the quote-delimited
+ * string matchers (contains / equals / notContains / notEquals):
+ *   - No {{ VAR }}: a double-quoted escapeString literal (the byte-stable form the
+ *     golden and matcher-stability guarantees depend on).
  *   - {{ VAR }} present: a backtick template of convertVariables(escapeTemplateLiteral)
  *     so the variable resolves to process.env at runtime.
  */
-function renderStringMatcherArg(value: string): string {
+function renderStringMatcherArg(value: string, localVarNames?: ReadonlySet<string>): string {
   if (CONTENT_VALUE_HAS_VARIABLE.test(value)) {
-    return `\`${convertVariables(escapeTemplateLiteral(value))}\``;
+    return `\`${convertVariables(escapeTemplateLiteral(value), localVarNames)}\``;
   }
   return `"${escapeString(value)}"`;
 }
 
 /**
- * Render the anchored-prefix RegExp matcher ARGUMENT for the startsWith value
- * (ASRT-02, plan 09-02). The single choke point for startsWith emission:
- *   - No {{ VAR }}: new RegExp("^<escapeRegex value>"), byte-identical to the
- *     pre-task emission.
+ * Render the anchored-prefix RegExp matcher ARGUMENT for the startsWith value. The
+ * single choke point for startsWith emission:
+ *   - No {{ VAR }}: new RegExp("^<escapeRegex value>"), the byte-stable form.
  *   - {{ VAR }} present: new RegExp('^' + `<template>`.replace(...)) where the
  *     runtime value is regex-escaped via the shared INLINE_REGEX_ESCAPE idiom so a
  *     hostile runtime value cannot inject regex metacharacters.
  */
-function renderStartsWithMatcherArg(value: string): string {
+function renderStartsWithMatcherArg(value: string, localVarNames?: ReadonlySet<string>): string {
   if (CONTENT_VALUE_HAS_VARIABLE.test(value)) {
-    return `new RegExp('^' + \`${convertVariables(escapeTemplateLiteral(value))}\`${INLINE_REGEX_ESCAPE})`;
+    return `new RegExp('^' + \`${convertVariables(escapeTemplateLiteral(value), localVarNames)}\`${INLINE_REGEX_ESCAPE})`;
   }
   return `new RegExp(${JSON.stringify('^' + escapeRegex(value))})`;
 }
 
 /**
  * Render the positive assertElementContent matcher call for a resolved locator
- * token (LOC-08, ASRT-02). The matcher STRINGS are byte-identical to the pre-08-05
- * emission for contains / equals / startsWith when the value carries no {{ VAR }};
+ * token. The matcher STRINGS are the byte-stable form for contains / equals /
+ * startsWith when the value carries no {{ VAR }};
  * when it does, the value flows through convertVariables (renderStringMatcherArg /
  * renderStartsWithMatcherArg) so it resolves to process.env at runtime. Only the
  * receiving locator token and an optional trailing option object (for the
@@ -2630,55 +2612,54 @@ function renderStartsWithMatcherArg(value: string): string {
  * appended as a trailing matcher argument when provided (the timeout-forwarding
  * path), and omitted for the direct/soft paths.
  */
-function renderPositiveContentMatcher(tokenExpr: string, check: string, value: string, expectFn: string, optionsExpr: string): string {
+function renderPositiveContentMatcher(tokenExpr: string, check: string, value: string, expectFn: string, optionsExpr: string, localVarNames?: ReadonlySet<string>): string {
   const opt = optionsExpr ? `, ${optionsExpr}` : '';
   switch (check) {
     case 'equals':
-      return `${expectFn}(${tokenExpr}).toHaveText(${renderStringMatcherArg(value)}${opt})`;
+      return `${expectFn}(${tokenExpr}).toHaveText(${renderStringMatcherArg(value, localVarNames)}${opt})`;
     case 'startsWith':
-      return `${expectFn}(${tokenExpr}).toHaveText(${renderStartsWithMatcherArg(value)}${opt})`;
+      return `${expectFn}(${tokenExpr}).toHaveText(${renderStartsWithMatcherArg(value, localVarNames)}${opt})`;
     case 'notIsEmpty':
-      // A1 (plan 09-02): notIsEmpty emits the POSITIVE non-whitespace matcher
-      // toHaveText(/\S/). assertionPolarity classifies notIsEmpty positive (an
-      // existence claim), so this rides the assertOnFirstMatch self-heal chain and
-      // is never inverted. D-05 illustrated this as not.toHaveText("") but that was
-      // intent, not a byte mandate: the positive /\S/ form self-heals and cannot
-      // false-green on whitespace-only text. notIsEmpty ignores params.value. The
-      // regex literal is written with a string escape (\\S), never a raw control byte.
+      // notIsEmpty emits the POSITIVE non-whitespace matcher toHaveText(/\S/).
+      // assertionPolarity classifies notIsEmpty positive (an existence claim), so this
+      // rides the assertOnFirstMatch self-heal chain and is never inverted. The
+      // positive /\S/ form self-heals and cannot false-green on whitespace-only text.
+      // notIsEmpty ignores params.value. The regex literal is written with a string
+      // escape (\\S), never a raw control byte.
       return `${expectFn}(${tokenExpr}).toHaveText(/\\S/${opt})`;
     case 'contains':
     default:
-      return `${expectFn}(${tokenExpr}).toContainText(${renderStringMatcherArg(value)}${opt})`;
+      return `${expectFn}(${tokenExpr}).toContainText(${renderStringMatcherArg(value, localVarNames)}${opt})`;
   }
 }
 
 /**
- * Render the NEGATIVE assertElementContent matcher call for a resolved locator token
- * (D-05, plan 09-02 ASRT-01). This is the single choke point for negative matcher
- * strings so the notContains and notEquals emission never drifts apart:
- *   - notContains -> .not.toContainText("<escaped value>")  (byte-identical to Phase 8)
- *   - notEquals   -> .not.toHaveText("<escaped value>")     (new native pinned negative)
+ * Render the NEGATIVE assertElementContent matcher call for a resolved locator token.
+ * This is the single choke point for negative matcher strings so the notContains and
+ * notEquals emission never drifts apart:
+ *   - notContains -> .not.toContainText("<escaped value>")  (containment negation)
+ *   - notEquals   -> .not.toHaveText("<escaped value>")     (native pinned negative)
  * The matcher is ALWAYS a native negation (.not.*); a negative intent is never
  * inverted into a positive and never commented out for the implemented set. Negatives
  * pin to the primary candidate expression at the call site (they never ride the
  * pass-if-any chain), so this helper takes a single receiver token.
  */
-function renderNegativeContentMatcher(tokenExpr: string, check: string, value: string, expectFn: string): string {
+function renderNegativeContentMatcher(tokenExpr: string, check: string, value: string, expectFn: string, localVarNames?: ReadonlySet<string>): string {
   // The value argument routes through the same renderStringMatcherArg choke point as
-  // the positives (ASRT-02): a plain value stays a byte-identical double-quoted
-  // literal; a {{ VAR }} value becomes a convertVariables backtick template.
-  const arg = renderStringMatcherArg(value);
+  // the positives: a plain value stays a byte-identical double-quoted literal; a
+  // {{ VAR }} value becomes a convertVariables backtick template.
+  const arg = renderStringMatcherArg(value, localVarNames);
   if (check === 'notEquals') {
     return `${expectFn}(${tokenExpr}).not.toHaveText(${arg})`;
   }
-  // notContains (and any other negative operator routed here) keeps the byte-identical
-  // Phase 8 containment negation.
+  // notContains (and any other negative operator routed here) keeps the byte-stable
+  // containment negation.
   return `${expectFn}(${tokenExpr}).not.toContainText(${arg})`;
 }
 
 /**
- * Render the numeric threshold expression for the greater / lessThan matchers
- * (D-04, plan 09-02 ASRT-01). A finite numeric literal emits its canonical numeric
+ * Render the numeric threshold expression for the greater / lessThan matchers. A
+ * finite numeric literal emits its canonical numeric
  * form (String(Number(value))) so a plain "1" becomes the bare literal 1. A
  * non-numeric or variable threshold is emitted as Number(`<resolved value>`), where
  * the value routes through convertVariables so a {{ VAR }} threshold resolves to
@@ -2687,20 +2668,19 @@ function renderNegativeContentMatcher(tokenExpr: string, check: string, value: s
  * surfaces loudly at timeout. This never emits a bare unquoted garbage token that
  * would be a runtime ReferenceError.
  */
-function renderNumericThreshold(value: string): string {
+function renderNumericThreshold(value: string, localVarNames?: ReadonlySet<string>): string {
   const n = Number(value);
   if (Number.isFinite(n) && value.trim() !== '') {
     return String(n);
   }
-  return `Number(\`${convertVariables(escapeTemplateLiteral(value))}\`)`;
+  return `Number(\`${convertVariables(escapeTemplateLiteral(value), localVarNames)}\`)`;
 }
 
 /**
  * Render a numeric assertElementContent matcher (greater / lessThan) as an
  * expect.poll (non-soft) or one-shot expect.soft (soft) call over a Number()-parsed
- * innerText read of the receiver (D-04, plan 09-02 ASRT-01). expect.poll restores
- * auto-retry (A5, RESEARCH: poll available since Playwright 1.21, pinned via
- * checkly@8.13.0) and re-reads innerText each attempt; expect.poll has no soft
+ * innerText read of the receiver. expect.poll restores auto-retry (poll available
+ * since Playwright 1.21) and re-reads innerText each attempt; expect.poll has no soft
  * variant, so the soft path uses a one-shot expect.soft(Number(await ...)) that
  * records instead of throwing. NaN comparisons are always false, so non-numeric
  * element text fails loud at timeout and never false-greens.
@@ -2723,16 +2703,14 @@ function renderNumericMatcher(receiverExpr: string, method: string, threshold: s
 
 export function generateAssertElementPresent(step: BrowserStep, ctx: StepFlagContext): string {
   const expectFn = step.allowFailure ? 'expect.soft' : 'expect';
-  // assertElementPresent is always positive (an existence claim). ASRT-06: Datadog
-  // "present" means the element is connected to the Document (in-DOM), so a
-  // present-but-hidden element must PASS. The matcher therefore asserts DOM
-  // attachment, not on-screen visibility; the old concept required the element to
-  // be rendered on screen and false-failed on hidden-but-present elements. Emission
-  // polarity, timeout forwarding, and the soft/expect selection are unchanged from
-  // the prior shape. Soft assertions use the locator-level firstMatch result because
-  // a soft expectation records instead of throwing and so cannot drive per-candidate
-  // retry; a non-soft multi-candidate assertion self-heals per candidate via
-  // assertOnFirstMatch (D-04); a single candidate keeps the direct byte-stable shape.
+  // assertElementPresent is always positive (an existence claim). Datadog "present"
+  // means the element is connected to the Document (in-DOM), so a present-but-hidden
+  // element must PASS. The matcher therefore asserts DOM attachment, not on-screen
+  // visibility (an on-screen-visibility matcher would false-fail on hidden-but-present
+  // elements). Soft assertions use the locator-level firstMatch result because a soft
+  // expectation records instead of throwing and so cannot drive per-candidate retry;
+  // a non-soft multi-candidate assertion self-heals per candidate via
+  // assertOnFirstMatch; a single candidate keeps the direct byte-stable shape.
   return withLocator(step, ctx, (chain) => {
     if (step.allowFailure) {
       const softComment = chain.isMulti
@@ -2755,9 +2733,9 @@ export function generateAssertElementContent(step: BrowserStep, ctx: StepFlagCon
   const implemented = IMPLEMENTED_ASSERTION_CHECKS.has(check);
 
   return withLocator(step, ctx, (chain) => {
-    // An unimplemented operator (unknown check, or the known-but-Phase-9 notIsEmpty /
-    // notEquals) is surfaced with the assertion-operator-unknown flag rather than
-    // silently emitting a possibly-inverted matcher. The full operator map is Phase 9.
+    // An unimplemented operator (an unknown check) is surfaced with the
+    // assertion-operator-unknown flag rather than silently emitting a
+    // possibly-inverted matcher.
     let unknownMarker = '';
     if (!implemented) {
       unknownMarker =
@@ -2766,19 +2744,18 @@ export function generateAssertElementContent(step: BrowserStep, ctx: StepFlagCon
             reason: 'assertion-operator-unknown',
             publicId: ctx.publicId,
             stepIndex: ctx.stepIndex,
-            message: `assertElementContent check "${check}" has no implemented matcher in the Phase 8 emitter; the full operator map is Phase 9 (ASRT-01), so the assertion is surfaced instead of emitted with a possibly wrong polarity.`,
+            message: `assertElementContent check "${check}" has no implemented matcher, so the assertion is surfaced for review instead of emitted with a possibly wrong polarity.`,
           },
           describeDatadogStep(step),
         ) + '\n';
 
       if (polarity === 'negative') {
-        // Defensive seam (D-06): after Phase 9 every operator in
-        // NEGATIVE_ASSERTION_CHECKS has an implemented native matcher, so this branch
-        // is unreachable for today's set. It stays in place to guard FUTURE
-        // NEGATIVE_ASSERTION_CHECKS growth: a negative operator added there without a
-        // matcher in renderNegativeContentMatcher would land here and be commented out
-        // rather than silently emitting a positively-phrased line (the generatePressKey
-        // key-unmapped precedent). Never emit a live positive matcher for a negative
+        // Defensive seam: every operator currently in NEGATIVE_ASSERTION_CHECKS has an
+        // implemented native matcher, so this branch is unreachable for today's set. It
+        // stays in place to guard FUTURE NEGATIVE_ASSERTION_CHECKS growth: a negative
+        // operator added there without a matcher in renderNegativeContentMatcher would
+        // land here and be commented out rather than silently emitting a
+        // positively-phrased line. Never emit a live positive matcher for a negative
         // intent.
         return `${unknownMarker}    // await ${expectFn}(${chain.primaryExpr}).not.toContainText(/* ${check} unimplemented negative operator */);`;
       }
@@ -2788,7 +2765,7 @@ export function generateAssertElementContent(step: BrowserStep, ctx: StepFlagCon
     }
 
     if (polarity === 'negative') {
-      // Negative assertions NEVER ride the pass-if-any chain (D-05): pin to the
+      // Negative assertions NEVER ride the pass-if-any chain: pin to the
       // highest-priority (primary) candidate only, so an unrelated fallback element
       // can never satisfy the negation by accident. When multiple candidates were
       // available, the discarded fallbacks are surfaced with negative-assertion-degraded.
@@ -2806,24 +2783,24 @@ export function generateAssertElementContent(step: BrowserStep, ctx: StepFlagCon
             describeDatadogStep(step),
           ) + '\n';
       }
-      // notContains and notEquals are both implemented native negatives (D-05, plan
-      // 09-02). renderNegativeContentMatcher is the single choke point that selects
-      // the matcher by check value (notContains -> .not.toContainText, notEquals ->
+      // notContains and notEquals are both implemented native negatives.
+      // renderNegativeContentMatcher is the single choke point that selects the matcher
+      // by check value (notContains -> .not.toContainText, notEquals ->
       // .not.toHaveText), so the two negative operators can never drift apart.
-      const negMatcher = `    await ${renderNegativeContentMatcher(chain.primaryExpr, check, value, expectFn)};`;
+      const negMatcher = `    await ${renderNegativeContentMatcher(chain.primaryExpr, check, value, expectFn, ctx.localVarNames)};`;
       return `${degradeMarker}${NEGATIVE_POLARITY_COMMENT}\n${negMatcher}`;
     }
 
-    // Numeric operators (greater / lessThan, D-04, plan 09-02). These do NOT fit the
-    // locator-text matcher shape (RESEARCH Pattern 1 note): the value is parsed out of
-    // innerText with Number() and compared, so NaN (non-numeric text or a garbage
-    // threshold) is always false and fails loud at timeout, never a false green. A5:
-    // expect.poll restores auto-retry over the one-shot form; expect.poll has no soft
-    // variant so the soft path records via a one-shot expect.soft. This branch sits
-    // BEFORE the generic positive paths below because its matcher shape is distinct.
+    // Numeric operators (greater / lessThan). These do NOT fit the locator-text
+    // matcher shape: the value is parsed out of innerText with Number() and compared,
+    // so NaN (non-numeric text or a garbage threshold) is always false and fails loud
+    // at timeout, never a false green. expect.poll restores auto-retry over the
+    // one-shot form; expect.poll has no soft variant so the soft path records via a
+    // one-shot expect.soft. This branch sits BEFORE the generic positive paths below
+    // because its matcher shape is distinct.
     const numericMethod = NUMERIC_ASSERTION_METHODS[check];
     if (numericMethod !== undefined) {
-      const threshold = renderNumericThreshold(value);
+      const threshold = renderNumericThreshold(value, ctx.localVarNames);
       if (step.allowFailure) {
         const softComment = chain.isMulti
           ? '    // Soft assertion: expect.soft records instead of throwing, so per-candidate retry cannot apply; use the locator-level firstMatch result.\n'
@@ -2837,24 +2814,24 @@ export function generateAssertElementContent(step: BrowserStep, ctx: StepFlagCon
       return `${unknownMarker}    await ${renderNumericMatcher(chain.primaryExpr, numericMethod, threshold, 'poll')};`;
     }
 
-    // Positive assertions (D-04). A soft assertion uses the locator-level firstMatch
-    // result (it records instead of throwing, so it cannot drive per-candidate retry).
+    // Positive assertions. A soft assertion uses the locator-level firstMatch result
+    // (it records instead of throwing, so it cannot drive per-candidate retry).
     if (step.allowFailure) {
       const softComment = chain.isMulti
         ? '    // Soft assertion: expect.soft records instead of throwing, so per-candidate retry cannot apply; use the locator-level firstMatch result.\n'
         : '';
-      return `${unknownMarker}${softComment}    await ${renderPositiveContentMatcher(chain.locatorExpr, check, value, expectFn, '')};`;
+      return `${unknownMarker}${softComment}    await ${renderPositiveContentMatcher(chain.locatorExpr, check, value, expectFn, '', ctx.localVarNames)};`;
     }
 
     // A non-soft multi-candidate positive self-heals per candidate via
     // assertOnFirstMatch, forwarding the per-attempt timeout to the matcher.
     if (chain.isMulti) {
-      const matcher = renderPositiveContentMatcher('el', check, value, 'expect', '{ timeout }');
+      const matcher = renderPositiveContentMatcher('el', check, value, 'expect', '{ timeout }', ctx.localVarNames);
       return `${unknownMarker}    await assertOnFirstMatch(page, ${chain.factoryExpr}, async (el, timeout) => { await ${matcher}; });`;
     }
 
     // A single-candidate positive keeps today's direct byte-stable emission.
-    return `${unknownMarker}    await ${renderPositiveContentMatcher(chain.primaryExpr, check, value, expectFn, '')};`;
+    return `${unknownMarker}    await ${renderPositiveContentMatcher(chain.primaryExpr, check, value, expectFn, '', ctx.localVarNames)};`;
   });
 }
 
@@ -2865,38 +2842,37 @@ export function generateAssertPageContains(step: BrowserStep): string {
 }
 
 /**
- * Emit a Datadog assertPageLacks step (ASRT-05). The negative analog of
+ * Emit a Datadog assertPageLacks step. The negative analog of
  * generateAssertPageContains: assertPageLacks carries params.value only (a text),
- * so it is a NEGATIVE page-content check, not a DOM-attachment check. Before this
- * dispatch case existed the step fell through the generateStepCodeDefault default
- * and was silently dropped as unsupported-step-type; it now emits a live
- * .not.toContainText assertion on the body locator. The value emission is
- * variable-aware through the shared renderStringMatcherArg choke point (the same
- * conditional idiom as the content assertions, plan 09-02): a plain value stays a
- * byte-identical double-quoted escapeString literal; a {{ VAR }} value becomes a
- * convertVariables backtick template so it resolves to process.env at runtime.
+ * so it is a NEGATIVE page-content check, not a DOM-attachment check. Without this
+ * dispatch case the step would fall through the generateStepCodeDefault default and
+ * be silently dropped as unsupported-step-type; it emits a live .not.toContainText
+ * assertion on the body locator. The value emission is variable-aware through the
+ * shared renderStringMatcherArg choke point (the same conditional idiom as the
+ * content assertions): a plain value stays a byte-identical double-quoted escapeString
+ * literal; a {{ VAR }} value becomes a convertVariables backtick template so it
+ * resolves to process.env at runtime.
  */
-export function generateAssertPageLacks(step: BrowserStep): string {
+export function generateAssertPageLacks(step: BrowserStep, localVarNames?: ReadonlySet<string>): string {
   const value = step.params?.value || '';
   const expectFn = step.allowFailure ? 'expect.soft' : 'expect';
-  return `    await ${expectFn}(page.locator("body")).not.toContainText(${renderStringMatcherArg(value)});`;
+  return `    await ${expectFn}(page.locator("body")).not.toContainText(${renderStringMatcherArg(value, localVarNames)});`;
 }
 
-export function generateAssertCurrentUrl(step: BrowserStep): string {
+export function generateAssertCurrentUrl(step: BrowserStep, localVarNames?: ReadonlySet<string>): string {
   const value = step.params?.value || '';
   const check = step.params?.check || 'contains';
   const expectFn = step.allowFailure ? 'expect.soft' : 'expect';
-  // ASRT-03: resolve a Datadog {{ VAR }} in the URL value to process.env at
-  // runtime, using the SAME hasVariable predicate the content assertions use
-  // (CONTENT_VALUE_HAS_VARIABLE), so the whole generator shares one variable rule.
-  // A value with no variable keeps the pre-task byte-identical emission (the four
-  // browser.test.ts no-variable expectations are the stability proof). The three
-  // RegExp branches runtime-escape the resolved value via the shared
-  // INLINE_REGEX_ESCAPE snippet: a hostile runtime value must not act as regex
-  // metacharacters. equals is a plain string argument, so it needs no regex escape.
+  // Resolve a Datadog {{ VAR }} in the URL value to process.env at runtime, using the
+  // SAME hasVariable predicate the content assertions use (CONTENT_VALUE_HAS_VARIABLE),
+  // so the whole generator shares one variable rule. A value with no variable keeps
+  // the byte-stable emission. The three RegExp branches runtime-escape the resolved
+  // value via the shared INLINE_REGEX_ESCAPE snippet: a hostile runtime value must not
+  // act as regex metacharacters. equals is a plain string argument, so it needs no
+  // regex escape.
   const hasVariable = CONTENT_VALUE_HAS_VARIABLE.test(value);
   if (hasVariable) {
-    const template = `\`${convertVariables(escapeTemplateLiteral(value))}\``;
+    const template = `\`${convertVariables(escapeTemplateLiteral(value), localVarNames)}\``;
     switch (check) {
       case 'equals':
         return `    await ${expectFn}(page).toHaveURL(${template});`;
@@ -2921,16 +2897,18 @@ export function generateAssertCurrentUrl(step: BrowserStep): string {
   }
 }
 
-let apiResponseCounter = 0;
-
-export function generateRunApiTest(step: BrowserStep): string {
-  apiResponseCounter++;
+export function generateRunApiTest(step: BrowserStep, ctx?: StepFlagContext): string {
+  // Per-spec counter box: shared through ctx so a second runApiTest in the same
+  // spec (or an inlined substep) continues the numbering (apiResponse, apiResponse2,
+  // ...). A direct call with no ctx derives a throwaway box and starts fresh.
+  const apiResponse = ctx?.apiResponse ?? { counter: 0 };
+  apiResponse.counter++;
   const request = step.params?.request?.config?.request || {};
   const options = step.params?.request?.options || {};
   const method = (request.method || 'GET').toLowerCase();
   const url = request.url || '';
-  const convertedUrl = convertVariables(escapeTemplateLiteral(url));
-  const varName = apiResponseCounter === 1 ? 'apiResponse' : `apiResponse${apiResponseCounter}`;
+  const convertedUrl = convertVariables(escapeTemplateLiteral(url), ctx?.localVarNames);
+  const varName = apiResponse.counter === 1 ? 'apiResponse' : `apiResponse${apiResponse.counter}`;
 
   // Build request options (headers, body, auth)
   const fetchOptions: string[] = [];
@@ -2938,23 +2916,23 @@ export function generateRunApiTest(step: BrowserStep): string {
   // Headers
   const headers: Record<string, string> = { ...(request.headers || {}) };
   if (request.basicAuth?.username) {
-    const user = convertVariables(escapeTemplateLiteral(request.basicAuth.username));
+    const user = convertVariables(escapeTemplateLiteral(request.basicAuth.username), ctx?.localVarNames);
     const pass = request.basicAuth.password
-      ? convertVariables(escapeTemplateLiteral(request.basicAuth.password))
+      ? convertVariables(escapeTemplateLiteral(request.basicAuth.password), ctx?.localVarNames)
       : '';
     headers['Authorization'] = `\${Buffer.from(\`${user}:${pass}\`).toString('base64')}`;
   }
   if (Object.keys(headers).length > 0) {
     const headerEntries = Object.entries(headers).map(([k, v]) => {
       if (k === 'Authorization') return `        'Authorization': \`Basic ${v}\``;
-      return `        '${k}': \`${convertVariables(escapeTemplateLiteral(v))}\``;
+      return `        '${k}': \`${convertVariables(escapeTemplateLiteral(v), ctx?.localVarNames)}\``;
     });
     fetchOptions.push(`      headers: {\n${headerEntries.join(',\n')}\n      }`);
   }
 
   // Body
   if (request.body) {
-    const convertedBody = convertVariables(escapeTemplateLiteral(request.body));
+    const convertedBody = convertVariables(escapeTemplateLiteral(request.body), ctx?.localVarNames);
     fetchOptions.push(`      data: \`${convertedBody}\``);
   }
 
@@ -2980,8 +2958,10 @@ export function generateRunApiTest(step: BrowserStep): string {
     }
 
     for (const ev of extractValues) {
-      // Register as local variable so subsequent steps reference directly
-      currentLocalVarNames.add(ev.name);
+      // Register as local variable so subsequent steps (including inlined substeps)
+      // reference it directly as ${name}. A no-op when the set is absent (a direct
+      // call with no ctx), which only affects LATER steps, never this call's output.
+      ctx?.localVarNames?.add(ev.name);
 
       if (ev.parser.type === 'json_path') {
         // Convert JSONPath like $.items[0].id to JS property access
@@ -3008,7 +2988,7 @@ export function generateRunApiTest(step: BrowserStep): string {
 /** Dispatch to the right generator (non-iframe path). */
 export function generateStepCodeDefault(step: BrowserStep, ctx: StepFlagContext): string {
   switch (step.type) {
-    case 'goToUrl':              return generateGoToUrl(step);
+    case 'goToUrl':              return generateGoToUrl(step, ctx.localVarNames);
     case 'typeText':             return generateTypeText(step, ctx);
     case 'click':                return generateClick(step, ctx);
     case 'hover':                return generateHover(step, ctx);
@@ -3020,16 +3000,16 @@ export function generateStepCodeDefault(step: BrowserStep, ctx: StepFlagContext)
     case 'assertElementPresent': return generateAssertElementPresent(step, ctx);
     case 'assertElementContent': return generateAssertElementContent(step, ctx);
     case 'assertPageContains':   return generateAssertPageContains(step);
-    case 'assertPageLacks':      return generateAssertPageLacks(step);
-    case 'assertCurrentUrl':     return generateAssertCurrentUrl(step);
-    case 'runApiTest':           return generateRunApiTest(step);
+    case 'assertPageLacks':      return generateAssertPageLacks(step, ctx.localVarNames);
+    case 'assertCurrentUrl':     return generateAssertCurrentUrl(step, ctx.localVarNames);
+    case 'runApiTest':           return generateRunApiTest(step, ctx);
     case 'playSubTest':          return generatePlaySubTest(step, ctx);
     default:
-      // Structured replacement for the legacy free-text unsupported-step comment
-      // (FLAG-01). The returned marker carries the preserved DD step and is the
-      // branch's entire output: it emits no runnable code, exactly like the
-      // comment it replaced. No deactivates field (D-06 scopes deactivation
-      // strictly to the zero-candidate locator-unresolvable case).
+      // Structured replacement for a free-text unsupported-step comment. The returned
+      // marker carries the preserved DD step and is the branch's entire output: it
+      // emits no runnable code, exactly like the comment it replaced. No deactivates
+      // field (deactivation is scoped strictly to the zero-candidate
+      // locator-unresolvable case).
       return ctx.collector.emitFlag(
         {
           reason: 'unsupported-step-type',
@@ -3043,7 +3023,7 @@ export function generateStepCodeDefault(step: BrowserStep, ctx: StepFlagContext)
 }
 
 // ---------------------------------------------------------------------------
-// Iframe-aware step code (folded into the single firstMatch chain, IFR-01/IFR-03)
+// Iframe-aware step code (folded into the single firstMatch chain)
 // ---------------------------------------------------------------------------
 
 /**
@@ -3056,22 +3036,20 @@ export function generateStepCodeDefault(step: BrowserStep, ctx: StepFlagContext)
 const PAGE_SCOPE_IFRAME_STEP_TYPES = new Set(['assertCurrentUrl', 'runApiTest']);
 
 /**
- * Emit an iframe-classified step (IFR-01 + IFR-03). TOTAL: returns a non-null
- * string for EVERY step type, unknowns included, so no step can silently fall
- * through to main-page scope.
+ * Emit an iframe-classified step. TOTAL: returns a non-null string for EVERY step
+ * type, unknowns included, so no step can silently fall through to main-page scope.
  *
- * IFR-01: there is no longer a second self-healing mechanism. This function builds
- * an iframe-provenance comment and then delegates the emission to
+ * There is no separate self-healing mechanism. This function builds an
+ * iframe-provenance comment and then delegates the emission to
  * generateStepCodeDefault. The firstMatch chain that default emission produces for
- * element steps already probes the main page THEN every page.frames() frame (the
- * IFR-01 frames rung landed in plan 08-03), so an iframe element step and a
- * main-page element step share ONE mechanism. Page-level steps emit their normal
- * page-scope statement. No auto-waiting frame lookup is emitted anywhere, so a
- * zero-iframe page cannot hang.
+ * element steps already probes the main page THEN every page.frames() frame, so an
+ * iframe element step and a main-page element step share ONE mechanism. Page-level
+ * steps emit their normal page-scope statement. No auto-waiting frame lookup is
+ * emitted anywhere, so a zero-iframe page cannot hang.
  *
- * IFR-03: the dispatch is total because generateStepCodeDefault is total (its
- * default branch fires the unsupported-step-type flag), so the returned string is
- * always the provenance comment plus exactly one default emission, never null.
+ * The dispatch is total because generateStepCodeDefault is total (its default branch
+ * fires the unsupported-step-type flag), so the returned string is always the
+ * provenance comment plus exactly one default emission, never null.
  *
  * For assertCurrentUrl and runApiTest the comment additionally states that the
  * assertion or request runs at page scope by design, because the owning frame
@@ -3086,7 +3064,7 @@ export function generateIframeStepCode(step: BrowserStep, ctx: StepFlagContext):
   // now stating that firstMatch searches the main page then all frames. Built on a
   // SINGLE line: describeDatadogStep is deliberately NOT interpolated here (a
   // hostile step name could carry a newline), so the comment can never split into
-  // a runnable line (threat T-8-01). The step identity already appears in the
+  // a runnable line. The step identity already appears in the
   // Step-N comment generateStepCode prepends and, for flagged steps, in the marker.
   let provenance = `    // May be inside an iframe: firstMatch searches the main page then all frames.`;
   if (PAGE_SCOPE_IFRAME_STEP_TYPES.has(step.type)) {
@@ -3109,30 +3087,28 @@ export function generateStepCode(
 ): string {
   const stepComment = `    // Step ${stepIndex + 1}: ${step.name || step.type}`;
 
-  // FLAG-05 residue detection (SC-4): the ONE wiring point, covering BOTH the
-  // default and the iframe emission paths (each step renders through exactly one,
-  // so this cannot double-emit). We re-resolve extractLocator here at the wrapper
-  // level because it is pure and cheap, and because the marker cannot be returned
-  // from generateLocatorCode (callers embed its expression inside larger await
-  // statements) nor from generateIframeStepCode (which bypasses generateLocatorCode
-  // entirely). Only the six locator-consuming step types are inspected; a null
-  // locator is FLAG-04 territory owned by withLocator, so the predicate takes
-  // non-null locators only. Detection ONLY: the step's emitted code is untouched
-  // and stays byte-identical; the flag never sets deactivates (D-06: a degraded or
-  // garbage candidate stays ACTIVE and flagged; deactivation is zero-signal
-  // FLAG-04's slice). extractLocator's selection logic is never modified
-  // (candidate reordering/rejection is Phase 8 LOC-06/LOC-08).
+  // Locator-residue detection: the ONE wiring point, covering BOTH the default and
+  // the iframe emission paths (each step renders through exactly one, so this cannot
+  // double-emit). We re-resolve extractLocator here at the wrapper level because it
+  // is pure and cheap, and because the marker cannot be returned from
+  // generateLocatorCode (callers embed its expression inside larger await statements)
+  // nor from generateIframeStepCode (which bypasses generateLocatorCode entirely).
+  // Only the six locator-consuming step types are inspected; a null locator is the
+  // zero-candidate case owned by withLocator, so the predicate takes non-null locators
+  // only. Detection ONLY: the step's emitted code is untouched and stays
+  // byte-identical; the flag never sets deactivates (a degraded or garbage candidate
+  // stays ACTIVE and flagged; deactivation is the zero-signal slice).
+  // extractLocator's selection logic is never modified here.
   let residueMarker = '';
   if (LOCATOR_CONSUMING_STEP_TYPES.has(step.type)) {
-    // extractLocator returns an ordered Locator[] (LOC-01). Run residue detection
-    // on the PRIMARY candidate only when the array is non-empty: the primary
-    // candidate is the one that names the chain, so residue on deliberately weak
-    // lower rungs is expected and is covered by the weak-fallback-chain flag in
-    // plan 08-03, not here. An empty array is FLAG-04 territory owned by
-    // withLocator (the zero-candidate deactivate-and-flag path). candidates[0] is
-    // live by construction (FID-05 never demotes index 0: a stale rung is only marked
-    // provenance-only when a stabler sibling precedes it), so this consumes the same
-    // live primary the emitted chain leads with, unchanged.
+    // extractLocator returns an ordered Locator[]. Run residue detection on the
+    // PRIMARY candidate only when the array is non-empty: the primary candidate is
+    // the one that names the chain, so residue on deliberately weak lower rungs is
+    // expected and is covered by the weak-fallback-chain flag, not here. An empty
+    // array is the zero-candidate case owned by withLocator (the deactivate-and-flag
+    // path). candidates[0] is live by construction (index 0 is never demoted: a stale
+    // rung is only marked provenance-only when a stabler sibling precedes it), so this
+    // consumes the same live primary the emitted chain leads with, unchanged.
     const candidates = extractLocator(step.params?.element);
     const locator = candidates[0];
     if (locator) {
@@ -3160,9 +3136,9 @@ export function generateStepCode(
   }
 
   if (isIframe) {
-    // generateIframeStepCode is now TOTAL (returns a string for every step type),
-    // so the iframe branch returns unconditionally: there is no null fall-through
-    // to main-page scope any more (IFR-03).
+    // generateIframeStepCode is TOTAL (returns a string for every step type), so the
+    // iframe branch returns unconditionally: there is no null fall-through to
+    // main-page scope.
     return `${stepComment}\n${residueMarker}${generateIframeStepCode(step, flagCtx)}`;
   }
 
@@ -3176,6 +3152,7 @@ export function generateStepCode(
 export function generateSpecFile(
   test: BrowserTest,
   collector: FlagCollector,
+  subtests?: ReadonlyMap<string, BrowserTest>,
 ): { spec: string; hasIframes: boolean; iframeStepCount: number; hasMultiCandidate: boolean; usesHelpers: boolean; secretKeys: string[]; pwEngines: string[] } {
   const { name, steps, config } = test;
   const testName = escapeString(name);
@@ -3184,9 +3161,13 @@ export function generateSpecFile(
   const localVariables = (config?.variables || []).filter(v => v.type === 'text' && v.pattern);
   const stepsArray = steps || [];
 
-  // Reset module-level state for this spec
-  currentLocalVarNames = new Set(localVariables.map(v => v.name));
-  apiResponseCounter = 0;
+  // Per-spec state (threaded through each StepFlagContext below, never module-level).
+  // localVarNames is seeded from the text-pattern local variables so their names
+  // interpolate as ${name}; runApiTest extract_values add more names mid-spec, visible
+  // to every later step and inlined substep because the single Set instance is shared.
+  // apiResponse is the per-spec API-response counter box (apiResponse, apiResponse2, ...).
+  const localVarNames = new Set(localVariables.map(v => v.name));
+  const apiResponse = { counter: 0 };
 
   // Analyze steps for iframe usage
   const iframeMap = analyzeStepsForIframes(startUrl, stepsArray);
@@ -3210,8 +3191,8 @@ export function generateSpecFile(
     body += `    // Set cookies from Datadog config\n`;
     body += `    await page.context().addCookies([\n`;
     for (const cookie of cookies) {
-      // GEN-03 (D-11): a Set-Cookie string carries the cookie name=value plus
-      // attribute tokens (Secure, HttpOnly, Path=, Expires=, Domain=, SameSite=,
+      // A Set-Cookie string carries the cookie name=value plus attribute tokens
+      // (Secure, HttpOnly, Path=, Expires=, Domain=, SameSite=,
       // Max-Age, Priority). Filter those attribute tokens so they stop becoming
       // bogus cookie entries. The predicate is anchored at the token start and
       // requires the token to be exactly the attribute name or the attribute name
@@ -3234,10 +3215,10 @@ export function generateSpecFile(
   if (localVariables.length > 0) {
     body += `    // Local variables (generated per run)\n`;
     for (const v of localVariables) {
-      // D-08: collect any moment token outside the implemented table. The const
-      // still emits (runnable, literal passthrough); the tokens are surfaced as
-      // ONE flag per affected variable (not per token, noise budget). Token text
-      // is pattern text, not a secret, so naming it in the message is correct.
+      // Collect any moment token outside the implemented table. The const still
+      // emits (runnable, literal passthrough); the tokens are surfaced as ONE flag
+      // per affected variable (not per token, noise budget). Token text is pattern
+      // text, not a secret, so naming it in the message is correct.
       const unknownTokens: string[] = [];
       const jsExpr = convertPatternToJs(v.pattern, unknownTokens);
       if (unknownTokens.length > 0) {
@@ -3258,7 +3239,7 @@ export function generateSpecFile(
   }
 
   if (needsStartUrlGoto) {
-    const convertedUrl = convertVariables(escapeTemplateLiteral(startUrl));
+    const convertedUrl = convertVariables(escapeTemplateLiteral(startUrl), localVarNames);
     body += `    // Navigate to start URL\n`;
     body += `    await page.goto(\`${convertedUrl}\`);\n`;
     if (stepsArray.length > 0) body += '\n';
@@ -3266,14 +3247,14 @@ export function generateSpecFile(
 
   const usedVarNames = new Set<string>();
 
-  // Per-spec secret-routing state (SEC-01, D-01). `used` is seeded with EVERY
-  // config-variable name visible on the test so a derived password key can never
-  // collide with an existing env-var name and silently rebind the fill to an
-  // unrelated value (threat T-09-05-05); the ladder then falls to tier-2 on such a
-  // seed collision. Both the `variables` and the (defensively read) `configVariables`
-  // arrays on test.config are seeded when present. `routed` accumulates the derived
-  // keys in step order; it is returned and written into _manifest.json for step 08
-  // (plan 09-06). Threaded into each StepFlagContext beside usedVarNames.
+  // Per-spec secret-routing state. `used` is seeded with EVERY config-variable name
+  // visible on the test so a derived password key can never collide with an existing
+  // env-var name and silently rebind the fill to an unrelated value; the ladder then
+  // falls to tier-2 on such a seed collision. Both the `variables` and the
+  // (defensively read) `configVariables` arrays on test.config are seeded when
+  // present. `routed` accumulates the derived keys in step order; it is returned and
+  // written into _manifest.json for step 08. Threaded into each StepFlagContext beside
+  // usedVarNames.
   const configForSeed = (config ?? {}) as {
     variables?: Array<{ name?: string }>;
     configVariables?: Array<{ name?: string }>;
@@ -3286,28 +3267,28 @@ export function generateSpecFile(
     if (v?.name) secretKeysState.used.add(v.name);
   }
 
-  // FID-03 (D-03): the test-level navigation timeout (seconds) is the settle-budget
-  // fallback for any step with no per-step timeout. Threaded into every per-step ctx
-  // (and inherited by inlined substeps via generatePlaySubTest, which copies it onto
-  // the substep ctx), so the derived firstMatch budget is uniform across the spec.
+  // The test-level navigation timeout (seconds) is the settle-budget fallback for any
+  // step with no per-step timeout. Threaded into every per-step ctx (and inherited by
+  // inlined substeps via generatePlaySubTest, which copies it onto the substep ctx),
+  // so the derived firstMatch budget is uniform across the spec.
   const navTimeoutSec = test.options?.initialNavigationTimeout;
 
   for (let i = 0; i < stepsArray.length; i++) {
-    const flagCtx: StepFlagContext = { collector, publicId: test.public_id, stepIndex: i, usedVarNames, secretKeys: secretKeysState, navTimeoutSec };
+    const flagCtx: StepFlagContext = { collector, publicId: test.public_id, stepIndex: i, usedVarNames, secretKeys: secretKeysState, navTimeoutSec, localVarNames, apiResponse, subtests };
     const step = stepsArray[i];
     body += generateStepCode(step, i, iframeMap.has(i), usedVarNames, flagCtx);
     if (i < stepsArray.length - 1) body += '\n\n';
   }
 
-  // FLAG-05 zero-assertion (SC-4, spec-level): a generated spec that runs no
-  // assertion is flagged exactly once so a triager knows the migrated check
-  // verifies nothing. Authoring a meaningful assertion is an intent judgment the
-  // tool must never make (Tier-3 fence), so we detect and flag, never invent one.
-  // The scan runs on the assembled BODY only (before header assembly, so
-  // test.setTimeout / page.on / the header never count) and strips every line
-  // whose trimmed form starts with '//' (step comments, MIGRATION-FLAG markers,
-  // preserved DD-step lines, and steps commented out by the FLAG-04 path are not
-  // runtime assertions). Any surviving expect( or expect.soft( counts, including
+  // Zero-assertion (spec-level): a generated spec that runs no assertion is flagged
+  // exactly once so a triager knows the migrated check verifies nothing. Authoring a
+  // meaningful assertion is an intent judgment the tool must never make, so we detect
+  // and flag, never invent one. The scan runs on the assembled BODY only (before
+  // header assembly, so test.setTimeout / page.on / the header never count) and strips
+  // every line whose trimmed form starts with '//' (step comments, MIGRATION-FLAG
+  // markers, preserved DD-step lines, and steps commented out by the zero-candidate
+  // path are not runtime assertions). Any surviving expect( or expect.soft( counts,
+  // including
   // runApiTest's toBeOK form. Scan BEFORE splicing the marker so the logic is
   // order-independent (the marker is a comment either way). The marker carries no
   // ddStepText and stepIndex null (there is no single originating step); it is
@@ -3332,11 +3313,11 @@ export function generateSpecFile(
   // Derive the helpers import from ACTUAL use, not from iframe presence alone. Scan
   // the comment-stripped executable body (reusing the zero-assertion idiom) for each
   // co-located helpers symbol, then import exactly the symbols the body references.
-  // Since plan 08-04 folded the iframe path into the single firstMatch chain, that
-  // is the only helper symbol a spec can reference: an iframe spec now imports
-  // firstMatch when its element steps emit chains, and a spec whose iframe steps are
-  // all non-element imports nothing. Plan 08-05 extends the same mechanism for its
-  // assertion helper by adding a symbol to this list.
+  // The iframe path is folded into the single firstMatch chain, so firstMatch (and
+  // its assertion analogue) are the only helper symbols a spec can reference: an
+  // iframe spec imports firstMatch when its element steps emit chains, and a spec
+  // whose iframe steps are all non-element imports nothing. A new helper is wired in
+  // by adding its symbol to this list.
   const executableForImports = body
     .split('\n')
     .filter((line) => !line.trim().startsWith('//'))
@@ -3347,11 +3328,11 @@ export function generateSpecFile(
   );
   const usesHelpers = referencedHelpers.length > 0;
 
-  // hasMultiCandidate (WR-01): "at least one step emitted a firstMatch / assertOnFirstMatch
+  // hasMultiCandidate: "at least one step emitted a firstMatch / assertOnFirstMatch
   // chain into the executable body." Derived from the comment-stripped executable body, NOT
   // from a second, independent extractLocator length scan, so the manifest field, the src/08
   // reviewMultiSelector tag, and the src/12 Self-Healing Locator Chains report can never
-  // disagree with what the spec body actually contains. The D-05 assertion-polarity path pins
+  // disagree with what the spec body actually contains. The assertion-polarity path pins
   // a NEGATIVE assertion (soft OR hard) to the primary candidate and emits no chain, so a
   // check whose only multi-candidate step is a negative assertion is correctly false here (no
   // false reviewMultiSelector tag, no over-claimed report entry). A soft POSITIVE assertion
@@ -3360,21 +3341,21 @@ export function generateSpecFile(
   // non-chain helper symbol added to HELPER_SYMBOLS cannot skew this field.
   const hasMultiCandidate = /\b(firstMatch|assertOnFirstMatch)\b/.test(executableForImports);
 
-  // --- PWCS-03: derive the Playwright engine set and emit the check-level flags ---
+  // --- Derive the Playwright engine set and emit the check-level flags ---
   //
-  // This is the one canonical decision seam (Option A): the engine set is decided
-  // here on the FlagCollector seam generateSpecFile already carries, and the same
-  // decision rides the existing _manifest.json files[] channel to step 08 (branch
-  // BrowserCheck vs PlaywrightCheck) and step 12 (report), exactly like
-  // hasMultiCandidate and secretKeys. No second flag path is ever added to src/08.
+  // This is the one canonical decision seam: the engine set is decided here on the
+  // FlagCollector seam generateSpecFile already carries, and the same decision rides
+  // the existing _manifest.json files[] channel to step 08 (branch BrowserCheck vs
+  // PlaywrightCheck) and step 12 (report), exactly like hasMultiCandidate and
+  // secretKeys. No second flag path is ever added to src/08.
   //
   // These three flags are CHECK-LEVEL (stepIndex null), so the inline marker string
-  // that emitFlag returns is deliberately discarded: PWCS flags do not annotate a
-  // spec step. Their four real surfaces are exports/migration-flags.json, the step-12
-  // report section, the reviewMigrationFlag construct tag src/08 appends for any
-  // flagged publicId, and the provenance header of the companion playwright.config.ts
-  // emitted in plan 10-03. The spec BODY is never touched (D-01): Playwright spec
-  // code is browser-agnostic, so the engine set influences nothing here.
+  // that emitFlag returns is deliberately discarded: they do not annotate a spec step.
+  // Their four real surfaces are exports/migration-flags.json, the step-12 report
+  // section, the reviewMigrationFlag construct tag src/08 appends for any flagged
+  // publicId, and the provenance header of the companion playwright.config.ts. The
+  // spec BODY is never touched: Playwright spec code is browser-agnostic, so the
+  // engine set influences nothing here.
   const derivation = deriveEnginesFromDeviceIds(test.options?.device_ids);
 
   if (derivation.unmappedDeviceIds.length > 0) {
@@ -3390,8 +3371,8 @@ export function generateSpecFile(
   if (derivation.mappedDeviceIds.length > derivation.engines.length) {
     // The dedupe is surfaced on EVERY declared-vs-distinct reduction, including
     // BrowserCheck-bound collapses (for example chrome + edge to one chromium engine),
-    // per D-04's visibility principle. The Edge sentence is appended only when a
-    // declared profile's family is edge (the lowercased head before the first dot).
+    // so the count reduction is always visible. The Edge sentence is appended only when
+    // a declared profile's family is edge (the lowercased head before the first dot).
     const hasEdge = derivation.mappedDeviceIds.some((id) => deviceFamily(id) === 'edge');
     const edgeNote = hasEdge ? ' Edge is Chromium-based and runs under the chromium project.' : '';
     collector.emitFlag({
@@ -3429,8 +3410,8 @@ export function generateSpecFile(
     spec += `import { ${referencedHelpers.join(', ')} } from "../helpers";\n`;
   }
 
-  // Preserve the Datadog browser certificate-ignore option (FID-04). Emit a
-  // file-scope test.use only for an explicit true, so the default page/context
+  // Preserve the Datadog browser certificate-ignore option. Emit a file-scope
+  // test.use only for an explicit true, so the default page/context
   // fixtures skip TLS verification for this spec. Absent, null, and false emit
   // nothing (Checkly/Playwright default verifies certificates).
   if (test.options?.ignoreServerCertificateError === true) {
@@ -3455,7 +3436,6 @@ test.describe("${testName}", () => {
 });
 `;
 
-  currentLocalVarNames = new Set(); // reset for next spec
   return { spec, hasIframes, iframeStepCount: iframeMap.size, hasMultiCandidate, usesHelpers, secretKeys: secretKeysState.routed, pwEngines };
 }
 
@@ -3469,6 +3449,7 @@ export async function generateSpecsForTests(
   outputDir: string,
   locationType: string,
   collector: FlagCollector,
+  subtests?: ReadonlyMap<string, BrowserTest>,
 ): Promise<GenerationResult> {
   let successCount = 0;
   let errorCount = 0;
@@ -3483,7 +3464,7 @@ export async function generateSpecsForTests(
       trackVariablesFromMultiple(test.name, variableContent);
 
       const { spec, hasIframes, iframeStepCount: testIframeSteps, hasMultiCandidate, usesHelpers, secretKeys, pwEngines } =
-        generateSpecFile(test, collector);
+        generateSpecFile(test, collector, subtests);
       const filename = `${sanitizeFilename(test.name, test.public_id)}.spec.ts`;
       const filepath = path.join(outputDir, filename);
 
@@ -3555,15 +3536,17 @@ async function main(): Promise<void> {
   console.log(`\nReading: ${INPUT_FILE}`);
   const data = JSON.parse(await readFile(INPUT_FILE, 'utf-8')) as { tests: BrowserTest[]; subtests?: BrowserTest[] };
   const tests = data.tests || [];
-  const subtests = data.subtests || [];
+  const subtestList = data.subtests || [];
   console.log(`Found ${tests.length} browser tests to process`);
-  if (subtests.length > 0) {
-    console.log(`Found ${subtests.length} subtest(s) to generate as helpers`);
+  if (subtestList.length > 0) {
+    console.log(`Found ${subtestList.length} subtest(s) to generate as helpers`);
   }
 
-  // Populate subtest map for inline resolution
-  for (const sub of subtests) {
-    subtestMap.set(sub.public_id, sub);
+  // Build the per-run subtest map for inline resolution, threaded into
+  // generateSpecFile via StepFlagContext.subtests (never a module-level binding).
+  const subtests = new Map<string, BrowserTest>();
+  for (const sub of subtestList) {
+    subtests.set(sub.public_id, sub);
   }
 
   const publicTests = tests.filter(t => !hasPrivateLocations(t));
@@ -3581,17 +3564,17 @@ async function main(): Promise<void> {
   const collector = new FlagCollector();
 
   console.log('\nGenerating public location specs...');
-  const publicResult = await generateSpecsForTests(publicTests, OUTPUT_DIR_PUBLIC, 'public', collector);
+  const publicResult = await generateSpecsForTests(publicTests, OUTPUT_DIR_PUBLIC, 'public', collector, subtests);
 
   console.log('\nGenerating private location specs...');
-  const privateResult = await generateSpecsForTests(privateTests, OUTPUT_DIR_PRIVATE, 'private', collector);
+  const privateResult = await generateSpecsForTests(privateTests, OUTPUT_DIR_PRIVATE, 'private', collector, subtests);
 
-  // Write the aggregated migration flags artifact (FLAG-02, D-03 surface 1),
-  // unconditionally, mirroring the _manifest.json write style. A clean run writes
-  // empty arrays: that distinguishes a zero-gap run from step 07 never having run,
-  // and guarantees 07-03 (report) and 07-04 (construct tags + deactivation) a
-  // present file after any 07 run. exportsDir is already resolved via
-  // getExportsDir() at the top of main(); never hardcode the exports path.
+  // Write the aggregated migration flags artifact, unconditionally, mirroring the
+  // _manifest.json write style. A clean run writes empty arrays: that distinguishes a
+  // zero-gap run from step 07 never having run, and guarantees the report and the
+  // construct-tag/deactivation steps a present file after any step-07 run. exportsDir
+  // is already resolved via getExportsDir() at the top of main(); never hardcode the
+  // exports path.
   const flagsFile = buildMigrationFlagsFile(collector);
   const flagsPath = path.join(exportsDir, 'migration-flags.json');
   await writeFile(flagsPath, JSON.stringify(flagsFile, null, 2), 'utf-8');

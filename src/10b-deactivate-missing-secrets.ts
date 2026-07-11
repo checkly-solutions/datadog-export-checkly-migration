@@ -453,7 +453,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // Deactivate checks with empty check-level secrets (D-09)
+  // Deactivate checks with empty check-level secrets
   let checkLevelResult = { modified: 0, skipped: 0, errors: 0 };
   if (emptyCheckLevel.length > 0 && existsSync(checksBase)) {
     checkLevelResult = await deactivateCheckLevelSecrets(checksBase, emptyCheckLevel);

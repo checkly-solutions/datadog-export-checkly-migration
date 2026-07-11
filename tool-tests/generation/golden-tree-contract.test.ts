@@ -1,13 +1,13 @@
 /**
- * DEPLOY-08 / WR-02 permanent regression guard over the COMMITTED golden tree.
+ * permanent regression guard over the COMMITTED golden tree.
  *
  * The exports-seed carries two browser tests that share the exact name
  * "Synthetic Browser Flow" (public_ids syn-006-pqr and syn-206-tuv). Before the
- * Phase 8 sanitizeFilename tail fix (08-01, D-07), both slugified to one
+ * sanitizeFilename tail fix (08-01), both slugified to one
  * synthetic-browser-flow.check.ts, so the second write silently overwrote the
- * first: two Datadog tests in, ONE Checkly construct out. Phase 6 pulled the pair
+ * first: two Datadog tests in, ONE Checkly construct out. pulled the pair
  * from the golden seed rather than let the oracle bless that data loss (a fidelity
- * tool's golden must never certify a lossy migration as correct); plan 08-07
+ * tool's golden must never certify a lossy migration as correct);
  * re-added it and recaptured. This test locks the fix at the SUITE level so any
  * future filename-collision regression fails npm run test:tool, not only
  * golden:verify.
@@ -18,12 +18,12 @@
  * is produced solely by golden:capture; this test never mutates it.
  *
  * The guard is scoped to the same-named COLLISION PAIR (the synthetic-browser-flow-
- * prefix), not the whole browser directory: plan 10-05 added a third,
+ * prefix), not the whole browser directory: the seed also carries a third,
  * differently-named browser test (PWCS Multi Browser Flow, syn-306-mbf, which emits
  * a PlaywrightCheck plus a companion playwright.config.ts) to exercise the PWCS
  * pipeline end-to-end. That test does not share the pair's name, so it is
  * deliberately excluded from these collision assertions; counting the pair by its
- * shared prefix keeps this guard testing exactly the DEPLOY-08 overwrite it exists
+ * shared prefix keeps this guard testing exactly the same-name overwrite it exists
  * to catch, independent of how many unrelated browser tests the seed later grows.
  */
 process.env.CHECKLY_ACCOUNT_NAME ??= 'tool-tests';
@@ -61,7 +61,7 @@ function pairFilesWithSuffix(dir: string, suffix: string): string[] {
   return filesWithSuffix(dir, suffix).filter((f) => f.startsWith(SHARED_PREFIX));
 }
 
-describe('golden tree contract: same-named browser pair emits two distinct on-disk files (DEPLOY-08)', () => {
+describe('golden tree contract: same-named browser pair emits two distinct on-disk files', () => {
   it('the same-named pair emits exactly two .spec.ts files (excluding unrelated browser tests)', () => {
     const specs = pairFilesWithSuffix(BROWSER_SPEC_DIR, '.spec.ts');
     assert.equal(

@@ -1,5 +1,5 @@
 /**
- * Shared, reason-parameterized promotion transform (REGX-05/06/08).
+ * Shared, reason-parameterized promotion transform.
  *
  * A single-step Datadog API test that carries a regex assertion (operator
  * 'matches' or 'doesNotMatch') cannot be represented faithfully by a Checkly
@@ -11,15 +11,15 @@
  * routes on shouldPromote, steps 05/06 replay the promoted step, and step 12
  * reports on the _promotionReason field set here. It is pure: no module-level
  * mutable state, no IO, no re-escaping of regex targets (targets embed verbatim
- * and are escaped at emission time via parseDatadogRegex, REGX-02).
+ * and are escaped at emission time via parseDatadogRegex).
  */
 
 import type { DatadogTest, DatadogAssertion, DatadogRequest } from './types.ts';
 
 /**
  * Why a test must leave the ApiCheck path. 'regex' is the only reason wired in
- * v1; 'javascript' is the designed-in extension point (REGX-08, TRKB-04) that
- * milestone 2 turns on without reshaping this transform.
+ * v1; 'javascript' is a designed-in extension point that can be turned on later
+ * without reshaping this transform.
  */
 export type PromotionReason = 'regex' | 'javascript';
 
@@ -36,8 +36,8 @@ export function detectPromotionReasons(test: DatadogTest): PromotionReason[] {
   if (assertions.some((a) => a.operator === 'matches' || a.operator === 'doesNotMatch')) {
     reasons.push('regex');
   }
-  // JS-assertion reason: designed-in extension point (REGX-08, TRKB-04) but NOT
-  // wired in v1. Milestone 2 enables it here without changing the transform:
+  // JS-assertion reason: a designed-in extension point, NOT wired in v1. It can be
+  // enabled here later without changing the transform:
   // if (assertions.some((a) => a.type === 'javascript')) reasons.push('javascript');
   return reasons;
 }
@@ -58,8 +58,8 @@ export function shouldPromote(test: DatadogTest): boolean {
 /**
  * Reshape a single-step API test into a one-step multi-step test.
  *
- * Produces exactly one step holding ALL of the test's assertions (REGX-06: one
- * unit, never a subset and never split). The step's request replays method,
+ * Produces exactly one step holding ALL of the test's assertions (one unit, never a
+ * subset and never split). The step's request replays method,
  * url, headers, body, basicAuth, query, and certificate from config.request,
  * plus follow_redirects and allow_insecure lifted from test.options, so the
  * downstream generators (step 05) can reproduce the original request. All
@@ -84,7 +84,7 @@ export function promoteApiTestToMultiStep(
   // Drop the now-stale top-level request/assertions from the copied config: they
   // are fully carried into the single step below, and no downstream step (05/06/
   // 12) reads config.request or config.assertions for a promoted multi-step test.
-  // Keeping them would duplicate the data in multi-step-tests.json (IN-02).
+  // Keeping them would duplicate the data in multi-step-tests.json.
   const { request: _request, assertions: _assertions, ...restConfig } =
     (test.config ?? {}) as Record<string, unknown>;
   return {

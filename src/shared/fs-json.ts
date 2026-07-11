@@ -4,7 +4,7 @@
  * Single source of truth for the "read a JSON file, degrade to null on any
  * problem" idiom used across the pipeline. It replaces two byte-for-byte
  * identical copies that had drifted only in a warn-message capital letter:
- * src/12's exported readJsonFile and src/10's local readJsonFileSafe (IN-01).
+ * src/12's exported readJsonFile and src/10's local readJsonFileSafe.
  * It lives in src/shared/ (not in a numbered step) so both steps import it
  * without creating a backwards step-to-step dependency: the architecture forbids
  * a step reading a later step's export, and step 10 runs before step 12.

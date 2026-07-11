@@ -89,7 +89,7 @@ async function main(): Promise<void> {
   const singleStepTests = data.tests.filter(test => test.subtype !== 'multi');
 
   // Divert regex-bearing single-step API tests off the ApiCheck path and into
-  // the multi-step file (REGX-06). Promoted tests are removed from the rewritten
+  // the multi-step file. Promoted tests are removed from the rewritten
   // api-tests.json so step 02 does not also emit a duplicate ApiCheck.
   const { promoted, keptApi } = partitionForPromotion(singleStepTests);
 

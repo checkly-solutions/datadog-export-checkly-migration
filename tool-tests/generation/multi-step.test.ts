@@ -1,11 +1,11 @@
 /**
- * Generation tests for the multi-step pipeline seam (VAL-01, D-04).
+ * Generation tests for the multi-step pipeline seam.
  *
  * Calls the exported generateSpecFile from step 05 (aliased to
  * generateMultiStepSpec, since step 07 exports the same name) and
  * generateMultiStepCheckCode from step 06 directly, asserting structurally on
- * the returned strings. No subprocess, no file writes (D-04); structural
- * assertions only, never snapshots (D-03).
+ * the returned strings. No subprocess, no file writes; structural
+ * assertions only, never snapshots.
  */
 process.env.CHECKLY_ACCOUNT_NAME ??= 'tool-tests';
 
@@ -39,7 +39,7 @@ const multiStepRegexFixture = JSON.parse(
  * generateMultiStepCheckCode calls filterAndRemapTags, which reads
  * DD_TAGS_EXCLUDE, DD_TAGS_EXCLUDE_ALL, and DD_TAGS_REMAP at call time.
  * Snapshot and clear all three before the tests and restore them exactly
- * afterwards (threat T-01-14).
+ * afterwards.
  */
 const DD_TAG_VARS = ['DD_TAGS_EXCLUDE', 'DD_TAGS_EXCLUDE_ALL', 'DD_TAGS_REMAP'] as const;
 let savedTagEnv: Record<string, string | undefined> = {};
@@ -101,10 +101,9 @@ describe('step 05 generateSpecFile: two-step spec with extractedValues wiring', 
 });
 
 /**
- * Specification tests for the constructor-form regex emission (REGX-01,
- * REGX-02). Expected strings are plain literals in the test source, never
- * derived via .replace (RESEARCH.md Pitfall 5). At file-text level the
- * emitted pattern carries exactly one JS-string escaping layer from
+ * Specification tests for the constructor-form regex emission. Expected strings are
+ * plain literals in the test source, never derived via .replace. At file-text level
+ * the emitted pattern carries exactly one JS-string escaping layer from
  * JSON.stringify: two backslashes before the d, never four.
  */
 describe('step 05 generateComparisonCode: constructor-form regex emission', () => {
@@ -206,13 +205,13 @@ describe('step 06 generateMultiStepCheckCode: construct baseline', () => {
 });
 
 /**
- * DEPLOY-01 (D-05): the multi logical ID must carry the Datadog public_id tail so
- * two same-name multi-step tests never collapse to one ID. DEPLOY-05 (D-07): the
+ * the multi logical ID must carry the Datadog public_id tail so
+ * two same-name multi-step tests never collapse to one ID. the
  * construct name literal must be escaped through escapeString. Variant inputs are
  * in-test spread-clones with synthetic-only overrides; no fixture JSON is edited
- * (VAL-09).
+ *.
  */
-describe('step 06 DEPLOY-01/DEPLOY-05: unique logical id and name escaping', () => {
+describe('step 06: unique logical id and name escaping', () => {
   const specFilename = 'unit-multi-login-flow.spec.ts';
 
   it('derives the logical id from prefix, name slug, and public_id (matches the shared helper)', () => {
@@ -222,7 +221,7 @@ describe('step 06 DEPLOY-01/DEPLOY-05: unique logical id and name escaping', () 
     assert.ok(output.includes(`new MultiStepCheck("${expected}", {`), 'emitted id must equal the shared-helper output');
   });
 
-  it('same-name tests differing only in public_id emit distinct logical ids (DEPLOY-01)', () => {
+  it('same-name tests differing only in public_id emit distinct logical ids', () => {
     const a = structuredClone(multiStepFixture);
     const b = structuredClone(multiStepFixture);
     a.public_id = 'syn-205-aaa';
@@ -237,7 +236,7 @@ describe('step 06 DEPLOY-01/DEPLOY-05: unique logical id and name escaping', () 
     assert.equal(idB, 'multi-unit-multi-login-flow-syn-206-bbb', 'second id carries its own public_id tail');
   });
 
-  it('escapes a backslash and a newline in the construct name via escapeString (DEPLOY-05)', () => {
+  it('escapes a backslash and a newline in the construct name via escapeString', () => {
     const fixture = structuredClone(multiStepFixture);
     fixture.name = 'a\\b\nc name';
     const output = generateMultiStepCheckCode(fixture, specFilename, 'public');
@@ -250,7 +249,7 @@ describe('step 06 DEPLOY-01/DEPLOY-05: unique logical id and name escaping', () 
 });
 
 /**
- * Phase 3 (FID-05, D-06): per-step redirect and TLS fidelity. A multi-step
+ * per-step redirect and TLS fidelity. A multi-step
  * step whose request.follow_redirects === false emits the per-call Playwright
  * option maxRedirects: 0 (return the 3xx instead of following it); a step whose
  * request.allow_insecure === true emits ignoreHTTPSErrors: true on that step's
@@ -258,7 +257,7 @@ describe('step 06 DEPLOY-01/DEPLOY-05: unique logical id and name escaping', () 
  * 1.51.1 on Checkly runtime 2025.04); never context-level newContext
  * maxRedirects, which is 1.52+.
  */
-describe('Phase 3: per-step redirect and TLS fidelity (FID-05)', () => {
+describe('per-step redirect and TLS fidelity', () => {
   it('emits per-call maxRedirects: 0 when follow_redirects === false', () => {
     const { code } = generateRequestCode(
       { method: 'GET', url: 'https://api.example.com/probe', follow_redirects: false },
@@ -314,7 +313,7 @@ describe('Phase 3: per-step redirect and TLS fidelity (FID-05)', () => {
 });
 
 /**
- * Phase 5 (REGX-05): request-replay fidelity for promoted API tests. A promoted
+ * request-replay fidelity for promoted API tests. A promoted
  * step whose request.basicAuth.type is not 'web' emits an Authorization: Basic
  * header whose base64 is computed at runtime (Buffer.from), so any {{ VARS }}
  * in the credentials interpolate through process.env at run time. type 'web' is
@@ -322,7 +321,7 @@ describe('Phase 3: per-step redirect and TLS fidelity (FID-05)', () => {
  * emitted. A non-empty query Record emits a Playwright per-call params option.
  * Expected substrings are plain literals, never derived via .replace.
  */
-describe('step 05 generateRequestCode: Basic auth and query replay (REGX-05)', () => {
+describe('step 05 generateRequestCode: Basic auth and query replay', () => {
   it('emits a runtime-base64 Authorization header for basicAuth type "basic"', () => {
     const { code } = generateRequestCode(
       {
@@ -364,7 +363,7 @@ describe('step 05 generateRequestCode: Basic auth and query replay (REGX-05)', (
     assert.ok(!code.includes('newContext'), 'query replay must use the per-call form, never newContext');
   });
 
-  it('interpolates a {{ VAR }} query value as a process.env reference (CR-01)', () => {
+  it('interpolates a {{ VAR }} query value as a process.env reference', () => {
     const { code } = generateRequestCode(
       {
         method: 'GET',
@@ -402,7 +401,7 @@ describe('step 05 generateRequestCode: Basic auth and query replay (REGX-05)', (
   });
 });
 
-describe('extractVariableContent collects query-param variables (WR-01)', () => {
+describe('extractVariableContent collects query-param variables', () => {
   it('returns a variable referenced only in a query param', () => {
     const test = {
       public_id: 'syn-qv-000',
@@ -433,7 +432,7 @@ describe('extractVariableContent collects query-param variables (WR-01)', () => 
   });
 });
 
-describe('step 06 normalizes public locations, leaves private untouched (WR-03)', () => {
+describe('step 06 normalizes public locations, leaves private untouched', () => {
   const DD_TAG_VARS = ['DD_TAGS_EXCLUDE', 'DD_TAGS_EXCLUDE_ALL', 'DD_TAGS_REMAP'] as const;
   let saved: Record<string, string | undefined> = {};
   before(() => {
@@ -477,7 +476,7 @@ describe('step 06 normalizes public locations, leaves private untouched (WR-03)'
   });
 });
 
-describe('soft assertions are threaded through generateAssertionCode (WR-02)', () => {
+describe('soft assertions are threaded through generateAssertionCode', () => {
   const statusAssertion = { type: 'statusCode', operator: 'is', target: 200 } as any;
 
   it('emits expect.soft( for an allowFailure step', () => {
@@ -506,7 +505,7 @@ describe('soft assertions are threaded through generateAssertionCode (WR-02)', (
   });
 
   it('never rewrites assertions via a post-hoc expect.soft string replace', () => {
-    // Guards the WR-02 fix: soft prefixing is parameterized, not string-rewritten.
+    // Guards the soft-prefix fix: soft prefixing is parameterized, not string-rewritten.
     const softStep = {
       name: 'soft', subtype: 'http',
       request: { method: 'GET', url: 'https://api.example.com/probe' },

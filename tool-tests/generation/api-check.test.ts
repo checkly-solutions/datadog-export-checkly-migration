@@ -1,10 +1,10 @@
 /**
- * Generation tests for the API check pipeline seam (VAL-01, D-04).
+ * Generation tests for the API check pipeline seam.
  *
  * Chains the exported convertTest from step 02 into generateApiCheckCode from
  * step 04, so no hand-authored ChecklyCheck shape is needed and the two
  * contracts stay consistent. All assertions are structural (key lines present
- * or absent in the returned string), never full-string snapshots (D-03).
+ * or absent in the returned string), never full-string snapshots.
  * No subprocess, no file writes: the generators are called in-process and
  * their return values are asserted directly.
  *
@@ -38,7 +38,7 @@ const privatePausedFixture = loadFixture('api-test-private-paused.json');
  * generateApiCheckCode calls filterAndRemapTags, which reads DD_TAGS_EXCLUDE,
  * DD_TAGS_EXCLUDE_ALL, and DD_TAGS_REMAP at call time. Snapshot and clear all
  * three before the tests and restore them exactly afterwards so tag
- * assertions are stable on any machine (threat T-01-14).
+ * assertions are stable on any machine.
  */
 const DD_TAG_VARS = ['DD_TAGS_EXCLUDE', 'DD_TAGS_EXCLUDE_ALL', 'DD_TAGS_REMAP'] as const;
 let savedTagEnv: Record<string, string | undefined> = {};
@@ -135,47 +135,47 @@ describe('generateApiCheckCode(convertTest(...)): private paused fixture (safe-b
   });
 });
 
-describe('Phase 3: request redirect and TLS option fidelity (FID-01/02/03)', () => {
-  it('FID-01: follow_redirects false emits a followRedirects: false request line', () => {
+describe('request redirect and TLS option fidelity', () => {
+  it('follow_redirects false emits a followRedirects: false request line', () => {
     const fixture = structuredClone(baselineFixture);
     fixture.options.follow_redirects = false;
     const output = generateApiCheckCode(convertTest(fixture));
     assert.ok(output.includes('followRedirects: false'), 'explicit false must emit followRedirects: false');
   });
 
-  it('FID-02: follow_redirects true omits the followRedirects field (Checkly default already follows)', () => {
+  it('follow_redirects true omits the followRedirects field (Checkly default already follows)', () => {
     const fixture = structuredClone(baselineFixture);
     fixture.options.follow_redirects = true;
     const output = generateApiCheckCode(convertTest(fixture));
     assert.ok(!output.includes('followRedirects'), 'explicit true must omit followRedirects entirely');
   });
 
-  it('FID-02: absent follow_redirects omits the followRedirects field', () => {
+  it('absent follow_redirects omits the followRedirects field', () => {
     const output = generateApiCheckCode(convertTest(baselineFixture));
     assert.ok(!output.includes('followRedirects'), 'absent follow_redirects must omit followRedirects entirely');
   });
 
-  it('FID-03: allow_insecure true emits a skipSSL: true request line', () => {
+  it('allow_insecure true emits a skipSSL: true request line', () => {
     const fixture = structuredClone(baselineFixture);
     fixture.options.allow_insecure = true;
     const output = generateApiCheckCode(convertTest(fixture));
     assert.ok(output.includes('skipSSL: true'), 'explicit true must emit skipSSL: true');
   });
 
-  it('FID-03: allow_insecure false omits the skipSSL field (Checkly default already verifies)', () => {
+  it('allow_insecure false omits the skipSSL field (Checkly default already verifies)', () => {
     const fixture = structuredClone(baselineFixture);
     fixture.options.allow_insecure = false;
     const output = generateApiCheckCode(convertTest(fixture));
     assert.ok(!output.includes('skipSSL'), 'explicit false must omit skipSSL entirely');
   });
 
-  it('FID-03: absent allow_insecure omits the skipSSL field', () => {
+  it('absent allow_insecure omits the skipSSL field', () => {
     const output = generateApiCheckCode(convertTest(baselineFixture));
     assert.ok(!output.includes('skipSSL'), 'absent allow_insecure must omit skipSSL entirely');
   });
 });
 
-describe('step 04 REGX-10: regex targets are no longer downgraded', () => {
+describe('step 04: regex targets are no longer downgraded', () => {
   // Inline synthetic raw API test (Pattern 5 invented values). Its only string
   // assertion is a body + matches whose target carries regex metacharacters
   // (a digit-class-plus-hyphen pattern). The removed heuristic used to strip the
@@ -231,14 +231,14 @@ describe('step 04 REGX-10: regex targets are no longer downgraded', () => {
 });
 
 /**
- * DEPLOY-01 (D-05): the api logical ID must carry the Datadog public_id tail so
+ * the api logical ID must carry the Datadog public_id tail so
  * two same-name tests never collapse to one ID and abort the whole checkly test
- * run. DEPLOY-05 (D-07): the construct name literal must be escaped through
+ * run. the construct name literal must be escaped through
  * escapeString, closing the backslash/newline escape-out gap. All variant inputs
  * are in-test spread-clones of the loaded fixture with synthetic-only overrides;
- * no fixture JSON file is edited (VAL-09).
+ * no fixture JSON file is edited.
  */
-describe('step 04 DEPLOY-01/DEPLOY-05: unique logical id and name escaping', () => {
+describe('step 04: unique logical id and name escaping', () => {
   it('derives the logical id from prefix, name slug, and public_id (matches the shared helper)', () => {
     const output = generateApiCheckCode(convertTest(baselineFixture));
     const expected = uniqueLogicalId('api', baselineFixture.name, baselineFixture.public_id);
@@ -246,7 +246,7 @@ describe('step 04 DEPLOY-01/DEPLOY-05: unique logical id and name escaping', () 
     assert.ok(output.includes(`new ApiCheck("${expected}", {`), 'emitted id must equal the shared-helper output');
   });
 
-  it('same-name tests differing only in public_id emit distinct logical ids (DEPLOY-01)', () => {
+  it('same-name tests differing only in public_id emit distinct logical ids', () => {
     const a = structuredClone(baselineFixture);
     const b = structuredClone(baselineFixture);
     a.public_id = 'syn-201-aaa';
@@ -261,7 +261,7 @@ describe('step 04 DEPLOY-01/DEPLOY-05: unique logical id and name escaping', () 
     assert.equal(idB, 'api-unit-api-baseline-syn-202-bbb', 'second id carries its own public_id tail');
   });
 
-  it('escapes a backslash and a newline in the construct name via escapeString (DEPLOY-05)', () => {
+  it('escapes a backslash and a newline in the construct name via escapeString', () => {
     const fixture = structuredClone(baselineFixture);
     // 25 chars or fewer; JSON encodes the literal backslash and newline.
     fixture.name = 'a\\b\nc name';

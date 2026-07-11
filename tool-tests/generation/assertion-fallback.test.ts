@@ -1,21 +1,20 @@
 /**
- * Generation tests for the polarity-routed assertion emission (Phase 8, plan
- * 08-05, LOC-08 D-04/D-05). All offline, no subprocess, no file writes (Testing
- * SOP). Four concerns are locked here:
+ * Generation tests for the polarity-routed assertion emission. All offline, no
+ * subprocess, no file writes (Testing SOP). Four concerns are locked here:
  *
  *   (1) SHARED_HELPERS_SOURCE gains assertOnFirstMatch: it reuses the one
  *       LOCATOR_EXHAUSTION_TOKEN const (no second literal), carries a named numeric
  *       per-attempt timeout const (PROBE_ASSERT_TIMEOUT_MS), forwards that timeout
- *       to the assertion callback, and contains no toPass call (Refinement 5: a
+ *       to the assertion callback, and contains no toPass call (a
  *       defaulted toPass is an infinite timeout).
  *   (2) Positive assertions self-heal: a multi-candidate positive assertElementContent
  *       or assertElementPresent emits assertOnFirstMatch with a timeout-forwarding
  *       matcher callback; a single-candidate positive stays byte-stable and never
- *       references the helper (D-04 with bounded attempts).
+ *       references the helper (with bounded attempts).
  *   (3) Negative assertions never ride the pass-if-any chain: a multi-candidate
  *       notContains pins to the PRIMARY candidate expression only, carries the
- *       negative-assertion-degraded flag, and includes the settled FID-08 rationale
- *       comment (D-05/D-07a: Datadog's multiLocator negative-resolution is undocumented
+ *       negative-assertion-degraded flag, and includes the settled rationale
+ *       comment (Datadog's multiLocator negative-resolution is undocumented
  *       and unexercised in the captured exports, so pinning is the only choice that
  *       cannot manufacture a false green); a single-candidate negative emits no flag
  *       but still carries the polarity comment.
@@ -64,7 +63,7 @@ const multiEl = {
 const singleEl = { targetOuterHTML: '<input id="only">' };
 
 // Snapshot/clear/restore DD_TAGS_* so the suite stays hermetic and
-// order-independent alongside the sibling generation suites (threat T-01-14).
+// order-independent alongside the sibling generation suites.
 const DD_TAG_VARS = ['DD_TAGS_EXCLUDE', 'DD_TAGS_EXCLUDE_ALL', 'DD_TAGS_REMAP'] as const;
 let savedTagEnv: Record<string, string | undefined> = {};
 before(() => {
@@ -85,7 +84,7 @@ after(() => {
 // (1) assertOnFirstMatch in the shared helpers source
 // ---------------------------------------------------------------------------
 
-describe('SHARED_HELPERS_SOURCE assertOnFirstMatch (D-04 self-heal, D-02 exhaustion reuse)', () => {
+describe('SHARED_HELPERS_SOURCE assertOnFirstMatch (self-heal, exhaustion reuse)', () => {
   const src = SHARED_HELPERS_SOURCE;
 
   it('exports an async assertOnFirstMatch(page, makeCandidates, assertion)', () => {
@@ -123,7 +122,7 @@ describe('SHARED_HELPERS_SOURCE assertOnFirstMatch (D-04 self-heal, D-02 exhaust
     assert.equal(literalCount, 1, 'the raw exhaustion literal must appear exactly once (const definition only)');
   });
 
-  it('contains no toPass call (Refinement 5: defaulted toPass is an infinite timeout)', () => {
+  it('contains no toPass call (defaulted toPass is an infinite timeout)', () => {
     assert.ok(!/\.toPass\s*\(/.test(src), 'assertOnFirstMatch must never use toPass');
   });
 
@@ -141,7 +140,7 @@ describe('SHARED_HELPERS_SOURCE assertOnFirstMatch (D-04 self-heal, D-02 exhaust
 // (2) Positive self-heal: multi routes through the helper, single stays direct
 // ---------------------------------------------------------------------------
 
-describe('positive multi-candidate assertions self-heal via assertOnFirstMatch (D-04)', () => {
+describe('positive multi-candidate assertions self-heal via assertOnFirstMatch', () => {
   it('a multi-candidate contains emits assertOnFirstMatch with a timeout-forwarding matcher callback', () => {
     const step: Step07 = {
       name: 'Assert txt',
@@ -168,7 +167,7 @@ describe('positive multi-candidate assertions self-heal via assertOnFirstMatch (
     assert.ok(!out.includes('firstMatch'), 'a single candidate must never reference any firstMatch helper');
   });
 
-  it('a multi-candidate assertElementPresent emits assertOnFirstMatch with the attached-state matcher (ASRT-06)', () => {
+  it('a multi-candidate assertElementPresent emits assertOnFirstMatch with the attached-state matcher', () => {
     const step: Step07 = { name: 'Assert seen', type: 'assertElementPresent', params: { element: multiEl } } as Step07;
     const out = generateAssertElementPresent(step, mkCtx());
     assert.ok(/const\s+step1Seen:\s*CandidateFactory\s*=/.test(out), 'must hoist the candidate factory into a named const');
@@ -177,14 +176,14 @@ describe('positive multi-candidate assertions self-heal via assertOnFirstMatch (
     assert.ok(out.includes('.toBeAttached({ timeout })'), 'the attached-state matcher is used and forwards the timeout (present-but-hidden passes)');
   });
 
-  it('a single-candidate assertElementPresent emits attached-state presence (ASRT-06)', () => {
+  it('a single-candidate assertElementPresent emits attached-state presence', () => {
     const step: Step07 = { name: 'Assert seen', type: 'assertElementPresent', params: { element: singleEl } } as Step07;
     const out = generateAssertElementPresent(step, mkCtx());
     assert.ok(out.includes('await expect(page.locator("#only")).toBeAttached();'), 'single-candidate present emits attached-state presence');
     assert.ok(!out.includes('assertOnFirstMatch'), 'a single candidate must never reference the assertion helper');
   });
 
-  it('the positive multi-candidate case emits no migration flag (D-06: a resolved chain stays active and unflagged)', () => {
+  it('the positive multi-candidate case emits no migration flag (a resolved chain stays active and unflagged)', () => {
     const ctx = mkCtx();
     const step: Step07 = {
       name: 'Assert txt',
@@ -204,7 +203,7 @@ describe('positive multi-candidate assertions self-heal via assertOnFirstMatch (
 // (3) Negative assertions pin to the primary candidate and flag the degrade
 // ---------------------------------------------------------------------------
 
-describe('negative assertions never ride the pass-if-any chain (D-05 INVERT default)', () => {
+describe('negative assertions never ride the pass-if-any chain', () => {
   it('a multi-candidate notContains pins to the primary candidate expression, not the firstMatch chain', () => {
     const step: Step07 = {
       name: 'Assert not',
@@ -232,18 +231,18 @@ describe('negative assertions never ride the pass-if-any chain (D-05 INVERT defa
     generateAssertElementContent(step, ctx);
     const degraded = ctx.collector.flags.filter((f) => f.reason === 'negative-assertion-degraded');
     assert.equal(degraded.length, 1, 'exactly one negative-assertion-degraded flag');
-    assert.ok(!degraded[0].deactivates, 'negative-assertion-degraded must NOT deactivate (D-06: degraded stays ACTIVE)');
+    assert.ok(!degraded[0].deactivates, 'negative-assertion-degraded must NOT deactivate (degraded stays ACTIVE)');
     assert.equal(degraded[0].publicId, 'syn-501-neg');
     assert.equal(degraded[0].stepIndex, 4);
     // multiEl resolves to three candidates; two fallbacks are discarded.
     assert.ok(/\b2\b/.test(degraded[0].message), 'the message must name the discarded candidate count');
-    // FID-08 (D-07a): the flag message states the settled disposition, not the retired
+    // (D-07a): the flag message states the settled disposition, not the retired
     // reasoned-inference hedge.
     assert.ok(/undocumented and unexercised/i.test(degraded[0].message), 'the message must state the settled undocumented-and-unexercised disposition');
     assert.ok(!/reasoned inference|reasoned default|INVERT|spot.check|pending a live/i.test(degraded[0].message), 'the message must carry no retired hedge token');
   });
 
-  it('a multi-candidate negative includes the settled FID-08 rationale comment (undocumented and unexercised, false-green rationale)', () => {
+  it('a multi-candidate negative includes the settled rationale comment (undocumented and unexercised, false-green rationale)', () => {
     const step: Step07 = {
       name: 'Assert not',
       type: 'assertElementContent',
@@ -306,7 +305,7 @@ describe('soft assertions use the locator-level firstMatch chain, never the help
     const out = generateAssertElementPresent(step, mkCtx());
     assert.ok(/const\s+step1Soft:\s*CandidateFactory\s*=/.test(out), 'soft present multi-candidate must hoist the factory const');
     assert.ok(/expect\.soft\(\(await firstMatch\(page, step1Soft\)\)/.test(out), 'soft present must use expect.soft over the firstMatch chain by const name');
-    assert.ok(out.includes('.toBeAttached();'), 'the soft present matcher is attached-state (ASRT-06)');
+    assert.ok(out.includes('.toBeAttached();'), 'the soft present matcher is attached-state');
     assert.ok(!out.includes('assertOnFirstMatch'), 'a soft present must never use the per-candidate helper');
   });
 });
@@ -327,8 +326,8 @@ describe('unknown and unimplemented operators surface the assertion-operator-unk
     assert.ok(!out.includes('.not.'), 'a polarity-positive unknown is not a negation');
   });
 
-  it('notEquals is a live pinned native negative, NOT flagged and NOT commented out (Phase 9 ASRT-01 supersedes the Phase 8 seam)', () => {
-    // Phase 8 flagged notEquals as unimplemented and commented its line out. Phase 9
+  it('notEquals is a live pinned native negative, NOT flagged and NOT commented out', () => {
+    // flagged notEquals as unimplemented and commented its line out.
     // (this plan) implements it as a native pinned negative, so it is now live code
     // and records NO assertion-operator-unknown flag.
     const ctx = mkCtx({ publicId: 'syn-601-ne', stepIndex: 2 });
@@ -341,7 +340,7 @@ describe('unknown and unimplemented operators surface the assertion-operator-unk
     assert.equal(
       ctx.collector.flags.filter((f) => f.reason === 'assertion-operator-unknown').length,
       0,
-      'notEquals is implemented in Phase 9, so no assertion-operator-unknown flag',
+      'notEquals is implemented in, so no assertion-operator-unknown flag',
     );
     // A live, non-commented native negative matcher pinned to the primary candidate.
     assert.ok(
@@ -352,7 +351,7 @@ describe('unknown and unimplemented operators surface the assertion-operator-unk
     assert.ok(/await\s+expect/.test(executable), 'the notEquals matcher line is live code, not a comment');
   });
 
-  it('a hostile value (quote, backslash, newline) is escaped through the matcher string (T-8-01)', () => {
+  it('a hostile value (quote, backslash, newline) is escaped through the matcher string', () => {
     const step: Step07 = {
       name: 'Assert x',
       type: 'assertElementContent',
@@ -396,7 +395,7 @@ describe('CandidateFactory absence gating (no unused const, no unused type impor
     assert.ok(!spec.includes('from "../helpers"'), 'a chainless spec imports no helpers at all');
   });
 
-  it('a negative-polarity multi-candidate assertion emits no const declaration and no CandidateFactory reference (D-05 pins to primary)', () => {
+  it('a negative-polarity multi-candidate assertion emits no const declaration and no CandidateFactory reference (pins to primary)', () => {
     // A multi-candidate notContains pins to the primary candidate only; the factory
     // is never referenced, so withLocator must NOT hoist an unused const.
     const step: Step07 = {
@@ -407,7 +406,7 @@ describe('CandidateFactory absence gating (no unused const, no unused type impor
     const out = generateAssertElementContent(step, mkCtx());
     assert.ok(!/const\s+step\d+\w*:\s*CandidateFactory/.test(out), 'a negative multi-candidate assertion must not hoist an unused factory const');
     assert.ok(!out.includes('CandidateFactory'), 'the negative emission references no CandidateFactory at all');
-    assert.ok(!out.includes('firstMatch'), 'a negative never rides the pass-if-any chain (D-05)');
+    assert.ok(!out.includes('firstMatch'), 'a negative never rides the pass-if-any chain');
   });
 
   it('a spec whose only multi-candidate step is a negative assertion imports no CandidateFactory type', () => {
@@ -426,10 +425,10 @@ describe('CandidateFactory absence gating (no unused const, no unused type impor
 });
 
 // ---------------------------------------------------------------------------
-// Phase 9, plan 09-02, Task 1: native negatives (notEquals) + positive notIsEmpty
+//, Task 1: native negatives (notEquals) + positive notIsEmpty
 // ---------------------------------------------------------------------------
 
-describe('Phase 9 ASRT-01 notEquals native pinned negative (D-05, never inverted)', () => {
+describe('notEquals native pinned negative (never inverted)', () => {
   it('single-candidate notEquals emits a live .not.toHaveText pinned to the primary, below the polarity comment, with no unknown flag', () => {
     const ctx = mkCtx({ publicId: 'syn-610-ne', stepIndex: 3 });
     const step: Step07 = {
@@ -446,7 +445,7 @@ describe('Phase 9 ASRT-01 notEquals native pinned negative (D-05, never inverted
     assert.equal(
       ctx.collector.flags.filter((f) => f.reason === 'assertion-operator-unknown').length,
       0,
-      'notEquals records NO assertion-operator-unknown flag (it is implemented in Phase 9)',
+      'notEquals records NO assertion-operator-unknown flag (it is implemented in)',
     );
     // The matcher line is live (not commented out).
     const executable = out.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
@@ -488,7 +487,7 @@ describe('Phase 9 ASRT-01 notEquals native pinned negative (D-05, never inverted
   });
 });
 
-describe('Phase 9 ASRT-01 notIsEmpty positive non-whitespace matcher (A1 resolution, no vacuous form)', () => {
+describe('notIsEmpty positive non-whitespace matcher (A1 resolution, no vacuous form)', () => {
   it('single-candidate notIsEmpty emits toHaveText(/\\S/) and records no flag', () => {
     const ctx = mkCtx({ publicId: 'syn-620-nie', stepIndex: 1 });
     const step: Step07 = {
@@ -543,7 +542,7 @@ describe('Phase 9 ASRT-01 notIsEmpty positive non-whitespace matcher (A1 resolut
   });
 });
 
-describe('Phase 9 D-06 unknown-operator seam survives the expanded implemented set', () => {
+describe('unknown-operator seam survives the expanded implemented set', () => {
   it('a genuinely unknown operator (matchesFuzzy) still records assertion-operator-unknown and keeps the loud default contains', () => {
     const ctx = mkCtx({ publicId: 'syn-630-unk', stepIndex: 0 });
     const step: Step07 = {
@@ -555,7 +554,7 @@ describe('Phase 9 D-06 unknown-operator seam survives the expanded implemented s
     assert.equal(
       ctx.collector.flags.filter((f) => f.reason === 'assertion-operator-unknown').length,
       1,
-      'a genuinely unknown operator still flags after the set expansion (D-06 seam intact)',
+      'a genuinely unknown operator still flags after the set expansion (seam intact)',
     );
     assert.ok(out.includes('.toContainText("Hi")'), 'a polarity-positive unknown keeps the loud default contains emission');
     assert.ok(!out.includes('.not.'), 'a polarity-positive unknown is not a negation');
@@ -563,10 +562,10 @@ describe('Phase 9 D-06 unknown-operator seam survives the expanded implemented s
 });
 
 // ---------------------------------------------------------------------------
-// Phase 9, plan 09-02, Task 2: numeric operators greater/lessThan (D-04, loud NaN)
+// Task 2: numeric operators greater/lessThan (loud NaN)
 // ---------------------------------------------------------------------------
 
-describe('Phase 9 ASRT-01 numeric operators greater/lessThan via expect.poll (D-04, NaN fails loud)', () => {
+describe('numeric operators greater/lessThan via expect.poll (NaN fails loud)', () => {
   it('single-candidate greater (value "1", non-soft) emits a retrying Number()-parse expect.poll toBeGreaterThan', () => {
     const ctx = mkCtx({ publicId: 'syn-640-gt', stepIndex: 0 });
     const step: Step07 = {
@@ -608,7 +607,7 @@ describe('Phase 9 ASRT-01 numeric operators greater/lessThan via expect.poll (D-
     assert.ok(!out.includes('expect.poll'), 'soft greater does not use expect.poll (no soft poll variant)');
   });
 
-  it('single-candidate lessThan emits toBeLessThan (defensive completeness, ASRT-01)', () => {
+  it('single-candidate lessThan emits toBeLessThan (defensive completeness)', () => {
     const step: Step07 = {
       name: 'Assert lt',
       type: 'assertElementContent',
@@ -651,10 +650,10 @@ describe('Phase 9 ASRT-01 numeric operators greater/lessThan via expect.poll (D-
 });
 
 // ---------------------------------------------------------------------------
-// Phase 9, plan 09-02, Task 3: ASRT-02 variable-aware content values
+// Task 3: variable-aware content values
 // ---------------------------------------------------------------------------
 
-describe('Phase 9 ASRT-02 convertVariables wired into content-assert values (byte-stable when no variable)', () => {
+describe('convertVariables wired into content-assert values (byte-stable when no variable)', () => {
   it('contains with {{ CONTENT_VAR }} emits a backtick template resolving process.env.CONTENT_VAR, no literal double-brace', () => {
     const step: Step07 = {
       name: 'Assert v',
@@ -735,9 +734,9 @@ describe('Phase 9 ASRT-02 convertVariables wired into content-assert values (byt
 });
 
 // ---------------------------------------------------------------------------
-// FID-08 guard (Phase 9.5, plan 09.5-02, Task 3): the retired hedge tokens stay
-// retired. This is the permanent anti-drift control for ROADMAP success
-// criterion 8 (no shipped comment claims an unverified Datadog behavior). It
+// Retired-hedge-token guard: the retired hedge tokens stay retired. This is the
+// permanent anti-drift control (no shipped comment claims an unverified Datadog
+// behavior). It
 // walks every .ts file under src/ and src/shared/ and asserts that neither the
 // uppercase inversion keyword nor the any-character spot-check pattern appears.
 // Offline, no glob, no subprocess (Testing SOP): a deterministic readdirSync
@@ -748,7 +747,7 @@ describe('Phase 9 ASRT-02 convertVariables wired into content-assert values (byt
 // scanned scope, but building from parts avoids a self-match noise hit).
 // ---------------------------------------------------------------------------
 
-describe('FID-08 guard: retired hedge tokens stay retired (ROADMAP success criterion 8)', () => {
+describe('guard: retired hedge tokens stay retired (ROADMAP success criterion 8)', () => {
   const SRC_ROOT = join(__dirname, '..', '..', 'src');
   // Case-sensitive uppercase inversion keyword ("INVERT") and the any-character
   // spot-check pattern ("spot" + any char + "check"), built from parts.
@@ -787,7 +786,7 @@ describe('FID-08 guard: retired hedge tokens stay retired (ROADMAP success crite
     assert.equal(
       offenders.length,
       0,
-      `no src/ file may carry a retired hedge token (FID-08); offenders: ${offenders.join(', ')}`,
+      `no src/ file may carry a retired hedge token; offenders: ${offenders.join(', ')}`,
     );
   });
 });

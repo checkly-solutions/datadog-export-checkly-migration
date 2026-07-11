@@ -370,9 +370,9 @@ export function generateApiCheckCode(check: ChecklyCheck): string {
   } = check;
 
   const datadogPublicId = _datadogMeta?.publicId || check.logicalId;
-  // D-03 reconciliation: the api emit site and its step-12 CSV row both call the
-  // one shared helper with the same resolved Datadog public_id, so a single name
-  // collision can no longer collapse two checks to one logical id (DEPLOY-01).
+  // The api emit site and its step-12 CSV row both call the one shared helper with
+  // the same resolved Datadog public_id, so a single name collision can no longer
+  // collapse two checks to one logical id.
   const logicalId = uniqueLogicalId('api', name, datadogPublicId);
 
   // Filter and remap Datadog-origin tags, then add migration traceability tag
@@ -439,14 +439,14 @@ export function generateApiCheckCode(check: ChecklyCheck): string {
     }`);
   }
 
-  // Redirect fidelity (FID-01/FID-02, D-04): emit only for an explicit Datadog false;
-  // true or absent is omitted so Checkly's default (follow) applies.
+  // Redirect fidelity: emit only for an explicit Datadog false; true or absent is
+  // omitted so Checkly's default (follow) applies.
   if (request.followRedirects === false) {
     requestLines.push(`followRedirects: false`);
   }
 
-  // TLS-verification fidelity (FID-03, D-05): emit only for an explicit Datadog true;
-  // false or absent is omitted so Checkly's default (verify) applies.
+  // TLS-verification fidelity: emit only for an explicit Datadog true; false or
+  // absent is omitted so Checkly's default (verify) applies.
   if (request.skipSSL === true) {
     requestLines.push(`skipSSL: true`);
   }
@@ -468,10 +468,10 @@ export function generateApiCheckCode(check: ChecklyCheck): string {
 
   // Filter out unsupported location formats (azure:*, gcp:* are not valid Checkly
   // locations) and strip any aws: prefix. Shared helper, also used by step 06,
-  // so the ApiCheck and MultiStepCheck location paths stay in sync (WR-03).
+  // so the ApiCheck and MultiStepCheck location paths stay in sync.
   const cleanLocations = normalizePublicChecklyLocations(locations);
 
-  // Convert configVariables to environmentVariables (D-05: inline, one entry per line)
+  // Convert configVariables to environmentVariables (inline, one entry per line)
   const envVars = convertConfigVariables(check.configVariables);
   const envVarsCode = envVars.length > 0
     ? `\n  environmentVariables: [\n${envVars.map(v =>
@@ -665,7 +665,7 @@ async function main(): Promise<void> {
   console.log('\nWriting variable usage report...');
   await writeVariableUsageReport();
 
-  // Write check-level secrets for downstream step 09 (D-06, D-08)
+  // Write check-level secrets for downstream step 09
   const checkLevelSecrets: Array<{ checkName: string; key: string; value: string; locked: boolean }> = [];
   for (const check of validChecks) {
     const envVars = convertConfigVariables(check.configVariables);

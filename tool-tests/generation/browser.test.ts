@@ -1,15 +1,15 @@
 /**
- * Generation tests for the browser pipeline seam (VAL-01, D-04).
+ * Generation tests for the browser pipeline seam.
  *
  * Calls the exported generateSpecFile from step 07 (aliased to
  * generateBrowserSpec, since step 05 exports the same name) and
  * generateBrowserCheckCode from step 08 directly. Step 07's generateSpecFile
  * returns an object ({ spec, hasIframes, iframeStepCount }); tests destructure
- * it and assert on the spec property. No subprocess, no file writes (D-04);
- * structural assertions only, never snapshots (D-03).
+ * it and assert on the spec property. No subprocess, no file writes;
+ * structural assertions only, never snapshots.
  *
  * Fixture note: browser fixtures place steps at the test TOP level because
- * src/07 destructures test.steps (characterization from plan 01-01).
+ * src/07 destructures test.steps (characterization from).
  */
 process.env.CHECKLY_ACCOUNT_NAME ??= 'tool-tests';
 
@@ -61,7 +61,7 @@ const browserRegexFixture = JSON.parse(
  * generateBrowserCheckCode calls filterAndRemapTags, which reads
  * DD_TAGS_EXCLUDE, DD_TAGS_EXCLUDE_ALL, and DD_TAGS_REMAP at call time.
  * Snapshot and clear all three before the tests and restore them exactly
- * afterwards (threat T-01-14).
+ * afterwards.
  */
 const DD_TAG_VARS = ['DD_TAGS_EXCLUDE', 'DD_TAGS_EXCLUDE_ALL', 'DD_TAGS_REMAP'] as const;
 let savedTagEnv: Record<string, string | undefined> = {};
@@ -107,9 +107,9 @@ describe('step 07 generateSpecFile: browser spec baseline', () => {
     );
   });
 
-  it('emits the clicked step (multi-candidate firstMatch chain, LOC-02/LOC-05) and the page-contains assertion', () => {
+  it('emits the clicked step (multi-candidate firstMatch chain) and the page-contains assertion', () => {
     const { spec } = generateBrowserSpec(browserFixture, new FlagCollector());
-    // Phase 8 LOC-02/LOC-05: the <button id="submit">Sign in</button> now resolves
+    // the <button id="submit">Sign in</button> now resolves
     // to an ORDERED multi-candidate chain (role-scoped getByRole first, the demoted
     // id rung as fallback), emitted through the firstMatch spine so the click
     // regenerates Datadog's self-healing behavior. The role rung leads the chain
@@ -140,7 +140,7 @@ describe('step 07 generateSpecFile: browser spec baseline', () => {
   });
 });
 
-describe('step 07 generateAssertElementContent: escaped regex emission (REGX-02, REGX-03)', () => {
+describe('step 07 generateAssertElementContent: escaped regex emission', () => {
   const totalElement = { targetOuterHTML: '<span id="total">Total: $42.50 (net)</span>' };
 
   it('startsWith emits a web-first locator toHaveText with a caret-anchored escaped pattern', () => {
@@ -189,7 +189,7 @@ describe('step 07 generateAssertElementContent: escaped regex emission (REGX-02,
   });
 });
 
-describe('step 07 generateAssertCurrentUrl: constructor-form URL patterns (REGX-02)', () => {
+describe('step 07 generateAssertCurrentUrl: constructor-form URL patterns', () => {
   it('contains with a slash-bearing value emits an escaped constructor-form toHaveURL', () => {
     const step: Step07 = {
       name: 'Assert URL',
@@ -233,10 +233,10 @@ describe('step 07 generateAssertCurrentUrl: constructor-form URL patterns (REGX-
   });
 });
 
-describe('step 07 generateAssertCurrentUrl: resolves {{ VAR }} to process.env on all four branches (ASRT-03)', () => {
-  // A URL value carrying a Datadog variable reference. Before ASRT-03 the four
-  // branches emitted the literal double-brace text (a URL that can never match);
-  // after ASRT-03 the variable resolves to process.env at runtime, and the three
+describe('step 07 generateAssertCurrentUrl: resolves {{ VAR }} to process.env on all four branches', () => {
+  // A URL value carrying a Datadog variable reference. Without variable resolution
+  // the four branches would emit the literal double-brace text (a URL that can never
+  // match); the variable resolves to process.env at runtime, and the three
   // RegExp branches runtime-escape the resolved value so a hostile runtime value
   // cannot act as regex metacharacters (shared INLINE_REGEX_ESCAPE idiom).
   const VARIABLE_URL = 'https://example.com/{{ URL_VAR }}/dash';
@@ -295,11 +295,12 @@ describe('step 07 generateAssertCurrentUrl: resolves {{ VAR }} to process.env on
   });
 });
 
-describe('step 07 assertPageLacks: negative page-content dispatch (ASRT-05)', () => {
-  // Before ASRT-05 an assertPageLacks step fell through the dispatch default and
-  // recorded an unsupported-step-type flag (silently dropped, no assertion). After
-  // ASRT-05 it emits a live negative body-content assertion (.not.toContainText)
-  // and records zero flags. assertPageLacks carries params.value only (a text), so
+describe('step 07 assertPageLacks: negative page-content dispatch', () => {
+  // Without the dedicated dispatch case an assertPageLacks step falls through the
+  // default and records an unsupported-step-type flag (silently dropped, no
+  // assertion). With the dispatch case it emits a live negative body-content
+  // assertion (.not.toContainText) and records zero flags. assertPageLacks carries
+  // params.value only (a text), so
   // it is the negative of page-content, NOT of element presence.
 
   it('dispatches to a live not.toContainText body assertion and records zero flags', () => {
@@ -351,8 +352,8 @@ describe('step 07 assertPageLacks: negative page-content dispatch (ASRT-05)', ()
   });
 });
 
-describe('step 07 generateIframeStepCode: startsWith case in sync with default path (REGX-03)', () => {
-  it('assertElementContent startsWith emits the identical constructor-form toHaveText as the default path (folded, plan 08-04)', () => {
+describe('step 07 generateIframeStepCode: startsWith case in sync with default path', () => {
+  it('assertElementContent startsWith emits the identical constructor-form toHaveText as the default path (folded)', () => {
     const step: Step07 = {
       name: 'Assert total starts',
       type: 'assertElementContent',
@@ -375,21 +376,21 @@ describe('step 07 generateIframeStepCode: startsWith case in sync with default p
 });
 
 /**
- * DEPLOY-04 / D-04: element variable names must be valid TS identifiers.
+ * element variable names must be valid TS identifiers.
  *
  * A Datadog step named "3DotsToEdit menu" becomes the camelCase base
  * "3dotstoeditMenu"; before the fix it would have emitted a `const 3dotstoeditMenu
  * = ...` declaration (a bundle-time SyntaxError). generateElementVarName routes its
- * return through the canonical sanitizeIdentifier (fixed in plan 06-01), so the
+ * return through the canonical sanitizeIdentifier (fixed in), so the
  * digit-leading base is guarded to "_3dotstoeditMenu". These first cases pin that
  * guard directly.
  *
- * Note (plan 08-04): generateIframeStepCode no longer emits an element const at all
+ * Note: generateIframeStepCode no longer emits an element const at all
  * (the iframe path is folded into the single firstMatch chain), so the const-shape
  * assertions below now confirm the folded emission delegates to the default path
  * and declares NO const, while generateElementVarName keeps its own guard coverage.
  */
-describe('step 07 generateElementVarName / generateIframeStepCode: digit-leading identifier guard (DEPLOY-04, D-04)', () => {
+describe('step 07 generateElementVarName / generateIframeStepCode: digit-leading identifier guard', () => {
   it('guards a digit-leading step name with a leading underscore', () => {
     const step: Step07 = { name: '3DotsToEdit menu', type: 'click' };
     assert.equal(
@@ -438,7 +439,7 @@ describe('step 07 generateElementVarName / generateIframeStepCode: digit-leading
   });
 });
 
-describe('step 07 generateRunApiTest: unified regex extraction convention (REGX-01, REGX-04)', () => {
+describe('step 07 generateRunApiTest: unified regex extraction convention', () => {
   function runApiStep(extractValues: Array<{ name: string; parser: { type: string; value: string } }>): Step07 {
     return {
       name: 'Fetch OTP',
@@ -499,16 +500,16 @@ describe('step 07 generateRunApiTest: unified regex extraction convention (REGX-
   });
 });
 
-describe('step 07 generateSpecFile: regex escaping end to end (REGX-01..04)', () => {
+describe('step 07 generateSpecFile: regex escaping end to end', () => {
   it('emits the escaped caret-anchored toHaveText and never the nullable text-content call', () => {
     const { spec } = generateBrowserSpec(browserRegexFixture, new FlagCollector());
     assert.ok(
       spec.includes('toHaveText(new RegExp("^Total: \\\\$42\\\\.50 \\\\(net\\\\)"))'),
-      'metacharacter literal must be escaped and caret-anchored (REGX-02, REGX-03)'
+      'metacharacter literal must be escaped and caret-anchored'
     );
     assert.ok(
       !spec.includes('.textContent()'),
-      'the nullable text-content call form must be gone (REGX-03)'
+      'the nullable text-content call form must be gone'
     );
   });
 
@@ -516,25 +517,25 @@ describe('step 07 generateSpecFile: regex escaping end to end (REGX-01..04)', ()
     const { spec } = generateBrowserSpec(browserRegexFixture, new FlagCollector());
     assert.ok(
       spec.includes('toHaveURL(new RegExp("app\\\\.example\\\\.com/checkout/step-1"))'),
-      'URL assertion must be constructor form with escaped dots (REGX-02)'
+      'URL assertion must be constructor form with escaped dots'
     );
     assert.ok(
       !spec.includes('toHaveURL(/'),
-      'no slash-delimited regex literal may follow toHaveURL (REGX-02)'
+      'no slash-delimited regex literal may follow toHaveURL'
     );
   });
 
   it('emits the unified extraction convention once per parser with g stripped', () => {
     const { spec } = generateBrowserSpec(browserRegexFixture, new FlagCollector());
     const conventionCount = spec.split("(m => m?.[1] ?? m?.[0] ?? '')").length - 1;
-    assert.equal(conventionCount, 2, 'both parsers must share the unified convention (REGX-04)');
+    assert.equal(conventionCount, 2, 'both parsers must share the unified convention');
     assert.ok(
       spec.includes('new RegExp("\\\\b\\\\d{6}\\\\b"))'),
-      'slash-wrapped g-flagged parser must emit flagless constructor form (REGX-04)'
+      'slash-wrapped g-flagged parser must emit flagless constructor form'
     );
     assert.ok(
       spec.includes('new RegExp("ref=(\\\\d{4})")'),
-      'bare capture-group parser must embed verbatim (REGX-04)'
+      'bare capture-group parser must embed verbatim'
     );
   });
 });
@@ -542,7 +543,7 @@ describe('step 07 generateSpecFile: regex escaping end to end (REGX-01..04)', ()
 describe('step 08 generateBrowserCheckCode: construct baseline', () => {
   const specFilename = 'unit-browser-flow.spec.ts';
 
-  it('emits a BrowserCheck constructor call with the public_id-tailed logical id (D-01)', () => {
+  it('emits a BrowserCheck constructor call with the public_id-tailed logical id', () => {
     const output = generateBrowserCheckCode(browserFixture, specFilename, 'public', false);
     assert.ok(
       output.includes('new BrowserCheck("browser-unit-browser-flow-syn-106-pqr", {'),
@@ -571,29 +572,29 @@ describe('step 08 generateBrowserCheckCode: construct baseline', () => {
 });
 
 /**
- * DEPLOY-01 / DEPLOY-05 / DEPLOY-06 (D-01, D-07, D-06): the browser construct
+ * the browser construct
  * emit site is the literal anchor of all three deploy blockers.
  *
- * DEPLOY-01: two same-named browser tests currently share the logical id
+ * two same-named browser tests currently share the logical id
  * "browser-<name-slug>" and abort `npx checkly test` with the duplicate-resource
  * diagnostic. The fix tails the public_id (uniqueLogicalId), so distinct
  * public_ids yield distinct logical ids.
  *
- * DEPLOY-05: the name line uses a quotes-only inline escape today, so a backslash
+ * the name line uses a quotes-only inline escape today, so a backslash
  * or newline in the Datadog test name escapes out of the emitted string literal.
  * The fix routes the name through the canonical escapeString.
  *
- * DEPLOY-06: the locations array is emitted via raw JSON.stringify(locations),
+ * the locations array is emitted via raw JSON.stringify(locations),
  * the one emit site that never called the deduping normalizer. The fix routes it
  * through normalizePublicChecklyLocations; privateLocations must stay untouched.
  *
  * All variants are built by spread-cloning the loaded fixture with synthetic-only
  * overrides (syn- ids, names 25 chars or fewer). The fixture JSON is never edited.
  */
-describe('step 08 generateBrowserCheckCode: deploy-blocking emit hardening (DEPLOY-01/05/06)', () => {
+describe('step 08 generateBrowserCheckCode: deploy-blocking emit hardening', () => {
   const specFilename = 'unit-browser-flow.spec.ts';
 
-  it('two same-named tests with distinct public_ids emit distinct logical ids (DEPLOY-01)', () => {
+  it('two same-named tests with distinct public_ids emit distinct logical ids', () => {
     const first = { ...browserFixture, public_id: 'syn-106-pqr' };
     const second = { ...browserFixture, public_id: 'syn-206-tuv' };
     const firstOut = generateBrowserCheckCode(first, specFilename, 'public', false);
@@ -608,7 +609,7 @@ describe('step 08 generateBrowserCheckCode: deploy-blocking emit hardening (DEPL
     assert.equal(secondId, 'browser-unit-browser-flow-syn-206-tuv');
   });
 
-  it('a name with a backslash and a newline emits a fully escaped literal (DEPLOY-05)', () => {
+  it('a name with a backslash and a newline emits a fully escaped literal', () => {
     // JSON-encoded synthetic name (25 chars or fewer): "a\b\nc"
     const clone = { ...browserFixture, name: 'a\\b\nc' };
     const output = generateBrowserCheckCode(clone, specFilename, 'public', false);
@@ -620,7 +621,7 @@ describe('step 08 generateBrowserCheckCode: deploy-blocking emit hardening (DEPL
     assert.ok(!nameLine!.includes('\n', 'name:'.length), 'no raw newline may sit inside the name string literal');
   });
 
-  it('deduplicates the public locations array through the shared normalizer (DEPLOY-06)', () => {
+  it('deduplicates the public locations array through the shared normalizer', () => {
     const clone = {
       ...browserFixture,
       locations: ['aws:us-east-1', 'us-east-1'],
@@ -653,7 +654,7 @@ describe('step 08 generateBrowserCheckCode: deploy-blocking emit hardening (DEPL
   });
 });
 
-describe('Phase 3: browser certificate-ignore fidelity (FID-04)', () => {
+describe('browser certificate-ignore fidelity', () => {
   it('synthetic true: emits file-scope test.use ignoreHTTPSErrors before test.describe', () => {
     const fixture = structuredClone(browserFixture);
     fixture.options.ignoreServerCertificateError = true;
@@ -689,14 +690,14 @@ describe('Phase 3: browser certificate-ignore fidelity (FID-04)', () => {
 });
 
 /**
- * Phase 7 FLAG-04 spec side (D-05, D-06): a zero-signal locator step must emit a
+ * spec side: a zero-signal locator step must emit a
  * loud inline MIGRATION-FLAG marker with the preserved DD step and a commented-out
  * action, record a deactivating flag, and never emit a runnable statement or a
  * Playwright test.skip. The unsupported-step-type dispatch default must emit a
  * structured, non-deactivating flag. All inputs are inline synthetic steps
  * (invented values, names 25 chars or fewer, syn- ids).
  */
-describe('step 07 FLAG-04 locator-unresolvable: zero-candidate spec-side emit (D-05, D-06)', () => {
+describe('step 07 locator-unresolvable: zero-candidate spec-side emit', () => {
   it('Test 1 (unit): generateClick on a zero-signal step emits the marker, preserved DD step, commented-out action, and records one deactivating flag', () => {
     const step: Step07 = {
       name: 'Click ghost',
@@ -708,7 +709,7 @@ describe('step 07 FLAG-04 locator-unresolvable: zero-candidate spec-side emit (D
 
     assert.ok(out.includes('// MIGRATION-FLAG: locator-unresolvable'), 'the loud marker must be present');
     // Preserved DD step, using the label the shipped formatInlineMarker emits. The
-    // step name's quotes route through escapeString (T-07-01), so they surface as \".
+    // step name's quotes route through escapeString, so they surface as \".
     assert.ok(out.includes('// DD original: click \\"Click ghost\\"'), 'the preserved DD step must appear on an adjacent comment line');
     // The intended action is commented out (four-space body depth, two slashes), never runnable.
     assert.ok(out.includes('    // ') && out.includes('.click()'), 'the intended click statement must be commented out');
@@ -722,7 +723,7 @@ describe('step 07 FLAG-04 locator-unresolvable: zero-candidate spec-side emit (D
     assert.equal(ctx.collector.flags.length, 1, 'exactly one flag must be recorded');
     const flag = ctx.collector.flags[0];
     assert.equal(flag.reason, 'locator-unresolvable');
-    assert.equal(flag.deactivates, true, 'the zero-candidate flag must deactivate (D-05)');
+    assert.equal(flag.deactivates, true, 'the zero-candidate flag must deactivate');
     assert.equal(flag.publicId, 'syn-401-aaa', 'the flag must carry the ctx publicId');
     assert.equal(flag.stepIndex, 3, 'the flag must carry the ctx stepIndex');
   });
@@ -740,11 +741,11 @@ describe('step 07 FLAG-04 locator-unresolvable: zero-candidate spec-side emit (D
 
     assert.ok(spec.includes('// MIGRATION-FLAG: locator-unresolvable'), 'spec must carry the loud marker');
     assert.ok(!spec.includes('page.locator("/* MANUAL'), 'the executable manual-locator placeholder must be gone');
-    assert.ok(!spec.includes('test.skip'), 'a flagged spec must never emit test.skip (D-05)');
+    assert.ok(!spec.includes('test.skip'), 'a flagged spec must never emit test.skip');
     assert.deepEqual(collector.deactivatedCheckIds(), ['syn-402-bbb'], 'the flagged check must be in the deactivated set');
     // Baseline steps still emit their live statements (the button click is now a
-    // role-led firstMatch chain under Phase 8 LOC-02/LOC-05, with the factory
-    // hoisted into a named CandidateFactory const, readability Option C).
+    // role-led firstMatch chain under, with the factory
+    // hoisted into a named CandidateFactory const, readability).
     assert.ok(
       spec.includes('const step3ClickSignIn: CandidateFactory = (root) => [\n')
         && spec.includes('await (await firstMatch(page, step3ClickSignIn)).click();'),
@@ -768,7 +769,7 @@ describe('step 07 FLAG-04 locator-unresolvable: zero-candidate spec-side emit (D
     assert.equal(ctx.collector.flags.length, 1, 'exactly one flag must be recorded');
     const flag = ctx.collector.flags[0];
     assert.equal(flag.reason, 'unsupported-step-type');
-    assert.ok(!flag.deactivates, 'the unsupported-step-type flag must not deactivate (D-06)');
+    assert.ok(!flag.deactivates, 'the unsupported-step-type flag must not deactivate');
   });
 
   it('Test 5 (per-run aggregation): one collector across two specs accumulates two flags with distinct publicIds', () => {
@@ -792,11 +793,11 @@ describe('step 07 FLAG-04 locator-unresolvable: zero-candidate spec-side emit (D
 });
 
 /**
- * Phase 7 FLAG-02 (D-03 surface 1): buildMigrationFlagsFile assembles the
- * deterministic MigrationFlagsFile that main() serializes. No wall-clock, arrays
- * present even when empty, both id sets recoverable for step 08 (07-04).
+ * buildMigrationFlagsFile assembles the deterministic MigrationFlagsFile that main()
+ * serializes. No wall-clock, arrays present even when empty, both id sets recoverable
+ * for step 08.
  */
-describe('step 07 FLAG-02 buildMigrationFlagsFile: deterministic aggregate shape (D-03)', () => {
+describe('step 07 buildMigrationFlagsFile: deterministic aggregate shape', () => {
   it('Test 6 (builder shape): assembles both records, the deactivated set, the deduped flagged set, and carries no timestamp', () => {
     const collector = new FlagCollector();
     collector.emitFlag(
@@ -834,17 +835,17 @@ describe('step 07 FLAG-02 buildMigrationFlagsFile: deterministic aggregate shape
 });
 
 /**
- * Phase 7 FLAG-05 detectLocatorResidue (SC-4 residue fragment): the pure predicate
- * over the RESOLVED locator value classifies Tier-2/3 recording residue into a
- * distinct reason code, first hit wins, at most one FLAG-05 flag per step. Every
- * residue value below is authored synthetic from scratch: invented class hashes,
+ * detectLocatorResidue: the pure predicate over the RESOLVED locator value
+ * classifies recording residue into a distinct reason code, first hit wins, at most
+ * one residue flag per step. Every residue value below is authored synthetic from
+ * scratch: invented class hashes,
  * invented xpath shapes, example.com hosts, syn- ids. [object Object] itself is a
  * universal JavaScript artifact, never customer data. The Locator interface is not
  * exported, so the predicate's param type is derived via Parameters<...>.
  */
 type ResidueLocator = Parameters<typeof detectLocatorResidue>[0];
 
-describe('step 07 FLAG-05 detectLocatorResidue: residue predicate (SC-4)', () => {
+describe('step 07 detectLocatorResidue: residue predicate', () => {
   it('rule 1: an xpath value embedding [object Object] returns unconvertible-locator', () => {
     const loc: ResidueLocator = {
       type: 'xpath',
@@ -923,14 +924,14 @@ describe('step 07 FLAG-05 detectLocatorResidue: residue predicate (SC-4)', () =>
 });
 
 /**
- * Phase 7 FLAG-05 seam integration: the single detection wiring point at the
+ * seam integration: the single detection wiring point at the
  * generateStepCode seam covers BOTH the default and the iframe emission paths. A
  * residue-locator step records exactly one flag through the canonical collector
  * while its faithful locator statement still emits LIVE and unchanged (detection
- * only, D-06: FLAG-05 residue stays active plus flagged, never commented out,
- * never deactivated). Inputs are inline synthetic BrowserTest objects.
+ * only: residue stays active plus flagged, never commented out, never deactivated).
+ * Inputs are inline synthetic BrowserTest objects.
  */
-describe('step 07 FLAG-05 seam wiring: residue detection through generateSpecFile (D-06)', () => {
+describe('step 07 residue seam wiring: residue detection through generateSpecFile', () => {
   it('a click step whose resolved locator embeds [object Object] records one unconvertible-locator flag and still emits the live statement', () => {
     const test = {
       public_id: 'syn-505-aaa',
@@ -964,7 +965,7 @@ describe('step 07 FLAG-05 seam wiring: residue detection through generateSpecFil
     assert.equal(residueFlags.length, 1, 'exactly one unconvertible-locator flag must be recorded');
     assert.equal(residueFlags[0].publicId, 'syn-505-aaa', 'the flag must carry the test public_id');
     assert.equal(residueFlags[0].stepIndex, 1, 'the flag must carry the 0-based step index of the residue step');
-    assert.ok(!residueFlags[0].deactivates, 'FLAG-05 residue must NOT deactivate (D-06)');
+    assert.ok(!residueFlags[0].deactivates, 'residue must NOT deactivate');
     assert.ok(spec.includes('// MIGRATION-FLAG: unconvertible-locator'), 'the loud inline marker must appear in the spec');
     assert.ok(spec.includes('// DD original: click \\"Click ghost\\"'), 'the preserved DD step must appear adjacent');
     // Detection only: the faithful locator statement still emits LIVE and unchanged.
@@ -994,10 +995,10 @@ describe('step 07 FLAG-05 seam wiring: residue detection through generateSpecFil
           params: {
             // Cross-origin element.url routes this step down the iframe path. The
             // residue signal is an attribute-predicated `at` xpath embedding the
-            // serialized-object artifact: under Phase 8 LOC-06 a hashed-class-only
-            // element is now REJECTED upstream (it becomes a zero-candidate FLAG-04
-            // case, not a residue FLAG-05 case), so residue detection is exercised
-            // through an xpath candidate that survives extraction and still flags.
+            // serialized-object artifact: a hashed-class-only element is REJECTED
+            // upstream (it becomes a zero-candidate case, not a residue case), so
+            // residue detection is exercised through an xpath candidate that survives
+            // extraction and still flags.
             element: {
               url: 'https://widgets.example.com/embed/panel',
               multiLocator: { at: '/descendant::*[@aria-label="[object Object]"]/descendant::*[1]' },
@@ -1019,14 +1020,14 @@ describe('step 07 FLAG-05 seam wiring: residue detection through generateSpecFil
     // not a findInFrame assignment. The residue is still detected and flagged.
     assert.ok(
       spec.includes('await expect(page.locator("xpath=/descendant::*[@aria-label=\\"[object Object]\\"]/descendant::*[1]")).toBeAttached();'),
-      'the live folded locator statement must still emit (attached-state presence, ASRT-06)'
+      'the live folded locator statement must still emit (attached-state presence)'
     );
     assert.ok(!spec.includes('findInFrame'), 'the folded iframe spec must not reference the retired findInFrame helper');
     // The iframe-classified element step must carry its provenance comment.
     assert.ok(spec.includes('// May be inside an iframe'), 'the iframe step must carry the provenance comment');
   });
 
-  it('a step with a clean id locator records zero FLAG-05 flags', () => {
+  it('a step with a clean id locator records zero residue flags', () => {
     const test = {
       public_id: 'syn-507-ccc',
       name: 'Clean click flow',
@@ -1052,12 +1053,12 @@ describe('step 07 FLAG-05 seam wiring: residue detection through generateSpecFil
     const residueFlags = collector.flags.filter(
       f => f.reason === 'unconvertible-locator' || f.reason === 'xpath-positional'
     );
-    assert.equal(residueFlags.length, 0, 'a clean id locator must record no FLAG-05 residue flags');
+    assert.equal(residueFlags.length, 0, 'a clean id locator must record no residue flags');
   });
 });
 
 /**
- * Phase 7 FLAG-05 zero-assertion (SC-4, spec-level): a generated spec containing
+ * zero-assertion (SC-4, spec-level): a generated spec containing
  * no runtime assertion records exactly ONE zero-assertion flag with stepIndex
  * strictly null. Any emitted expect( or expect.soft( counts as an assertion,
  * including runApiTest's toBeOK form; comment lines (commented-out flagged steps)
@@ -1065,7 +1066,7 @@ describe('step 07 FLAG-05 seam wiring: residue detection through generateSpecFil
  * or fewer, syn- ids, example.com URLs), driven through generateSpecFile with a
  * fresh collector per case.
  */
-describe('step 07 FLAG-05 zero-assertion: spec-level assertion-free flag (SC-4)', () => {
+describe('step 07 zero-assertion: spec-level assertion-free flag', () => {
   function mkTest(publicId: string, steps: unknown[]): Parameters<typeof generateBrowserSpec>[0] {
     return {
       public_id: publicId,
@@ -1174,8 +1175,8 @@ describe('step 07 FLAG-05 zero-assertion: spec-level assertion-free flag (SC-4)'
       mkTest('syn-525-fff', [
         { name: 'Open home', type: 'goToUrl', params: { value: 'https://app.example.com/home' } },
         // Empty element object -> extractLocator returns null -> withLocator comments
-        // the assertion out via the FLAG-04 path. A commented-out expect is not a
-        // runtime assertion, so the spec is still assertion-free.
+        // the assertion out via the locator-unresolvable path. A commented-out expect
+        // is not a runtime assertion, so the spec is still assertion-free.
         { name: 'Assert ghost', type: 'assertElementPresent', params: { element: {} } },
       ]),
       collector,
@@ -1183,7 +1184,7 @@ describe('step 07 FLAG-05 zero-assertion: spec-level assertion-free flag (SC-4)'
     assert.equal(
       collector.flags.filter(f => f.reason === 'locator-unresolvable').length,
       1,
-      "the FLAG-04 path must fire for the zero-signal assertion step"
+      "the locator-unresolvable path must fire for the zero-signal assertion step"
     );
     assert.equal(
       collector.flags.filter(f => f.reason === 'zero-assertion').length,
@@ -1194,17 +1195,16 @@ describe('step 07 FLAG-05 zero-assertion: spec-level assertion-free flag (SC-4)'
 });
 
 /**
- * Phase 7 GEN-01 (D-07, D-08, D-09): generateWait parse-hardening. The
- * seconds-to-ms `* 1000` multiplier is CORRECT and stays (D-07 disproves the RCA
- * 1000x premise: Datadog documents browser waits in seconds, max 300). A valid
- * wait emits `await page.waitForTimeout(<ms>);` with ZERO flags (Option A, D-08).
+ * generateWait parse-hardening. The seconds-to-ms `* 1000` multiplier is CORRECT
+ * (Datadog documents browser waits in seconds, max 300). A valid wait emits
+ * `await page.waitForTimeout(<ms>);` with ZERO flags.
  * A missing, empty, non-numeric, zero/negative, or `> 300` value emits a
  * `wait-value-invalid` flag through the threaded collector, a loud MIGRATION-FLAG
  * marker, and a commented-out (non-executable) waitForTimeout line, never a
  * silently invented 1-second wait. Driven directly against generateWait with a
  * synthetic step and the collector-bearing StepFlagContext seam.
  */
-describe('step 07 GEN-01 generateWait parse guard (D-07, D-08, D-09)', () => {
+describe('step 07 generateWait parse guard', () => {
   function waitStep(value?: unknown): Step07 {
     const params = value === undefined ? {} : { value };
     return { name: 'Pause', type: 'wait', params } as unknown as Step07;
@@ -1214,7 +1214,7 @@ describe('step 07 GEN-01 generateWait parse guard (D-07, D-08, D-09)', () => {
     const ctx = mkCtx({ publicId: 'syn-601-aaa', stepIndex: 0 });
     const out = generateWait(waitStep('5'), ctx);
     assert.equal(out, '    await page.waitForTimeout(5000);', 'the *1000 seconds-to-ms multiplier must stay');
-    assert.equal(ctx.collector.flags.length, 0, 'a valid wait must record no flag (Option A, D-08)');
+    assert.equal(ctx.collector.flags.length, 0, 'a valid wait must record no flag');
   });
 
   it('Test 2 (valid JSON number): number 10 emits waitForTimeout(10000), no flag', () => {
@@ -1236,7 +1236,7 @@ describe('step 07 GEN-01 generateWait parse guard (D-07, D-08, D-09)', () => {
     const out = generateWait(waitStep(undefined), ctx);
     assert.equal(ctx.collector.flags.length, 1, 'a missing value must record exactly one flag');
     const flag = ctx.collector.flags[0];
-    assert.equal(flag.reason, 'wait-value-invalid', 'the reason must be wait-value-invalid (D-08, not a unit code)');
+    assert.equal(flag.reason, 'wait-value-invalid', 'the reason must be wait-value-invalid, not a unit code');
     assert.equal(flag.publicId, 'syn-604-ddd', 'the flag must carry the check public_id');
     assert.equal(flag.stepIndex, 4, 'the flag must carry the 0-based step index');
     assert.ok(!flag.deactivates, 'a wait-value-invalid flag must not deactivate');
@@ -1266,7 +1266,7 @@ describe('step 07 GEN-01 generateWait parse guard (D-07, D-08, D-09)', () => {
 });
 
 /**
- * Phase 7 GEN-02 (D-10): generatePressKey alias map plus key-unmapped flag. Known
+ * generatePressKey alias map plus key-unmapped flag. Known
  * Datadog key names are normalized to Playwright's KeyboardEvent.key set and
  * emitted via page.keyboard.press() (the press form for keys not aimed at an
  * element, matching Datadog pressKey semantics; verified against the Playwright
@@ -1275,7 +1275,7 @@ describe('step 07 GEN-01 generateWait parse guard (D-07, D-08, D-09)', () => {
  * F-keys and single printable characters pass through; an unmapped name records a
  * key-unmapped flag with the press line commented out, never an active raw press.
  */
-describe('step 07 GEN-02 generatePressKey alias map (D-10)', () => {
+describe('step 07 generatePressKey alias map', () => {
   function keyStep(value: string): Step07 {
     return { name: 'Press', type: 'pressKey', params: { value } } as unknown as Step07;
   }
@@ -1346,7 +1346,7 @@ describe('step 07 GEN-02 generatePressKey alias map (D-10)', () => {
 });
 
 /**
- * Phase 7 GEN-03 (D-11): cookie attribute-token filter in generateSpecFile's
+ * cookie attribute-token filter in generateSpecFile's
  * setCookie loop. A Set-Cookie string carries the cookie's name=value plus
  * attribute tokens (Secure, HttpOnly, Path=, Expires=, Domain=, SameSite=,
  * Max-Age, Priority). Those attribute tokens must be filtered case-insensitively
@@ -1356,7 +1356,7 @@ describe('step 07 GEN-02 generatePressKey alias map (D-10)', () => {
  * synthetic BrowserTest objects (names 25 chars or fewer, syn- ids, invented
  * cookie values). Asserts on the emitted addCookies `name: "..."` entries.
  */
-describe('step 07 GEN-03 cookie attribute-token filter (D-11)', () => {
+describe('step 07 cookie attribute-token filter', () => {
   function mkCookieTest(publicId: string, setCookie: string): Parameters<typeof generateBrowserSpec>[0] {
     return {
       public_id: publicId,
