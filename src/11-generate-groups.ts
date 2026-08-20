@@ -12,11 +12,13 @@
 
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'node:url';
 import { getOutputRoot } from './shared/output-config.ts';
 
 let OUTPUT_BASE = '';
 
-const PRIVATE_GROUP = `import { CheckGroupV2 } from "checkly/constructs";
+export const PRIVATE_GROUP = `import { CheckGroupV2 } from "checkly/constructs";
 
 export const private_locations_group = new CheckGroupV2(
   "datadog-migrated-private-checks",
@@ -28,7 +30,7 @@ export const private_locations_group = new CheckGroupV2(
 );
 `;
 
-const PUBLIC_GROUP = `import { CheckGroupV2 } from "checkly/constructs";
+export const PUBLIC_GROUP = `import { CheckGroupV2 } from "checkly/constructs";
 
 export const public_locations_group = new CheckGroupV2(
   "datadog-migrated-public-checks",
@@ -78,7 +80,11 @@ async function main(): Promise<void> {
   console.log('Done!');
 }
 
-main().catch(err => {
-  console.error('Error:', (err as Error).message);
-  process.exit(1);
-});
+// ESM main-guard: only run if this file is the direct entry point
+const __filename = fileURLToPath(import.meta.url);
+if (typeof process.argv[1] === 'string' && path.resolve(__filename) === path.resolve(process.argv[1])) {
+  main().catch(err => {
+    console.error('Error:', (err as Error).message);
+    process.exit(1);
+  });
+}

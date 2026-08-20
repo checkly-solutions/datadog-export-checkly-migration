@@ -29,7 +29,7 @@ export interface VariableUsageReport {
 // In-memory store for variable usage during generation
 const variableUsage: Record<string, Set<string>> = {};
 
-// In-memory store for configVariable conversion metadata (D-10)
+// In-memory store for configVariable conversion metadata
 const conversionMetadata: Record<string, { definedAs: 'environmentVariable' | 'accountLevel' | 'mixed'; source: string }> = {};
 
 /**
@@ -100,7 +100,7 @@ export function getVariableUsage(): Record<string, VariableUsage> {
       usageCount: checks.size,
       checks: Array.from(checks).sort(),
     };
-    // Merge conversion metadata if available (D-10)
+    // Merge conversion metadata if available
     const meta = conversionMetadata[varName];
     if (meta) {
       entry.definedAs = meta.definedAs;

@@ -1,0 +1,26 @@
+{
+  "public_id": "syn-103-ghi",
+  "name": "Unit TCP Monitor",
+  "type": "api",
+  "subtype": "tcp",
+  "status": "live",
+  "tags": ["env:synthetic"],
+  "locations": ["us-east-1"],
+  "privateLocations": [],
+  "originalLocations": ["aws:us-east-1"],
+  "config": {
+    "request": {
+      "host": "db.example.com",
+      "port": 5432
+    },
+    "assertions": [
+      { "type": "responseTime", "operator": "lessThan", "target": 2000 }
+    ]
+  },
+  "options": {
+    "tick_every": 300,
+    "retry": { "count": 1, "interval": 300 }
+  },
+  "message": "Unit tcp alert",
+  "monitor_id": 2103
+}

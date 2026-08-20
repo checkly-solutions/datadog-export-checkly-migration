@@ -101,7 +101,7 @@ async function main(): Promise<void> {
   console.log(`  Non-secure variables: ${envVariables.length}`);
   console.log(`  Secure variables (secrets): ${secrets.length}`);
 
-  // Read check-level secrets accumulated by steps 04/06/08 (D-07, D-08)
+  // Read check-level secrets accumulated by steps 04/06/08
   const checkLevelSecretsPath = `${exportsDir}/check-level-secrets.json`;
   let checkLevelSecrets: CheckLevelSecret[] = [];
   if (existsSync(checkLevelSecretsPath)) {
@@ -127,7 +127,7 @@ async function main(): Promise<void> {
   );
   console.log(`\nWritten: ${OUTPUT_DIR}/env-variables.json`);
 
-  // Write secrets.json with global and checkLevel sections (D-07)
+  // Write secrets.json with global and checkLevel sections
   const secretsFile: SecretsFile = {
     global: secrets,
     checkLevel: checkLevelSecrets,

@@ -1,0 +1,25 @@
+{
+  "public_id": "syn-105-abs",
+  "name": "Unit Absent Status API",
+  "type": "api",
+  "subtype": "http",
+  "tags": ["env:synthetic"],
+  "locations": ["us-east-1"],
+  "privateLocations": [],
+  "originalLocations": ["aws:us-east-1"],
+  "config": {
+    "request": {
+      "url": "https://api.example.com/v1/ping",
+      "method": "GET"
+    },
+    "assertions": [
+      { "type": "statusCode", "operator": "is", "target": 200 }
+    ]
+  },
+  "options": {
+    "tick_every": 300,
+    "retry": { "count": 0, "interval": 300 }
+  },
+  "message": "Unit absent alert",
+  "monitor_id": 2105
+}

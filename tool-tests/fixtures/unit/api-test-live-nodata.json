@@ -1,0 +1,26 @@
+{
+  "public_id": "syn-104-liv",
+  "name": "Unit Live NoData API",
+  "type": "api",
+  "subtype": "http",
+  "status": "live",
+  "tags": ["env:synthetic"],
+  "locations": ["us-east-1"],
+  "privateLocations": [],
+  "originalLocations": ["aws:us-east-1"],
+  "config": {
+    "request": {
+      "url": "https://api.example.com/v1/health",
+      "method": "GET"
+    },
+    "assertions": [
+      { "type": "statusCode", "operator": "is", "target": 200 }
+    ]
+  },
+  "options": {
+    "tick_every": 300,
+    "retry": { "count": 0, "interval": 300 }
+  },
+  "message": "Unit live alert",
+  "monitor_id": 2104
+}

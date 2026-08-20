@@ -1,0 +1,71 @@
+{
+  "public_id": "syn-202-brg",
+  "name": "Unit Browser Regex",
+  "type": "browser",
+  "status": "live",
+  "tags": ["env:synthetic"],
+  "locations": ["us-east-1"],
+  "privateLocations": [],
+  "originalLocations": ["aws:us-east-1"],
+  "options": {
+    "tick_every": 900,
+    "retry": { "count": 0, "interval": 300 }
+  },
+  "config": {
+    "request": {
+      "url": "https://app.example.com/shop"
+    }
+  },
+  "steps": [
+    {
+      "name": "Open shop page",
+      "type": "goToUrl",
+      "params": { "value": "https://app.example.com/shop" }
+    },
+    {
+      "name": "Assert total starts",
+      "type": "assertElementContent",
+      "params": {
+        "check": "startsWith",
+        "value": "Total: $42.50 (net)",
+        "element": {
+          "targetOuterHTML": "<span id=\"total\">Total: $42.50 (net)</span>"
+        }
+      }
+    },
+    {
+      "name": "Assert checkout URL",
+      "type": "assertCurrentUrl",
+      "params": {
+        "check": "contains",
+        "value": "app.example.com/checkout/step-1"
+      }
+    },
+    {
+      "name": "Fetch OTP codes",
+      "type": "runApiTest",
+      "params": {
+        "request": {
+          "config": {
+            "request": {
+              "method": "GET",
+              "url": "https://api.example.com/v1/otp"
+            }
+          },
+          "options": {
+            "extract_values": [
+              {
+                "name": "OTP_CODE",
+                "parser": { "type": "regex", "value": "/\\b\\d{6}\\b/g" }
+              },
+              {
+                "name": "REF_CODE",
+                "parser": { "type": "regex", "value": "ref=(\\d{4})" }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

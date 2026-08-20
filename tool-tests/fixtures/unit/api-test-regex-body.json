@@ -1,0 +1,42 @@
+{
+  "public_id": "syn-reg-body-000",
+  "name": "Reg Body Promote",
+  "type": "api",
+  "subtype": "http",
+  "status": "live",
+  "tags": ["env:synthetic", "team:synth"],
+  "locations": ["us-east-1"],
+  "privateLocations": [],
+  "originalLocations": ["aws:us-east-1"],
+  "options": {
+    "tick_every": 300,
+    "retry": { "count": 2, "interval": 300 },
+    "follow_redirects": false,
+    "allow_insecure": true
+  },
+  "config": {
+    "request": {
+      "method": "POST",
+      "url": "https://api.example.com/v1/orders",
+      "headers": { "Content-Type": "application/json" },
+      "body": "{\"query\":\"items\"}",
+      "basicAuth": {
+        "username": "synuser",
+        "password": "synth-pass",
+        "type": "basic"
+      },
+      "query": { "limit": "10", "page": "2" },
+      "certificate": {
+        "cert": { "filename": "client.pem" },
+        "key": { "filename": "client.key" }
+      }
+    },
+    "assertions": [
+      { "type": "body", "operator": "matches", "target": "\\d{3}-[a-z]+" },
+      { "type": "body", "operator": "doesNotMatch", "target": "ERR\\(\\d+\\)" },
+      { "type": "statusCode", "operator": "is", "target": 200 }
+    ]
+  },
+  "message": "Synthetic regex body promotion fixture",
+  "monitor_id": 3301
+}

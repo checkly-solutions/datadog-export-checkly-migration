@@ -15,7 +15,9 @@
 import { readFile, writeFile, readdir, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import { getOutputRoot, getAccountName } from './shared/output-config.ts';
+import { readJsonFileSafe } from './shared/fs-json.ts';
 
 let CHECKS_BASE = '';
 const CHECK_TYPES = ['api', 'multi', 'browser'];
@@ -62,7 +64,7 @@ function getGroupName(locationType: string): string {
 /**
  * Update a single check file to include alertChannels and group
  */
-async function updateCheckFile(filepath: string, checkType: string, locationType: string): Promise<UpdateResult> {
+export async function updateCheckFile(filepath: string, checkType: string, locationType: string): Promise<UpdateResult> {
   const content = await readFile(filepath, 'utf-8');
 
   // Skip if already has alertChannels import (already processed)
@@ -128,11 +130,17 @@ async function updateCheckFile(filepath: string, checkType: string, locationType
   // Now add alertChannels and group to the check configuration
   // Find the check constructor and add the properties before the closing });
 
-  // Pattern to find the check definition - matches ApiCheck, BrowserCheck, MultiStepCheck
+  // Pattern to find the check definition - matches ApiCheck, BrowserCheck, MultiStepCheck.
+  // PlaywrightCheck is the multi-browser construct; it shares the
+  // __checks__/browser/{public,private}/ directory with BrowserCheck
+  // files, so without this entry a PWCS check would never get alertChannels,
+  // group, or the location-type tag. The closing-pattern and tag-injection logic
+  // below are construct-agnostic and work unchanged once checkFound can be true.
   const checkPatterns = [
     /new ApiCheck\("[^"]+",\s*\{/,
     /new BrowserCheck\("[^"]+",\s*\{/,
     /new MultiStepCheck\("[^"]+",\s*\{/,
+    /new PlaywrightCheck\("[^"]+",\s*\{/,
   ];
 
   let checkFound = false;
@@ -293,9 +301,12 @@ export const alertChannels = [emailChannel];
   console.log('  - group: public_locations_group or private_locations_group');
   console.log('  - tags: added "public" or "private" tag to each check');
 
-  // Generate checkly config files and package.json inside account directory
+  // Generate checkly config files and package.json inside account directory.
+  // Detect whether any Playwright Check Suite was emitted so the generated
+  // package.json declares @playwright/test exactly when the bundler needs it.
   const accountName = await getAccountName();
-  await generateProjectFiles(outputRoot, accountName);
+  const needsPlaywright = await detectPlaywrightCheckSuites(outputRoot);
+  await generateProjectFiles(outputRoot, accountName, needsPlaywright);
 
   console.log('\nTo customize alert channels:');
   console.log(`  1. Edit ${outputRoot}/default_resources/alertChannels.ts`);
@@ -525,9 +536,49 @@ main().catch(err => {
 }
 
 /**
- * Generate checkly config files and package.json inside the account directory
+ * Detect whether the migration emitted at least one PlaywrightCheck (a
+ * multi-browser Playwright Check Suite) by reading both browser manifests.
+ *
+ * Returns true when either tests/browser/{public,private}/_manifest.json has a
+ * files[] entry whose pwEngines array (read defensively, tolerating an absent
+ * field) has length > 1, the SAME threshold src/08's construct branch uses, so
+ * detection here and emission there can never disagree. Degrades to false on any
+ * missing or malformed manifest, never crashing project-file generation.
+ *
+ * This gates the conditional @playwright/test devDependency: Checkly's bundler
+ * require.resolve()s @playwright/test and throws hard when it is absent, so a
+ * project containing any PWCS check must declare it.
  */
-async function generateProjectFiles(outputRoot: string, accountName: string): Promise<void> {
+export async function detectPlaywrightCheckSuites(outputRoot: string): Promise<boolean> {
+  interface ManifestEntry { pwEngines?: unknown }
+  interface BrowserManifest { files?: ManifestEntry[] }
+
+  const manifestPaths = [
+    path.join(outputRoot, 'tests', 'browser', 'public', '_manifest.json'),
+    path.join(outputRoot, 'tests', 'browser', 'private', '_manifest.json'),
+  ];
+
+  for (const manifestPath of manifestPaths) {
+    const manifest = await readJsonFileSafe<BrowserManifest>(manifestPath);
+    const files = Array.isArray(manifest?.files) ? manifest!.files : [];
+    for (const file of files) {
+      if (Array.isArray(file?.pwEngines) && file.pwEngines.length > 1) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Generate checkly config files and package.json inside the account directory.
+ *
+ * Exported so the generated package.json devDependency pins (unconditional checkly
+ * ^8.13.0; conditional @playwright/test) can be asserted offline against a scratch
+ * directory without running the whole step.
+ */
+export async function generateProjectFiles(outputRoot: string, accountName: string, needsPlaywright: boolean): Promise<void> {
   console.log('\nGenerating project files...');
 
   // checkly.config.ts
@@ -603,6 +654,29 @@ export default config;
   console.log(`  Generated: ${outputRoot}/checkly.public.config.ts`);
 
   // package.json
+  //
+  // checkly is pinned to ^8.13.0 UNCONDITIONALLY (every generated project, whether or
+  // not it emits a PlaywrightCheck), matching the version this tool develops against
+  // (node_modules/checkly/package.json). The tool emits PlaywrightCheck, a Checkly CLI
+  // v8+ construct: a project resolving a 7.x checkly may not export PlaywrightCheck
+  // from checkly/constructs at all, so an older ^7.11.0 pin is incompatible with
+  // multi-browser output. Bumping all projects to ^8.13.0 keeps a single
+  // generated-project baseline rather than two divergent ones.
+  //
+  // @playwright/test is added ONLY when the migration emitted a Playwright Check
+  // Suite (needsPlaywright). Checkly's bundler require.resolve()s
+  // @playwright/test and throws hard when it is absent, so any project with a
+  // PWCS check must declare it; a project with none omits the key entirely.
+  // Version ^1.61.1 is checkly@8.13.0's own @playwright/test devDependency
+  // (node_modules/checkly/package.json), the version the bundler that resolves it
+  // develops against. Built as a plain conditional property (not string
+  // concatenation) so there is no trailing-comma artifact when absent.
+  const devDependencies: Record<string, string> = {
+    "checkly": "^8.13.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    ...(needsPlaywright ? { "@playwright/test": "^1.61.1" } : {}),
+  };
   const packageJson = {
     name: `checkly-${accountName}`,
     private: true,
@@ -615,11 +689,7 @@ export default config;
       "delete-variables": "ts-node variables/delete-variables.ts",
       "update-mapping": "ts-node update-mapping.ts",
     },
-    devDependencies: {
-      "checkly": "^7.11.0",
-      "ts-node": "^10.9.2",
-      "typescript": "^5.9.3",
-    },
+    devDependencies,
   };
   await writeFile(path.join(outputRoot, 'package.json'), JSON.stringify(packageJson, null, 2) + '\n', 'utf-8');
   console.log(`  Generated: ${outputRoot}/package.json`);
@@ -825,7 +895,13 @@ git push -u origin main
   await writeFile(path.join(outputRoot, 'README.md'), readme, 'utf-8');
 }
 
-main().catch(err => {
-  console.error('Error:', (err as Error).message);
-  process.exit(1);
-});
+// ESM main-guard: only run the pipeline when this file is the direct entry
+// point, so importing its exported helpers (updateCheckFile,
+// detectPlaywrightCheckSuites) in an offline tool test never triggers main().
+const __filename = fileURLToPath(import.meta.url);
+if (typeof process.argv[1] === 'string' && path.resolve(__filename) === path.resolve(process.argv[1])) {
+  main().catch(err => {
+    console.error('Error:', (err as Error).message);
+    process.exit(1);
+  });
+}

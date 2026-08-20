@@ -1,0 +1,116 @@
+{
+  "exportedAt": "2026-01-01T00:00:00.000Z",
+  "site": "datadoghq.com",
+  "count": 4,
+  "tests": [
+    {
+      "public_id": "syn-001-abc",
+      "name": "Synthetic API Check",
+      "type": "api",
+      "subtype": "http",
+      "status": "live",
+      "tags": ["env:synthetic", "team:example"],
+      "locations": ["us-east-1"],
+      "privateLocations": [],
+      "originalLocations": ["aws:us-east-1"],
+      "config": {
+        "request": {
+          "url": "https://api.example.com/v1/status",
+          "method": "GET",
+          "headers": { "Accept": "application/json" }
+        },
+        "assertions": [
+          { "type": "statusCode", "operator": "is", "target": 200 },
+          { "type": "body", "operator": "contains", "target": "ok" }
+        ]
+      },
+      "options": {
+        "tick_every": 300,
+        "retry": { "count": 1, "interval": 300 },
+        "monitor_priority": 3
+      },
+      "message": "Synthetic alert message",
+      "monitor_id": 1001
+    },
+    {
+      "public_id": "syn-002-def",
+      "name": "Synthetic Private API",
+      "type": "api",
+      "subtype": "http",
+      "status": "paused",
+      "tags": ["env:synthetic", "team:example"],
+      "locations": [],
+      "privateLocations": ["example-private"],
+      "originalLocations": ["pl:example-private-location-00000000"],
+      "config": {
+        "request": {
+          "url": "https://internal.example.org/health",
+          "method": "POST",
+          "headers": { "Content-Type": "application/x-www-form-urlencoded" },
+          "body": "grant_type=client_credentials"
+        },
+        "assertions": [
+          { "type": "statusCode", "operator": "is", "target": 200 }
+        ]
+      },
+      "options": {
+        "tick_every": 900,
+        "retry": { "count": 0, "interval": 300 }
+      },
+      "message": "Synthetic private alert",
+      "monitor_id": 1002
+    },
+    {
+      "public_id": "syn-003-ghi",
+      "name": "Synthetic TCP Check",
+      "type": "api",
+      "subtype": "tcp",
+      "status": "live",
+      "tags": ["env:synthetic"],
+      "locations": ["us-east-1"],
+      "privateLocations": [],
+      "originalLocations": ["aws:us-east-1"],
+      "config": {
+        "request": {
+          "host": "db.example.com",
+          "port": 5432
+        },
+        "assertions": [
+          { "type": "responseTime", "operator": "lessThan", "target": 2000 }
+        ]
+      },
+      "options": {
+        "tick_every": 300,
+        "retry": { "count": 1, "interval": 300 }
+      },
+      "message": "Synthetic TCP alert",
+      "monitor_id": 1003
+    },
+    {
+      "public_id": "syn-004-jkl",
+      "name": "Synthetic DNS Check",
+      "type": "api",
+      "subtype": "dns",
+      "status": "live",
+      "tags": ["env:synthetic"],
+      "locations": ["us-east-1"],
+      "privateLocations": [],
+      "originalLocations": ["aws:us-east-1"],
+      "config": {
+        "request": {
+          "host": "mail.example.net"
+        },
+        "assertions": [
+          { "type": "responseTime", "operator": "lessThan", "target": 1000 },
+          { "type": "recordSome", "operator": "is", "property": "A", "target": "192.0.2.10" }
+        ]
+      },
+      "options": {
+        "tick_every": 900,
+        "retry": { "count": 0, "interval": 300 }
+      },
+      "message": "Synthetic DNS alert",
+      "monitor_id": 1004
+    }
+  ]
+}

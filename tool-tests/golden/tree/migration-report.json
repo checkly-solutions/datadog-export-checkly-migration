@@ -1,0 +1,126 @@
+{
+  "generatedAt": "NORMALIZED",
+  "source": {
+    "exportedAt": "NORMALIZED",
+    "site": "datadoghq.com"
+  },
+  "summary": {
+    "totalDatadogTests": 6,
+    "totalChecklyChecks": 8,
+    "conversionRate": "133%"
+  },
+  "converted": {
+    "apiChecks": {
+      "public": 1,
+      "private": 1,
+      "total": 2
+    },
+    "browserChecks": {
+      "public": 3,
+      "private": 0,
+      "total": 3
+    },
+    "multiStepChecks": {
+      "public": 1,
+      "private": 0,
+      "total": 1
+    },
+    "tcpMonitors": {
+      "public": 1,
+      "private": 0,
+      "total": 1
+    },
+    "dnsMonitors": {
+      "public": 1,
+      "private": 0,
+      "total": 1
+    }
+  },
+  "notConverted": {
+    "nonHttpTests": {
+      "count": 0,
+      "byType": {}
+    },
+    "failedConversions": {
+      "count": 0,
+      "tests": []
+    },
+    "skippedFromManifests": []
+  },
+  "variables": {
+    "total": 0,
+    "nonSecure": 0,
+    "secureNeedingValues": 0,
+    "secretKeys": [],
+    "usage": {
+      "totalReferenced": 1,
+      "byVariable": {
+        "AUTH_TOKEN": {
+          "usageCount": 1,
+          "checks": [
+            "Synthetic Login Flow"
+          ]
+        }
+      }
+    }
+  },
+  "privateLocations": {
+    "count": 1,
+    "locations": [
+      {
+        "checklySlug": "example-private",
+        "usageCount": 1,
+        "datadogId": "pl:example-private-location-00000000"
+      }
+    ]
+  },
+  "migrationFlags": [
+    {
+      "reason": "zero-assertion",
+      "publicId": "syn-206-tuv",
+      "stepIndex": null,
+      "message": "This spec contains no runtime assertion; the migrated check verifies nothing. Authoring a meaningful assertion is an intent judgment left to the developer (the tool never auto-invents one)."
+    },
+    {
+      "reason": "pwcs-engines-deduped",
+      "publicId": "syn-306-mbf",
+      "stepIndex": null,
+      "message": "Datadog declared 3 browser device profiles (chrome.laptop_large, firefox.laptop_large, edge.laptop_large); deduplicated to 2 distinct Playwright engine project(s) (chromium, firefox). Edge is Chromium-based and runs under the chromium project."
+    }
+  ],
+  "multiSelector": {
+    "count": 1,
+    "checks": [
+      {
+        "publicId": "syn-006-pqr",
+        "name": "Synthetic Browser Flow",
+        "locationType": "public"
+      }
+    ]
+  },
+  "playwrightCheckSuites": {
+    "count": 1,
+    "checks": [
+      {
+        "publicId": "syn-306-mbf",
+        "name": "PWCS Multi Browser Flow",
+        "locationType": "public",
+        "declaredBrowserCount": 3,
+        "distinctEngineCount": 2,
+        "hasPrivateLocationCaveat": false
+      }
+    ]
+  },
+  "nextSteps": [
+    "Create 1 private location(s) in Checkly with the slugs shown in the report",
+    "Review 2 migration flag(s) in the \"Migration Flags\" report section (grep \"// MIGRATION-FLAG:\" in generated specs), then remove the \"reviewMigrationFlag\" tag and re-activate any deactivated checks",
+    "Verify 1 check(s) tagged \"reviewMultiSelector\" in the \"Self-Healing Locator Chains\" report section (grep \"MIGRATION-LOCATOR-EXHAUSTION\" in run logs when a chain misses), then remove the tag once the resolved element is confirmed",
+    "Review checks tagged \"datadogBasicAuthWeb\" — these used web/form-based auth in Datadog and may need converting to browser or multi-step checks",
+    "Run \"cd ./checkly-migrated/golden && npm run create-variables\" to import variables to Checkly",
+    "Configure alert channels in ./checkly-migrated/golden/default_resources/alertChannels.ts",
+    "Run \"cd ./checkly-migrated/golden && npm run test:public\" to validate public checks",
+    "Run \"cd ./checkly-migrated/golden && npm run test:private\" to validate private checks (after creating private locations)",
+    "Run \"cd ./checkly-migrated/golden && npm run deploy:public\" to deploy public checks",
+    "Run \"cd ./checkly-migrated/golden && npm run deploy:private\" to deploy private checks"
+  ]
+}

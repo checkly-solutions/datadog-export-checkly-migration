@@ -1,0 +1,125 @@
+{
+  "convertedAt": "NORMALIZED",
+  "source": {
+    "exportedAt": "NORMALIZED",
+    "site": "datadoghq.com"
+  },
+  "summary": {
+    "total": 4,
+    "converted": 2,
+    "successful": 2,
+    "failed": 0,
+    "skippedMultiStep": 0,
+    "tcpHandledByStep04b": 1,
+    "dnsHandledByStep04c": 1,
+    "skippedNonHttp": 0
+  },
+  "skippedNonHttpTests": {},
+  "privateLocationsFound": [
+    "example-private"
+  ],
+  "checks": [
+    {
+      "logicalId": "syn-001-abc",
+      "name": "Synthetic API Check",
+      "tags": [
+        "env:synthetic",
+        "team:example"
+      ],
+      "request": {
+        "url": "https://api.example.com/v1/status",
+        "method": "GET",
+        "headers": {
+          "Accept": "application/json"
+        }
+      },
+      "assertions": [
+        {
+          "source": "STATUS_CODE",
+          "comparison": "EQUALS",
+          "target": 200
+        },
+        {
+          "source": "TEXT_BODY",
+          "comparison": "CONTAINS",
+          "target": "ok"
+        }
+      ],
+      "frequency": "EVERY_5M",
+      "degradedResponseTime": 10000,
+      "maxResponseTime": 30000,
+      "locations": [
+        "us-east-1"
+      ],
+      "privateLocations": [],
+      "originalLocations": [
+        "aws:us-east-1"
+      ],
+      "retryStrategy": {
+        "type": "LINEAR",
+        "baseBackoffSeconds": 1,
+        "maxRetries": 1,
+        "maxDurationSeconds": 600,
+        "sameRegion": true
+      },
+      "activated": true,
+      "muted": false,
+      "shouldFail": false,
+      "_datadogMeta": {
+        "publicId": "syn-001-abc",
+        "monitorId": 1001,
+        "monitorPriority": 3,
+        "message": "Synthetic alert message",
+        "subtype": "http"
+      },
+      "configVariables": []
+    },
+    {
+      "logicalId": "syn-002-def",
+      "name": "Synthetic Private API",
+      "tags": [
+        "env:synthetic",
+        "team:example"
+      ],
+      "request": {
+        "url": "https://internal.example.org/health",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        "body": "grant_type=client_credentials",
+        "bodyType": "FORM"
+      },
+      "assertions": [
+        {
+          "source": "STATUS_CODE",
+          "comparison": "EQUALS",
+          "target": 200
+        }
+      ],
+      "frequency": "EVERY_15M",
+      "degradedResponseTime": 10000,
+      "maxResponseTime": 30000,
+      "locations": [],
+      "privateLocations": [
+        "example-private"
+      ],
+      "originalLocations": [
+        "pl:example-private-location-00000000"
+      ],
+      "retryStrategy": {
+        "type": "NONE"
+      },
+      "activated": false,
+      "muted": false,
+      "shouldFail": false,
+      "_datadogMeta": {
+        "publicId": "syn-002-def",
+        "monitorId": 1002,
+        "message": "Synthetic private alert",
+        "subtype": "http"
+      },
+      "configVariables": []
+    }
+  ]
+}

@@ -24,7 +24,12 @@
     "check:secrets": "node --import jiti/register src/10b-deactivate-missing-secrets.ts",
     "generate:groups": "node --import jiti/register src/11-generate-groups.ts",
     "generate:report": "node --import jiti/register src/12-generate-migration-report.ts",
-    "migrate:all": "npm run export && npm run filter-multi && npm run migrate:api && npm run migrate:multi && npm run migrate:browser && npm run convert:variables && npm run generate:groups && npm run add:defaults && npm run check:status && npm run check:secrets && npm run generate:report"
+    "migrate:all": "npm run export && npm run filter-multi && npm run migrate:api && npm run migrate:multi && npm run migrate:browser && npm run convert:variables && npm run generate:groups && npm run add:defaults && npm run check:status && npm run check:secrets && npm run generate:report",
+    "test:tool": "CHECKLY_ACCOUNT_NAME=tool-tests node --import jiti/register --test tool-tests/fixture-integrity.test.ts && CHECKLY_ACCOUNT_NAME=tool-tests node --import jiti/register --test \"tool-tests/**/*.test.ts\"",
+    "test:tool:watch": "CHECKLY_ACCOUNT_NAME=tool-tests node --import jiti/register --test --watch \"tool-tests/**/*.test.ts\"",
+    "test:tool:tap": "CHECKLY_ACCOUNT_NAME=tool-tests node --import jiti/register --test --test-reporter=tap \"tool-tests/**/*.test.ts\"",
+    "golden:capture": "node --import jiti/register tool-tests/golden/capture-golden.ts capture",
+    "golden:verify": "node --import jiti/register tool-tests/golden/capture-golden.ts verify"
   },
   "keywords": [
     "datadog",
@@ -41,7 +46,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.0.9",
-    "checkly": "^8.8.0",
+    "checkly": "^8.13.0",
     "jiti": "^2.6.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"

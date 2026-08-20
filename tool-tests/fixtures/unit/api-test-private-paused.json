@@ -1,0 +1,26 @@
+{
+  "public_id": "syn-102-def",
+  "name": "Unit Private Paused API",
+  "type": "api",
+  "subtype": "http",
+  "status": "paused",
+  "tags": ["env:synthetic"],
+  "locations": [],
+  "privateLocations": ["example-private"],
+  "originalLocations": ["pl:example-private-location-00000000"],
+  "config": {
+    "request": {
+      "url": "https://internal.example.org/health",
+      "method": "GET"
+    },
+    "assertions": [
+      { "type": "statusCode", "operator": "is", "target": 200 }
+    ]
+  },
+  "options": {
+    "tick_every": 900,
+    "retry": { "count": 0, "interval": 300 }
+  },
+  "message": "Unit private alert",
+  "monitor_id": 2102
+}
